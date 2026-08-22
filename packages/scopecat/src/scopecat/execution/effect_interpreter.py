@@ -151,6 +151,7 @@ class RunEffectInterpreter:
         payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
         cancellation_requested: Callable[[], bool] = _never_cancel,
         domain_job_transitions: RunDomainJobTransitionWriter | None = None,
+        completed_point_count: int = 0,
     ) -> None:
         self.run_id = run_id
         self.coordinate_ids = frozenset(coordinate_ids)
@@ -165,6 +166,7 @@ class RunEffectInterpreter:
         self._point_states: dict[int, PointEffectState] = {}
         self._active_point_indices: set[int] = set()
         self._terminal_point_indices: set[int] = set()
+        self._initial_completed_point_count = completed_point_count
 
         self._boundary = EffectBoundary(run_id=run_id)
         self._compute = ComputeEffectExecutor(
@@ -204,6 +206,13 @@ class RunEffectInterpreter:
             self._check_cancellation()
             if not self._boundary.problems:
                 self.run_points = points
+                if self._initial_completed_point_count > len(self.run_points):
+                    raise ValueError(
+                        "completed coverage exceeds the interpreter point domain"
+                    )
+                self._terminal_point_indices.update(
+                    range(self._initial_completed_point_count)
+                )
                 self._execute_coverage_operations(coverage)
             if (
                 not bool(self._boundary.problems)

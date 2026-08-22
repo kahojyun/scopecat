@@ -84,6 +84,7 @@ from scopecat.daemon.wire import (
     InstrumentInventoryMigrationReceipt,
     ManualConfigDraftRevisionSource,
     RunAdmission,
+    RunCoverageState,
     RunDomainJobStatePage,
     RunDomainJobStateView,
     RunDomainJobTransitionPage,
@@ -695,6 +696,8 @@ def test_execute_honors_initial_lease_cancellation_before_remote_effects(
             admission = _admission(submission)
             admissions.append(admission)
             return _model(admission, status_code=201)
+        if path.endswith("/coverage"):
+            return _model(RunCoverageState(run_id="run-1", completed_point_count=0))
         if path.endswith("/executor/start"):
             return _model(
                 _lease(heartbeat_interval=10).model_copy(
@@ -724,6 +727,7 @@ def test_execute_honors_initial_lease_cancellation_before_remote_effects(
     assert error.value.outcome.result == "cancelled"
     assert requests == [
         "/api/v1/runs",
+        "/api/v1/runs/run-1/coverage",
         "/api/v1/runs/run-1/executor/start",
         "/api/v1/runs/run-1/terminal",
     ]

@@ -5,9 +5,12 @@ from __future__ import annotations
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
+    MeasurementDatasetBatch,
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
+    measurement_dataset_content_hash,
+    measurement_fragment_content_hash,
 )
 
 
@@ -75,6 +78,24 @@ class FakeMeasurementDatasetRepository:
             )
         return self._receipts[durable.operation_id]
 
+    def ingest(
+        self,
+        batch: MeasurementDatasetBatch,
+    ) -> tuple[MeasurementDatasetReceipt, ...]:
+        return (
+            self.append(
+                MeasurementDatasetAppend(
+                    run_id=batch.run_id,
+                    header_content_hash=batch.header_content_hash,
+                    start_index=batch.start_index,
+                    records=batch.records,
+                )
+            ),
+        )
+
+    def flush(self) -> tuple[MeasurementDatasetReceipt, ...]:
+        return ()
+
     def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt:
         durable = seal
         if (
@@ -88,9 +109,34 @@ class FakeMeasurementDatasetRepository:
                 f"measurement seal {durable.operation_id} changed content"
             )
         if existing is None:
+            appends = tuple(
+                sorted(self._appends.values(), key=lambda append: append.start_index)
+            )
+            record_hashes = tuple(
+                record_hash
+                for append in appends
+                for record_hash in append.record_content_hashes
+            )
+            fragment_record_hashes = tuple(
+                record_hash
+                for append in appends
+                if append.start_index >= durable.fragment_start_index
+                for record_hash in append.record_content_hashes
+            )
+            if sum(len(append.records) for append in appends) != durable.point_count:
+                raise RuntimeError("measurement dataset seal point count is incomplete")
+            if durable.fragment_content_hash != measurement_fragment_content_hash(
+                header_content_hash=durable.header_content_hash,
+                start_index=durable.fragment_start_index,
+                record_content_hashes=fragment_record_hashes,
+            ):
+                raise RuntimeError("measurement fragment seal changed content")
             self._seals[durable.operation_id] = durable
             self._receipts[durable.operation_id] = MeasurementDatasetReceipt(
                 operation_id=durable.operation_id,
-                dataset_content_hash=durable.dataset_content_hash,
+                dataset_content_hash=measurement_dataset_content_hash(
+                    header_content_hash=durable.header_content_hash,
+                    record_content_hashes=record_hashes,
+                ),
             )
         return self._receipts[durable.operation_id]

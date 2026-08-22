@@ -112,6 +112,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
+    measurement_fragment_content_hash,
 )
 from scopecat.records.parameter_change import (
     ParameterChangeProposal,
@@ -278,9 +279,11 @@ def _complete_signal_run(
             seal=MeasurementDatasetSeal(
                 run_id=run_id,
                 header_content_hash=header.content_hash,
+                fragment_start_index=0,
                 point_count=1,
-                dataset_content_hash=measurement_dataset_content_hash(
+                fragment_content_hash=measurement_fragment_content_hash(
                     header_content_hash=header.content_hash,
+                    start_index=0,
                     record_content_hashes=append.record_content_hashes,
                 ),
             ),

@@ -1302,6 +1302,11 @@ class SQLiteMeasurementDatasetRepository:
                     raise ExecutionStateConflict(
                         "measurement dataset seal requires its execution fragment"
                     )
+                fragment_start_index = _integer(fragment, "start_index")
+                if durable.fragment_start_index != fragment_start_index:
+                    raise ExecutionStateConflict(
+                        "measurement dataset seal starts outside its fragment"
+                    )
                 if durable.point_count > _integer(header, "record_count_limit"):
                     raise ExecutionStateConflict(
                         "measurement dataset seal exceeds its declared point count"
@@ -1313,7 +1318,24 @@ class SQLiteMeasurementDatasetRepository:
                     raise ExecutionStateConflict(
                         "measurement dataset seal point count is incomplete"
                     )
-                actual_hash = measurement_dataset_content_hash(
+                fragment_record_hashes = tuple(
+                    record_hash
+                    for row in _measurement_fragment_rows(connection, segment_id)
+                    for record_hash in cast(
+                        "list[str]",
+                        json.loads(_text(row, "record_content_hashes_json")),
+                    )
+                )
+                actual_fragment_hash = measurement_fragment_content_hash(
+                    header_content_hash=durable.header_content_hash,
+                    start_index=fragment_start_index,
+                    record_content_hashes=fragment_record_hashes,
+                )
+                if actual_fragment_hash != durable.fragment_content_hash:
+                    raise ExecutionStateConflict(
+                        "measurement fragment seal content hash does not match appends"
+                    )
+                dataset_content_hash = measurement_dataset_content_hash(
                     header_content_hash=durable.header_content_hash,
                     record_content_hashes=tuple(
                         record_hash
@@ -1324,10 +1346,6 @@ class SQLiteMeasurementDatasetRepository:
                         )
                     ),
                 )
-                if actual_hash != durable.dataset_content_hash:
-                    raise ExecutionStateConflict(
-                        "measurement dataset seal content hash does not match appends"
-                    )
                 connection.execute(
                     """
                     INSERT INTO execution_measurement_seals(
@@ -1341,10 +1359,16 @@ class SQLiteMeasurementDatasetRepository:
                         segment_id,
                         durable.operation_id,
                         durable.content_hash,
-                        durable.dataset_content_hash,
+                        dataset_content_hash,
                     ),
                 )
-                return _seal_receipt(durable), True
+                return (
+                    MeasurementDatasetReceipt(
+                        operation_id=durable.operation_id,
+                        dataset_content_hash=dataset_content_hash,
+                    ),
+                    True,
+                )
 
             return commit_prepared()
         except ExecutionStateError:
@@ -1663,15 +1687,6 @@ def _append_receipt(
     return MeasurementDatasetReceipt(
         operation_id=append.operation_id,
         dataset_content_hash=append.content_hash,
-    )
-
-
-def _seal_receipt(
-    seal: MeasurementDatasetSeal,
-) -> MeasurementDatasetReceipt:
-    return MeasurementDatasetReceipt(
-        operation_id=seal.operation_id,
-        dataset_content_hash=seal.dataset_content_hash,
     )
 
 

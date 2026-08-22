@@ -142,6 +142,9 @@ def daemon_execution_session(
         domain_proposals=domain_proposals,
         cancellation_requested=authority.cancellation_requested,
         effects_ready=lambda: instruments.provisioned,
+        durable_completed_point_count=lambda: (
+            client.get_run_coverage(authority.run_id).completed_point_count
+        ),
     )
 
 

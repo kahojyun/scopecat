@@ -89,6 +89,7 @@ from scopecat.daemon.wire import (
     MeasurementAnalysisInputPayload,
     MeasurementFlushCommand,
     MeasurementHeaderCommand,
+    MeasurementSealCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunCancellationReceipt,
@@ -146,6 +147,8 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetBatch,
     MeasurementDatasetHeader,
+    MeasurementDatasetSeal,
+    measurement_dataset_content_hash,
     measurement_fragment_content_hash,
 )
 from scopecat.records.parameter import ScalarParameterValue
@@ -4429,6 +4432,43 @@ def test_continuation_appends_measurements_in_a_new_segment_fragment(
         assert live.received_record_count == 1
         assert live.durable_record_count == 1
         append(second_lease, 1)
+        first_append = MeasurementDatasetAppend(
+            run_id=run_id,
+            header_content_hash=header.content_hash,
+            start_index=0,
+            records=(record(0),),
+        )
+        second_append = MeasurementDatasetAppend(
+            run_id=run_id,
+            header_content_hash=header.content_hash,
+            start_index=1,
+            records=(record(1),),
+        )
+        seal_receipt = runtime.application.executor.seal_measurements(
+            run_id,
+            MeasurementSealCommand(
+                lease_id=second_lease.lease_id,
+                seal=MeasurementDatasetSeal(
+                    run_id=run_id,
+                    header_content_hash=header.content_hash,
+                    fragment_start_index=1,
+                    point_count=2,
+                    fragment_content_hash=measurement_fragment_content_hash(
+                        header_content_hash=header.content_hash,
+                        start_index=1,
+                        record_content_hashes=second_append.record_content_hashes,
+                    ),
+                ),
+            ),
+        )
+        expected_dataset_content_hash = measurement_dataset_content_hash(
+            header_content_hash=header.content_hash,
+            record_content_hashes=(
+                *first_append.record_content_hashes,
+                *second_append.record_content_hashes,
+            ),
+        )
+        assert seal_receipt.dataset_content_hash == expected_dataset_content_hash
 
         fragments = SQLiteMeasurementDatasetRepository(
             _run_repository(tmp_path),
@@ -4440,12 +4480,6 @@ def test_continuation_appends_measurements_in_a_new_segment_fragment(
         ]
         assert [fragment.start_index for fragment in fragments] == [0, 1]
         assert [fragment.record_count for fragment in fragments] == [1, 1]
-        first_append = MeasurementDatasetAppend(
-            run_id=run_id,
-            header_content_hash=header.content_hash,
-            start_index=0,
-            records=(record(0),),
-        )
         assert fragments[0].fragment_content_hash == (
             measurement_fragment_content_hash(
                 header_content_hash=header.content_hash,
@@ -4453,6 +4487,15 @@ def test_continuation_appends_measurements_in_a_new_segment_fragment(
                 record_content_hashes=first_append.record_content_hashes,
             )
         )
+        assert fragments[0].dataset_content_hash is None
+        assert fragments[1].fragment_content_hash == (
+            measurement_fragment_content_hash(
+                header_content_hash=header.content_hash,
+                start_index=1,
+                record_content_hashes=second_append.record_content_hashes,
+            )
+        )
+        assert fragments[1].dataset_content_hash == expected_dataset_content_hash
         table, _, _ = runtime.application.runs.measurement_arrow(
             run_id,
             MeasurementArrowQuery(

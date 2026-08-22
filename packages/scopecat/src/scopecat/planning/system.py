@@ -893,18 +893,27 @@ def _compile_coverage(
 ) -> RunCoverage:
     compiler = system.domain_compiler
 
-    def operations() -> Iterator[RunCoveredOperation]:
-        if not point_ordinals:
+    def operations(start_point_index: int) -> Iterator[RunCoveredOperation]:
+        selected_ordinals = tuple(
+            ordinal for ordinal in point_ordinals if ordinal >= start_point_index
+        )
+        if not selected_ordinals:
             return iter(())
         return _validated_coverage(
             _coverage_operations(
                 compiler=compiler,
                 bound_points=bound_points,
-                point_ordinals=point_ordinals,
+                point_ordinals=selected_ordinals,
                 effects=bound.program.program.effects,
                 domain_calls=domain_calls,
                 local_target=local_target,
-                initial_local_probe=initial_local_probe,
+                initial_local_probe=(
+                    initial_local_probe
+                    if initial_local_probe is not None
+                    and (start_point_index == 0 or initial_local_probe.point_invariant)
+                    else None
+                ),
+                initial_batch_ordinal=start_point_index,
             ),
             validator=_CoverageValidator(
                 domain_instrument_ids=(

@@ -44,7 +44,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetHeader,
     MeasurementDatasetSeal,
-    measurement_dataset_content_hash,
+    measurement_fragment_content_hash,
 )
 from scopecat_testkit.domain import domain_execution_identity
 
@@ -661,9 +661,11 @@ def _seal(
     return MeasurementDatasetSeal(
         run_id=append.run_id,
         header_content_hash=header.content_hash,
-        point_count=len(append.records),
-        dataset_content_hash=measurement_dataset_content_hash(
+        fragment_start_index=append.start_index,
+        point_count=append.start_index + len(append.records),
+        fragment_content_hash=measurement_fragment_content_hash(
             header_content_hash=header.content_hash,
+            start_index=append.start_index,
             record_content_hashes=append.record_content_hashes,
         ),
     )
@@ -1036,9 +1038,11 @@ def test_measurement_header_makes_an_empty_dataset_readable(tmp_path: Path) -> N
     seal = MeasurementDatasetSeal(
         run_id=header.run_id,
         header_content_hash=header.content_hash,
+        fragment_start_index=0,
         point_count=0,
-        dataset_content_hash=measurement_dataset_content_hash(
+        fragment_content_hash=measurement_fragment_content_hash(
             header_content_hash=header.content_hash,
+            start_index=0,
             record_content_hashes=(),
         ),
     )

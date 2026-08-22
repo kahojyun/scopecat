@@ -29,6 +29,10 @@ def _effects_are_ready() -> bool:
     return True
 
 
+def _zero_completed_point_count() -> int:
+    return 0
+
+
 class RunCoverageWriter(Protocol):
     """Commit bounded contiguous logical-point progress."""
 
@@ -106,6 +110,7 @@ class ExecutionSession:
     domain_proposals: RunDomainProposalWriter | None = None
     cancellation_requested: Callable[[], bool] = _never_cancel
     effects_ready: Callable[[], bool] = _effects_are_ready
+    durable_completed_point_count: Callable[[], int] = _zero_completed_point_count
 
     @property
     def run_id(self) -> str:

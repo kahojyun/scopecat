@@ -231,19 +231,20 @@ class MeasurementDatasetFragment(_FrozenRecordingModel):
 
 
 class MeasurementDatasetSeal(_FrozenRecordingModel):
-    """Seal one append-only dataset after its admitted point range is complete."""
+    """Seal the current fragment and request a run-level dataset identity."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
     header_content_hash: str
+    fragment_start_index: int = Field(ge=0)
     point_count: int = Field(ge=0)
-    dataset_content_hash: str
+    fragment_content_hash: str
 
     @field_validator(
         "run_id",
         "header_content_hash",
-        "dataset_content_hash",
+        "fragment_content_hash",
     )
     @classmethod
     def validate_required_text(cls, value: str) -> str:
@@ -253,13 +254,20 @@ class MeasurementDatasetSeal(_FrozenRecordingModel):
             )
         return value
 
+    @model_validator(mode="after")
+    def validate_fragment_range(self) -> MeasurementDatasetSeal:
+        if self.fragment_start_index > self.point_count:
+            raise ValueError("measurement fragment starts after the sealed prefix")
+        return self
+
     @property
     def operation_id(self) -> str:
         digest = stable_content_hash(
             {
-                "schema": "scopecat.measurement_dataset_seal_operation.v3",
+                "schema": "scopecat.measurement_dataset_seal_operation.v4",
                 "run_id": self.run_id,
                 "header_content_hash": self.header_content_hash,
+                "fragment_start_index": self.fragment_start_index,
             }
         )
         return f"measurement-dataset-seal:{digest}"

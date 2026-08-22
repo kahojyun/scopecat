@@ -71,6 +71,7 @@ def _seal(
     return seal_measurement_dataset(
         run_id=projected.run_id,
         header=header,
+        fragment_start_index=0,
         point_count=len(projected.records),
         record_content_hashes=tuple(
             measurement_record_content_hash(record) for record in projected.records
@@ -437,7 +438,7 @@ class _InvalidReceiptWriter(FakeMeasurementDatasetRepository):
     @override
     def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt:
         return MeasurementDatasetReceipt(
-            operation_id=seal.operation_id,
+            operation_id="wrong-seal-operation",
             dataset_content_hash="sha256:wrong",
         )
 

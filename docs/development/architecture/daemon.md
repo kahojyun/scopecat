@@ -159,15 +159,18 @@ the same run to the queue. Its next executor lease creates a new execution
 segment at the durable global coverage watermark; the lost segment remains an
 immutable indeterminate interruption.
 
-Continuation is currently control-plane authority only. It deliberately does
-not claim that the Python workspace, imported environment, or external hardware
-is unchanged. Durable measurement chunks are attributed to their execution
-segment, and a later segment can open a new fragment at the durable prefix, but
-the general interpreter still cannot select and append that suffix. The daemon
-discards the lost executor's pending/live measurement state as soon as the lease
-supervisor fences it. Any already durable measurement prefix, coverage
-watermark, execution segment, and domain-job transition ledger remain
-inspectable, but none alone authorizes replaying external effects.
+Continuation deliberately does not claim that the Python workspace, imported
+environment, or external hardware is unchanged. Durable measurement chunks are
+attributed to their execution segment. For a static local run, a later executor
+can select and append the remaining suffix from the durable coverage watermark;
+the daemon validates the new fragment and combines all fragment appends into the
+terminal run-level dataset identity. Adaptive and domain-target execution remain
+control-plane continuation only because coverage alone does not identify their
+safe external-effect position. The daemon discards the lost executor's
+pending/live measurement state as soon as the lease supervisor fences it. Any
+already durable measurement prefix, coverage watermark, execution segment, and
+domain-job transition ledger remain inspectable, but none alone authorizes
+replaying those external effects.
 Diagnosis can distinguish an invocation with no observed outcome, a pending
 provider checkpoint, and a terminal provider receipt. Invocation-only state
 deliberately does not claim that the provider received `start`, and none of the

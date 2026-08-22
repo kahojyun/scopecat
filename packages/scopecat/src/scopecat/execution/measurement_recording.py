@@ -18,7 +18,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
-    measurement_dataset_content_hash,
+    measurement_fragment_content_hash,
 )
 from scopecat.sdk.runtime_problems import problem_from_exception, runtime_problem
 
@@ -68,6 +68,7 @@ def seal_measurement_dataset(
     *,
     run_id: str,
     header: MeasurementDatasetHeader,
+    fragment_start_index: int,
     point_count: int,
     record_content_hashes: tuple[str, ...],
     writer: MeasurementDatasetLifecycleWriter,
@@ -77,16 +78,18 @@ def seal_measurement_dataset(
     seal = MeasurementDatasetSeal(
         run_id=run_id,
         header_content_hash=header.content_hash,
+        fragment_start_index=fragment_start_index,
         point_count=point_count,
-        dataset_content_hash=measurement_dataset_content_hash(
+        fragment_content_hash=measurement_fragment_content_hash(
             header_content_hash=header.content_hash,
+            start_index=fragment_start_index,
             record_content_hashes=record_content_hashes,
         ),
     )
     return _record_operation(
         seal,
         recording_contract_fingerprint=header.recording_contract_fingerprint,
-        expected_hash=seal.dataset_content_hash,
+        expected_hash=None,
         invoke=lambda: writer.seal(seal),
     )
 
@@ -95,7 +98,7 @@ def _record_operation(
     operation: _DatasetOperation,
     *,
     recording_contract_fingerprint: str,
-    expected_hash: str,
+    expected_hash: str | None,
     invoke: Callable[[], MeasurementDatasetReceipt],
 ) -> MeasurementDatasetReceipt:
     try:
@@ -117,9 +120,8 @@ def _record_operation(
             receipt=None,
             uncertain=True,
         ) from error
-    if (
-        receipt.operation_id != operation.operation_id
-        or receipt.dataset_content_hash != expected_hash
+    if receipt.operation_id != operation.operation_id or (
+        expected_hash is not None and receipt.dataset_content_hash != expected_hash
     ):
         problem = runtime_problem(
             "measurement_dataset_receipt_invalid",

@@ -248,12 +248,19 @@ measurement records gain no segment field and no extra per-point transaction.
 Run-level paging and dataset identity still concatenate all chunks by global
 point index, independent of fragment boundaries.
 
-The general interpreter cannot yet append the remaining suffix: its local
-ordering buffer and content-hash accumulator still start at zero. The next
-continuation step must initialize those transient counters from durable coverage
-and let the daemon combine the new fragment with the prior prefix when sealing.
-Until then, fragment continuation is available to explicit orchestration and
-storage-level verification, not exposed as automatic execution resume.
+Before acquiring instruments, the interpreter reads the durable global coverage
+watermark. A continued static local run materializes only the remaining point
+suffix and initializes its point ledger, ordering buffer, and recording counters
+at that watermark. Its seal identifies only the new segment-owned fragment; the
+daemon verifies that fragment and derives the final run-level dataset identity
+from every durable append across all segments. This avoids replaying completed
+point effects and avoids re-hashing array payloads in the executor.
+
+Automatic suffix continuation is deliberately narrower than control-plane
+continuation. Adaptive runs and domain-target runs are rejected before
+instrument acquisition because their exact program position also depends on a
+durable proposal or external-job transition. They require a future resumable
+program-position contract rather than guessing from measurement row count.
 
 Execution validates typed transitions for each consequential external
 invocation. A domain job starts with its deterministic execution key. A
@@ -312,10 +319,10 @@ execution: `invocation_unknown`, `pending`, or `terminal`. This is a diagnostic
 projection rather than a recovery policy, so it has no `recoverable` flag and no
 resume command. An empty projection means that no invocation became durable; it
 may be the intentional result of successful `abnormal_only` jobs and does not
-prove that the client-owned program contains no domain job. Safe
-continuation still requires an exact program position, an owned instrument
-session, a reconstructed measurement sink, and any result payload needed after
-a terminal receipt.
+prove that the client-owned program contains no domain job. Safe continuation
+for non-static execution still requires an exact program position, an owned
+instrument session, a reconstructed measurement sink, and any result payload
+needed after a terminal receipt.
 
 The run-level `DomainExecutionEvidence` is only a compact terminal index: target
 ids, transition policies, and aggregate attempt, checkpoint, receipt, and status

@@ -78,7 +78,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
-    measurement_dataset_content_hash,
+    measurement_fragment_content_hash,
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
@@ -797,9 +797,11 @@ def _measurement_seal(
     return MeasurementDatasetSeal(
         run_id=append.run_id,
         header_content_hash=header.content_hash,
+        fragment_start_index=0,
         point_count=1,
-        dataset_content_hash=measurement_dataset_content_hash(
+        fragment_content_hash=measurement_fragment_content_hash(
             header_content_hash=header.content_hash,
+            start_index=0,
             record_content_hashes=append.record_content_hashes,
         ),
     )
@@ -810,7 +812,7 @@ def _seal_receipt(
 ) -> MeasurementDatasetReceipt:
     return MeasurementDatasetReceipt(
         operation_id=seal.operation_id,
-        dataset_content_hash=seal.dataset_content_hash,
+        dataset_content_hash="sealed-dataset-content",
     )
 
 

@@ -108,10 +108,13 @@ def execute_admitted_run(
     if accepted.config_content_hash != program.config_content_hash:
         msg = "run program config does not match the admitted snapshot"
         raise ValueError(msg)
+    start_point_count = session.durable_completed_point_count()
+    _validate_static_continuation(program, start_point_count=start_point_count)
     session.begin()
     return _execute_run(
         program=program,
         session=session,
+        start_point_count=start_point_count,
     )
 
 
@@ -119,22 +122,24 @@ def _execute_run(
     *,
     program: RunProgram,
     session: ExecutionSession,
+    start_point_count: int,
 ) -> RunSnapshot:
     host = program.host
     projection = program.measurements
     point_state = _ExecutionPointState.create(
         program,
         proposal_writer=session.domain_proposals,
+        completed_point_count=start_point_count,
     )
     run_id = session.run_id
     measurements = session.measurements
     dataset_header, header_failure, cancelled_without_effects = (
         _prepare_execution_start(program, session)
     )
-    recorded_measurement_count = 0
-    completed_coverage_count = 0
+    recorded_measurement_count = start_point_count
+    completed_coverage_count = start_point_count
     record_content_hashes: list[str] = []
-    measurement_buffer = CanonicalMeasurementBuffer()
+    measurement_buffer = CanonicalMeasurementBuffer(next_index=start_point_count)
 
     def commit_coverage(
         points: tuple[AcceptedRunPoint, ...],
@@ -214,6 +219,7 @@ def _execute_run(
         header_failure=header_failure,
         cancelled_without_effects=cancelled_without_effects,
         point_state=point_state,
+        start_point_count=start_point_count,
     )
 
     problems = _effect_problems(
@@ -259,6 +265,7 @@ def _execute_run(
             seal_receipt = seal_measurement_dataset(
                 run_id=run_id,
                 header=dataset_header,
+                fragment_start_index=start_point_count,
                 point_count=recorded_measurement_count,
                 record_content_hashes=tuple(record_content_hashes),
                 writer=measurements,
@@ -468,6 +475,7 @@ def _execute_or_cancel_effects(
     header_failure: MeasurementRecordingError | None,
     cancelled_without_effects: bool,
     point_state: _ExecutionPointState,
+    start_point_count: int,
 ) -> RunEffectResult:
     if cancelled_without_effects:
         return RunEffectResult(
@@ -497,6 +505,7 @@ def _execute_or_cancel_effects(
         session=session,
         coverage_observer=coverage_observer,
         point_state=point_state,
+        start_point_count=start_point_count,
     )
 
 
@@ -526,6 +535,7 @@ def _execute_instrument_effects(
     session: ExecutionSession,
     coverage_observer: CoverageMeasurementObserver,
     point_state: _ExecutionPointState,
+    start_point_count: int,
 ) -> RunEffectResult:
     instruments = session.instruments
     setup_problems = list(instruments.setup_problems)
@@ -577,6 +587,7 @@ def _execute_instrument_effects(
         ),
         cancellation_requested=session.cancellation_requested,
         domain_job_transitions=session.domain_job_transitions,
+        completed_point_count=start_point_count,
     )
 
     def commit_durable_progress() -> None:
@@ -590,6 +601,7 @@ def _execute_instrument_effects(
             program,
             point_state,
             durable_progress=commit_durable_progress,
+            start_point_count=start_point_count,
         ),
         points=point_state.points,
         success_state=program.success_state,
@@ -610,6 +622,7 @@ class _ExecutionPointState:
         program: RunProgram,
         *,
         proposal_writer: RunDomainProposalWriter | None,
+        completed_point_count: int,
     ) -> _ExecutionPointState:
         adaptive = program.adaptive_domain_plan
         points = list(program.points.points)
@@ -621,7 +634,7 @@ class _ExecutionPointState:
                 else AdaptiveDomainCoordinator.create(adaptive, program.points)
             ),
             proposal_writer=proposal_writer,
-            completed_point_count=0,
+            completed_point_count=completed_point_count,
         )
 
     def add_observations(
@@ -640,8 +653,9 @@ def _execution_coverage(
     state: _ExecutionPointState,
     *,
     durable_progress: Callable[[], None],
+    start_point_count: int,
 ) -> Iterator[RunCoveredOperation]:
-    yield from program.coverage
+    yield from program.coverage.suffix(start_point_count)
     adaptive = program.adaptive_domain_plan
     if adaptive is None:
         return
@@ -707,6 +721,24 @@ def _execution_coverage(
             completed_point_count=state.completed_point_count,
             reason=coordinator.stop_reason or "point budget exhausted",
         )
+
+
+def _validate_static_continuation(
+    program: RunProgram,
+    *,
+    start_point_count: int,
+) -> None:
+    if start_point_count < 0:
+        raise ValueError("durable coverage must be non-negative")
+    point_count = len(program.points.points)
+    if start_point_count > point_count:
+        raise ValueError("durable coverage exceeds the compiled static point domain")
+    if start_point_count == 0:
+        return
+    if program.adaptive_domain_plan is not None:
+        raise ValueError("adaptive runs do not yet support interpreter continuation")
+    if program.domain_target_requirement is not None:
+        raise ValueError("domain-target runs do not yet support suffix continuation")
 
 
 def _effect_problems(
