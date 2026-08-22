@@ -405,9 +405,9 @@ Binary serial instrument:
 
 ```json
 {
-  "id": "jpa-bias",
-  "exclusivity_key": "jpa-bias",
-  "driver_id": "example.dpower",
+  "id": "serial-bias-source",
+  "exclusivity_key": "serial-bias-source",
+  "driver_id": "example.serial_bias_source",
   "connection": {
     "kind": "serial",
     "port": "/dev/ttyUSB0",

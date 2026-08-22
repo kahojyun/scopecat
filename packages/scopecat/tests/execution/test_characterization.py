@@ -169,16 +169,18 @@ def test_host_effect_invalidates_only_same_instrument_domain_residency() -> None
         instruments=TestRunInstrumentHost((driver,)),
     )
     lo_residency = DomainResidencyAddress("lo-source", "program")
-    mmcs_residency = DomainResidencyAddress("mmcs-controller", "program")
+    controller_residency = DomainResidencyAddress("waveform-controller", "program")
     engine._domain_residency.contents = {
         lo_residency: "lo-program",
-        mmcs_residency: "mmcs-program",
+        controller_residency: "waveform-program",
     }
 
     result = engine.run(complete_coverage_operations(program), points=program.points)
 
     assert not result.problems
-    assert engine._domain_residency.contents == {mmcs_residency: "mmcs-program"}
+    assert engine._domain_residency.contents == {
+        controller_residency: "waveform-program"
+    }
 
 
 def test_cancellation_waits_for_hardware_batch_then_skips_success_state() -> None:
