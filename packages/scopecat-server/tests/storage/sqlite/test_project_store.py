@@ -21,7 +21,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     store.bootstrap()
     store.bootstrap()
 
-    assert store.schema_version() == 53
+    assert store.schema_version() == 54
     with sqlite3.connect(database) as connection:
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()
         tables = {
@@ -115,6 +115,7 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
         "scheduler_runs",
         "durable_events",
         "run_execution_segments",
+        "execution_measurement_fragments",
         "execution_domain_job_transitions",
         "runs",
         "run_outcomes",
@@ -441,7 +442,7 @@ def test_bootstrap_refuses_v52_without_execution_segments(
     store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
     with pytest.raises(
         SchemaVersionError,
-        match="version: 52; expected 53; rebuild it explicitly",
+        match="version: 52; expected 54; rebuild it explicitly",
     ):
         store.bootstrap()
 

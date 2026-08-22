@@ -26,6 +26,7 @@ class ActiveMeasurementConflict(ValueError):
 
 @dataclass(slots=True)
 class _ActiveMeasurementDataset:
+    segment_id: str
     header: MeasurementDatasetHeader
     received_record_count: int = 0
     durable_record_count: int = 0
@@ -48,11 +49,22 @@ class ActiveMeasurementStore:
         self._datasets: dict[str, _ActiveMeasurementDataset] = {}
         self._lock = Lock()
 
-    def initialize(self, header: MeasurementDatasetHeader) -> None:
+    def initialize(
+        self,
+        header: MeasurementDatasetHeader,
+        *,
+        segment_id: str,
+        start_index: int,
+    ) -> None:
         with self._lock:
             current = self._datasets.get(header.run_id)
-            if current is None:
-                self._datasets[header.run_id] = _ActiveMeasurementDataset(header=header)
+            if current is None or current.segment_id != segment_id:
+                self._datasets[header.run_id] = _ActiveMeasurementDataset(
+                    segment_id=segment_id,
+                    header=header,
+                    received_record_count=start_index,
+                    durable_record_count=start_index,
+                )
                 return
             if current.header.content_hash != header.content_hash:
                 raise ActiveMeasurementConflict(
@@ -161,6 +173,10 @@ class ActiveMeasurementStore:
     def header_content_hash(self, run_id: str) -> str:
         with self._lock:
             return self._require(run_id).header.content_hash
+
+    def segment_id(self, run_id: str) -> str:
+        with self._lock:
+            return self._require(run_id).segment_id
 
     def durable_record_count(self, run_id: str) -> int:
         with self._lock:

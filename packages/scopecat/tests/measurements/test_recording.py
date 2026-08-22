@@ -50,6 +50,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
+    measurement_fragment_content_hash,
     measurement_record_content_hash,
 )
 
@@ -393,8 +394,22 @@ def test_dataset_identity_is_independent_of_append_chunk_boundaries() -> None:
             *second.record_content_hashes,
         ),
     )
+    whole_fragment_hash = measurement_fragment_content_hash(
+        header_content_hash=header.content_hash,
+        start_index=0,
+        record_content_hashes=whole.record_content_hashes,
+    )
+    split_fragment_hash = measurement_fragment_content_hash(
+        header_content_hash=header.content_hash,
+        start_index=0,
+        record_content_hashes=(
+            *first.record_content_hashes,
+            *second.record_content_hashes,
+        ),
+    )
 
     assert whole_hash == split_hash
+    assert whole_fragment_hash == split_fragment_hash
 
 
 def test_header_and_append_content_hashes_cannot_change_after_construction() -> None:

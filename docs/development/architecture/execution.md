@@ -240,11 +240,20 @@ segment at the durable global coverage watermark instead of reopening the
 previous process owner. The accepted run contract is checked, but Scopecat does
 not claim that the Python workspace or environment is unchanged.
 
-The measurement writer and dataset seal are still run-owned, so the general
-interpreter cannot yet append the remaining suffix. That later change must give
-each segment its own measurement fragment and validate the suffix against the
-already durable prefix. Until then, control-plane continuation is available for
-explicit orchestration and testing, not exposed as automatic execution resume.
+The canonical measurement schema remains run-owned, while durable Arrow appends
+are grouped into segment-owned fragments. Initializing a dataset in a new
+segment creates one fragment at that segment's durable global coverage
+watermark. Each existing chunk records its owning segment; individual
+measurement records gain no segment field and no extra per-point transaction.
+Run-level paging and dataset identity still concatenate all chunks by global
+point index, independent of fragment boundaries.
+
+The general interpreter cannot yet append the remaining suffix: its local
+ordering buffer and content-hash accumulator still start at zero. The next
+continuation step must initialize those transient counters from durable coverage
+and let the daemon combine the new fragment with the prior prefix when sealing.
+Until then, fragment continuation is available to explicit orchestration and
+storage-level verification, not exposed as automatic execution resume.
 
 Execution validates typed transitions for each consequential external
 invocation. A domain job starts with its deterministic execution key. A

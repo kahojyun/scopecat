@@ -110,8 +110,22 @@ CREATE TABLE IF NOT EXISTS execution_measurement_headers (
     ref TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS execution_measurement_fragments (
+    segment_id TEXT PRIMARY KEY
+        REFERENCES run_execution_segments(segment_id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL,
+    header_content_hash TEXT NOT NULL,
+    start_index INTEGER NOT NULL CHECK (start_index >= 0),
+    FOREIGN KEY (run_id) REFERENCES execution_measurement_headers(run_id)
+);
+
+CREATE INDEX IF NOT EXISTS execution_measurement_fragments_run_start
+ON execution_measurement_fragments(run_id, start_index);
+
 CREATE TABLE IF NOT EXISTS execution_measurement_appends (
     run_id TEXT NOT NULL,
+    segment_id TEXT NOT NULL
+        REFERENCES execution_measurement_fragments(segment_id),
     start_index INTEGER NOT NULL CHECK (start_index >= 0),
     operation_id TEXT NOT NULL,
     content_hash TEXT NOT NULL,
@@ -126,6 +140,8 @@ CREATE TABLE IF NOT EXISTS execution_measurement_appends (
 
 CREATE TABLE IF NOT EXISTS execution_measurement_seals (
     run_id TEXT PRIMARY KEY,
+    segment_id TEXT NOT NULL
+        REFERENCES execution_measurement_fragments(segment_id),
     operation_id TEXT NOT NULL,
     content_hash TEXT NOT NULL,
     dataset_content_hash TEXT NOT NULL,

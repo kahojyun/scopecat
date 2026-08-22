@@ -339,8 +339,12 @@ class ExecutorService:
             decode_measurement_append,
         )
 
-        self.fence_executor(run_id, lease_id)
+        lease = self.fence_executor(run_id, lease_id)
         try:
+            if self._active_measurements.segment_id(run_id) != lease.segment_id:
+                raise ActiveMeasurementConflict(
+                    "measurement ingest belongs to a different execution segment"
+                )
             dataset_schema = self._measurement_repository(run_id).measurement_schema()
             if dataset_schema is None:
                 raise ActiveMeasurementConflict(
@@ -372,8 +376,12 @@ class ExecutorService:
         run_id: str,
         command: MeasurementFlushCommand,
     ) -> MeasurementFlushReceipt:
-        self.fence_executor(run_id, command.lease_id)
+        lease = self.fence_executor(run_id, command.lease_id)
         try:
+            if self._active_measurements.segment_id(run_id) != lease.segment_id:
+                raise ActiveMeasurementConflict(
+                    "measurement flush belongs to a different execution segment"
+                )
             receipts = self._flush_measurements(
                 run_id,
                 token=command.lease_id,
@@ -414,19 +422,46 @@ class ExecutorService:
                 raise ExecutionStateConflict(
                     "measurement point extent differs from the admitted run plan"
                 )
-            receipt, created = repository.header_prepared_in_transaction(
+            lease = self._control.executor_lease_for_run_in_transaction(
                 connection,
-                prepared,
+                run_id,
             )
-            if created:
+            if lease is None or lease.token != command.lease_id:
+                raise ExecutorLeaseNotHeld(
+                    "executor lease is absent, stale, or expired"
+                )
+            receipt, header_created, fragment_created = (
+                repository.header_prepared_in_transaction(
+                    connection,
+                    prepared,
+                    segment_id=lease.segment_id,
+                )
+            )
+            if header_created:
                 self.append_effect_event_in_transaction(
                     connection,
                     run_id,
                     "measurement_dataset_initialized",
                     command.header.operation_id,
                 )
+            if fragment_created:
+                self.append_effect_event_in_transaction(
+                    connection,
+                    run_id,
+                    "measurement_fragment_initialized",
+                    lease.segment_id,
+                )
+        fragment = next(
+            fragment
+            for fragment in repository.measurement_fragments()
+            if fragment.segment_id == lease.segment_id
+        )
         try:
-            self._active_measurements.initialize(command.header)
+            self._active_measurements.initialize(
+                command.header,
+                segment_id=lease.segment_id,
+                start_index=fragment.start_index,
+            )
         except ActiveMeasurementConflict as error:
             raise BackendConflict(str(error)) from error
         return receipt
@@ -443,6 +478,10 @@ class ExecutorService:
             )
         repository = self._measurement_repository(run_id)
         try:
+            segment_id = self._active_measurements.segment_id(run_id)
+        except ActiveMeasurementConflict as error:
+            raise BackendConflict(str(error)) from error
+        try:
             prepared = repository.prepare_seal(command.seal)
         except ExecutionStateConflict as error:
             raise BackendConflict(
@@ -455,6 +494,7 @@ class ExecutorService:
             receipt, created = repository.seal_prepared_in_transaction(
                 connection,
                 prepared,
+                segment_id=segment_id,
             )
             if created:
                 self.append_effect_event_in_transaction(
@@ -476,6 +516,7 @@ class ExecutorService:
     ) -> tuple[MeasurementDatasetReceipt, ...]:
         repository = self._measurement_repository(run_id)
         coverage = SQLiteRunCoverage(self._runs, run_id=run_id)
+        segment_id = self._active_measurements.segment_id(run_id)
         receipts: list[MeasurementDatasetReceipt] = []
         while records := self._active_measurements.next_chunk(run_id, force=force):
             append = MeasurementDatasetAppend(
@@ -496,6 +537,7 @@ class ExecutorService:
                 receipt, created = repository.append_prepared_in_transaction(
                     connection,
                     prepared,
+                    segment_id=segment_id,
                 )
                 coverage.advance_in_transaction(
                     connection,
@@ -655,9 +697,9 @@ class ExecutorService:
         except ControlPlaneConflict as error:
             raise BackendConflict(str(error)) from error
 
-    def fence_executor(self, run_id: str, token: str) -> str:
+    def fence_executor(self, run_id: str, token: str) -> ControlExecutorLease:
         try:
-            self._control.validate_executor_lease(
+            return self._control.validate_executor_lease(
                 run_id,
                 token=token,
             )
@@ -665,7 +707,6 @@ class ExecutorService:
             raise BackendConflict(
                 "executor lease is absent, stale, or expired"
             ) from error
-        return token
 
     @contextmanager
     def fenced_write(

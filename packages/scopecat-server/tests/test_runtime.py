@@ -146,6 +146,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetBatch,
     MeasurementDatasetHeader,
+    measurement_fragment_content_hash,
 )
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
@@ -168,6 +169,9 @@ from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.control_plane import (
     ControlPlaneConflict,
     SQLiteControlPlane,
+)
+from scopecat_server.storage.sqlite.execution import (
+    SQLiteMeasurementDatasetRepository,
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
@@ -4303,3 +4307,156 @@ def test_restart_quarantines_executor_until_operator_reconciles(
                 run_id,
                 ExecutorStartRequest(executor_id="notebook-2"),
             )
+
+
+def test_continuation_appends_measurements_in_a_new_segment_fragment(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        submission = _submission("measurement-fragments", point_count=2)
+        admission = runtime.application.submit_run(submission)
+        run_id = admission.run_id
+        first_lease = runtime.application.executor.start_executor(
+            run_id,
+            ExecutorStartRequest(executor_id="notebook-1"),
+        )
+        header = MeasurementDatasetHeader(
+            run_id=run_id,
+            recording_contract_fingerprint="test.recording.v1",
+            dataset_schema=MeasurementDatasetSchema(
+                dataset_id="raw-measurements",
+                point_domain=MeasurementProductGridPointDomain(
+                    axes=[
+                        MeasurementPointDomainAxis(
+                            id="point",
+                            size=2,
+                            source=MeasurementPointDomainValuesSource(
+                                values=[
+                                    MeasurementScalar.create(
+                                        dtype="int64",
+                                        value=point_index,
+                                    )
+                                    for point_index in range(2)
+                                ]
+                            ),
+                        )
+                    ]
+                ),
+                dimensions=[MeasurementDimension(id="point", kind="point", size=2)],
+                variables=[
+                    MeasurementVariable(
+                        id="signal",
+                        role="observable",
+                        dtype="float64",
+                        unit="ratio",
+                        dims=["point"],
+                    )
+                ],
+            ),
+            expected_record_count=2,
+            record_count_limit=2,
+        )
+
+        def record(point_index: int) -> MeasurementRecord:
+            return MeasurementRecord(
+                run_id=run_id,
+                logical_point_id=f"point-{point_index}",
+                point_index=point_index,
+                coordinates={},
+                observables={
+                    "signal": MeasurementScalar.create(
+                        dtype="float64",
+                        value=point_index + 1,
+                        unit="ratio",
+                    )
+                },
+            )
+
+        def append(lease: ExecutorLease, point_index: int) -> None:
+            measurement = MeasurementDatasetAppend(
+                run_id=run_id,
+                header_content_hash=header.content_hash,
+                start_index=point_index,
+                records=(record(point_index),),
+            )
+            runtime.application.executor.ingest_measurements(
+                run_id,
+                lease_id=lease.lease_id,
+                content=encode_measurement_append(
+                    measurement,
+                    header.dataset_schema,
+                ),
+            )
+            runtime.application.executor.flush_measurements(
+                run_id,
+                MeasurementFlushCommand(lease_id=lease.lease_id),
+            )
+
+        runtime.application.executor.initialize_measurements(
+            run_id,
+            MeasurementHeaderCommand(
+                lease_id=first_lease.lease_id,
+                header=header,
+            ),
+        )
+        append(first_lease, 0)
+        runtime.application.executor._control.mark_executor_unknown(
+            run_id,
+            token=first_lease.lease_id,
+            reason="executor_disconnected",
+        )
+        runtime.application.resolve_attention(
+            run_id,
+            AttentionResolutionCommand.continue_run(
+                run_contract_fingerprint=submission.intent_content_hash,
+            ),
+        )
+        second_lease = runtime.application.executor.start_executor(
+            run_id,
+            ExecutorStartRequest(executor_id="notebook-2"),
+        )
+        runtime.application.executor.initialize_measurements(
+            run_id,
+            MeasurementHeaderCommand(
+                lease_id=second_lease.lease_id,
+                header=header,
+            ),
+        )
+        live = runtime.application.runs.measurement_live_preview(
+            run_id,
+            after_record_count=None,
+        )
+        assert live.received_record_count == 1
+        assert live.durable_record_count == 1
+        append(second_lease, 1)
+
+        fragments = SQLiteMeasurementDatasetRepository(
+            _run_repository(tmp_path),
+            run_id=run_id,
+        ).measurement_fragments()
+        assert [fragment.segment_id for fragment in fragments] == [
+            first_lease.segment_id,
+            second_lease.segment_id,
+        ]
+        assert [fragment.start_index for fragment in fragments] == [0, 1]
+        assert [fragment.record_count for fragment in fragments] == [1, 1]
+        first_append = MeasurementDatasetAppend(
+            run_id=run_id,
+            header_content_hash=header.content_hash,
+            start_index=0,
+            records=(record(0),),
+        )
+        assert fragments[0].fragment_content_hash == (
+            measurement_fragment_content_hash(
+                header_content_hash=header.content_hash,
+                start_index=0,
+                record_content_hashes=first_append.record_content_hashes,
+            )
+        )
+        table, _, _ = runtime.application.runs.measurement_arrow(
+            run_id,
+            MeasurementArrowQuery(
+                columns=(MeasurementArrowColumn(name="signal", variable_id="signal"),)
+            ),
+        )
+        assert table.column("signal").to_pylist() == [1.0, 2.0]

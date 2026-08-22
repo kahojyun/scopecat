@@ -161,11 +161,13 @@ immutable indeterminate interruption.
 
 Continuation is currently control-plane authority only. It deliberately does
 not claim that the Python workspace, imported environment, or external hardware
-is unchanged, and the general interpreter still cannot append a measurement
-suffix. The daemon discards the lost executor's pending/live measurement state
-as soon as the lease supervisor fences it. Any already durable measurement
-prefix, coverage watermark, execution segment, and domain-job transition ledger
-remain inspectable, but none alone authorizes replaying external effects.
+is unchanged. Durable measurement chunks are attributed to their execution
+segment, and a later segment can open a new fragment at the durable prefix, but
+the general interpreter still cannot select and append that suffix. The daemon
+discards the lost executor's pending/live measurement state as soon as the lease
+supervisor fences it. Any already durable measurement prefix, coverage
+watermark, execution segment, and domain-job transition ledger remain
+inspectable, but none alone authorizes replaying external effects.
 Diagnosis can distinguish an invocation with no observed outcome, a pending
 provider checkpoint, and a terminal provider receipt. Invocation-only state
 deliberately does not claim that the provider received `start`, and none of the
