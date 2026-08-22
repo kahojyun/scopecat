@@ -39,6 +39,14 @@ _CONFIG_FIXTURE = (
 )
 
 
+def test_config_snapshot_rejects_previous_external_format() -> None:
+    document = json.loads(_CONFIG_FIXTURE.read_text(encoding="utf-8"))
+    document["format_version"] = "scopecat.config_snapshot.v9"
+
+    with pytest.raises(ValueError, match=r"scopecat\.config_snapshot\.v10"):
+        parse_config_snapshot_document(json.dumps(document))
+
+
 def test_source_config_is_freshly_built_and_validated(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
