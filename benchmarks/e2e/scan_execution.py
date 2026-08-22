@@ -50,7 +50,13 @@ from reference_lab.bench_interfaces import (
 )
 from reference_lab.compiler import QuantumLabCompiler
 from reference_lab.configuration import bootstrap_config
-from reference_lab.parameters import QUBITS
+from reference_lab.parameters import (
+    DRIVE_LO_A,
+    LO_FREQUENCY,
+    LO_POWER,
+    QUBITS,
+    READOUT_LO,
+)
 from reference_lab.payloads import (
     DecodedAwgProgram,
     DecodedMaterializedAwgProgram,
@@ -66,10 +72,12 @@ from reference_lab.quantum_runner import (
 from reference_lab.targets.list_mode import configured_list_mode_target
 from reference_lab.virtual_lab.execution import virtual_quantum_job_runtime
 from reference_lab.workflows.drag_beta_calibration import drag_beta_program
+from reference_lab.workflows.ramsey import ramsey_program
 from scopecat.api.lab import LabClient
 from scopecat.api.run import RunHandle
 from scopecat.authoring import ComputeInput
 from scopecat.daemon.client import DaemonClient
+from scopecat.kernel.entity import EntityRef
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.planning.system import ExperimentSystem
@@ -91,6 +99,7 @@ from scopecat.sdk.instruments import (
     InstrumentProviderDescription,
 )
 from scopecat.sdk.instruments.backend import InstrumentBackend
+from scopecat_instruments import rf_source
 from scopecat_quantum import authoring as q
 from scopecat_quantum.measurement_computes import (
     BinaryIqProbabilityProducts,
@@ -105,6 +114,7 @@ from scopecat_testkit.server.in_process_lab import in_process_lab  # noqa: TID25
 type RunnerName = Literal["adhoc", "scopecat-core", "scopecat"]
 type ProfileName = Literal[
     "drag_beta_integrated_iq",
+    "fixed_program_host_lo_sweep",
     "multichannel_waveform_integrated_iq",
     "multiqubit_result_retention",
 ]
@@ -114,6 +124,7 @@ _RUNNERS: tuple[RunnerName, ...] = ("adhoc", "scopecat")
 _ALL_RUNNERS: tuple[RunnerName, ...] = ("adhoc", "scopecat-core", "scopecat")
 _PROFILE_ALIASES: dict[str, ProfileName] = {
     "dense": "drag_beta_integrated_iq",
+    "lo-sweep": "fixed_program_host_lo_sweep",
     "results": "multiqubit_result_retention",
     "waveform": "multichannel_waveform_integrated_iq",
 }
@@ -123,6 +134,11 @@ _RETENTION_MODES: tuple[RetentionMode, ...] = (
     "bit-shots",
     "iq-and-bits",
 )
+_SINGLE_QUBIT_PROFILES: tuple[ProfileName, ...] = (
+    "drag_beta_integrated_iq",
+    "fixed_program_host_lo_sweep",
+)
+_Q0 = EntityRef(id="q0", kind="logical_qubit")
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,10 +190,10 @@ class ScanScenario:
             raise ValueError("shots must be positive")
         if self.qubit_count <= 0:
             raise ValueError("qubit_count must be positive")
-        if self.profile == "drag_beta_integrated_iq" and (
+        if self.profile in _SINGLE_QUBIT_PROFILES and (
             self.waveform_sample_count != 72 or self.qubit_count != 1
         ):
-            raise ValueError("drag-beta profile has a fixed waveform shape")
+            raise ValueError("single-qubit dense profiles have a fixed waveform shape")
         if self.profile != "multiqubit_result_retention" and (
             self.retention != "summary" or self.shots != 1
         ):
@@ -185,9 +201,7 @@ class ScanScenario:
                 "retention selection and shot scaling require the results profile"
             )
         expected_channels = (
-            4
-            if self.profile == "drag_beta_integrated_iq"
-            else (2 * self.qubit_count + 2)
+            4 if self.profile in _SINGLE_QUBIT_PROFILES else (2 * self.qubit_count + 2)
         )
         if self.physical_channel_count != expected_channels:
             raise ValueError(
@@ -223,7 +237,7 @@ class BenchmarkResult:
 
     schema: Literal["scopecat.benchmark_result.v1"]
     case_id: Literal["scan-execution"]
-    case_version: Literal[7]
+    case_version: Literal[8]
     kind: Literal["e2e"]
     revision: str
     runner: RunnerName
@@ -582,7 +596,7 @@ def run_ad_hoc(
     return BenchmarkResult(
         schema=BENCHMARK_RESULT_SCHEMA,
         case_id="scan-execution",
-        case_version=7,
+        case_version=8,
         kind="e2e",
         revision=git_revision(),
         runner="adhoc",
@@ -667,7 +681,7 @@ def run_scopecat_core(
     return BenchmarkResult(
         schema=BENCHMARK_RESULT_SCHEMA,
         case_id="scan-execution",
-        case_version=7,
+        case_version=8,
         kind="e2e",
         revision=git_revision(),
         runner="scopecat-core",
@@ -767,7 +781,7 @@ def run_scopecat(
     return BenchmarkResult(
         schema=BENCHMARK_RESULT_SCHEMA,
         case_id="scan-execution",
-        case_version=7,
+        case_version=8,
         kind="e2e",
         revision=git_revision(),
         runner="scopecat",
@@ -1136,13 +1150,25 @@ def _select_multiqubit_results(
 
 
 def _scopecat_invocation(scenario: ScanScenario) -> sc.ExperimentInvocation:
-    unit = "ns" if scenario.profile == "drag_beta_integrated_iq" else "rad"
+    unit = (
+        "GHz"
+        if scenario.profile == "fixed_program_host_lo_sweep"
+        else ("ns" if scenario.profile == "drag_beta_integrated_iq" else "rad")
+    )
     start = sc.Quantity(
-        -0.5 if scenario.profile == "drag_beta_integrated_iq" else 0.0,
+        (
+            4.84
+            if scenario.profile == "fixed_program_host_lo_sweep"
+            else (-0.5 if scenario.profile == "drag_beta_integrated_iq" else 0.0)
+        ),
         unit,
     )
     stop = sc.Quantity(
-        1.5 if scenario.profile == "drag_beta_integrated_iq" else math.tau,
+        (
+            4.86
+            if scenario.profile == "fixed_program_host_lo_sweep"
+            else (1.5 if scenario.profile == "drag_beta_integrated_iq" else math.tau)
+        ),
         unit,
     )
 
@@ -1158,7 +1184,27 @@ def _scopecat_invocation(scenario: ScanScenario) -> sc.ExperimentInvocation:
                 points=scenario.point_count,
             )
         )
-        if scenario.profile == "drag_beta_integrated_iq":
+        if scenario.profile == "fixed_program_host_lo_sweep":
+            drive_lo = rf_source(experiment, for_=sc.one(_Q0), role="drive-lo")
+            drive_lo.ensure(
+                frequency=scan_value,
+                power=DRIVE_LO_A[LO_POWER].ref,
+                output_enabled=True,
+                reference_source="external",
+            )
+            readout_lo = rf_source(experiment, for_=sc.one(_Q0), role="readout-lo")
+            readout_lo.ensure(
+                frequency=READOUT_LO[LO_FREQUENCY].ref,
+                power=READOUT_LO[LO_POWER].ref,
+                output_enabled=True,
+                reference_source="external",
+            )
+            call = ramsey_program(
+                qubit="q0",
+                delay=sc.Quantity(88, "ns"),
+                phase=sc.Quantity(0.0, "rad"),
+            )
+        elif scenario.profile == "drag_beta_integrated_iq":
             call = drag_beta_program(
                 qubit="q0",
                 amplification=1,
@@ -1180,7 +1226,10 @@ def _scopecat_invocation(scenario: ScanScenario) -> sc.ExperimentInvocation:
             _select_multiqubit_results(experiment, call, scenario)
             return
         probabilities: BinaryIqProbabilityProducts = experiment.use(
-            quantum_capture(call.with_shots(scenario.shots))
+            quantum_capture(
+                call.with_shots(scenario.shots),
+                prepare_los=scenario.profile != "fixed_program_host_lo_sweep",
+            )
         )
         experiment.alias(probabilities.probability_1)
 
@@ -1193,7 +1242,11 @@ def _render_ad_hoc_point(
 ) -> tuple[np.ndarray, ...]:
     sample_count = scenario.waveform_sample_count
     sample = np.arange(sample_count, dtype=np.float64) + 0.5
-    phase = math.tau * point / max(scenario.point_count, 1)
+    phase = (
+        0.0
+        if scenario.profile == "fixed_program_host_lo_sweep"
+        else math.tau * point / max(scenario.point_count, 1)
+    )
     carrier = math.tau * sample / sample_count + phase
     if scenario.profile == "multichannel_waveform_integrated_iq":
         drive_lanes = tuple(
@@ -1248,7 +1301,7 @@ def _worker(args: BenchmarkArguments) -> int:
     profile = _PROFILE_ALIASES[args.profile]
     qubit_count = cast("int", args.qubit_count)
     waveform_sample_count = (
-        72 if profile == "drag_beta_integrated_iq" else args.waveform_samples
+        72 if profile in _SINGLE_QUBIT_PROFILES else args.waveform_samples
     )
     scenario = ScanScenario(
         point_count=cast("int", args.point_count),
@@ -1260,7 +1313,7 @@ def _worker(args: BenchmarkArguments) -> int:
         waveform_sample_count=waveform_sample_count,
         qubit_count=qubit_count,
         physical_channel_count=(
-            4 if profile == "drag_beta_integrated_iq" else 2 * qubit_count + 2
+            4 if profile in _SINGLE_QUBIT_PROFILES else 2 * qubit_count + 2
         ),
         shots=args.shots,
     )
@@ -1541,9 +1594,9 @@ def _selected_qubit_counts(
     *,
     profile: ProfileName,
 ) -> tuple[int, ...]:
-    if profile == "drag_beta_integrated_iq":
+    if profile in _SINGLE_QUBIT_PROFILES:
         if value is not None and value != "1":
-            raise ValueError("the dense profile requires exactly one qubit")
+            raise ValueError("the selected dense profile requires exactly one qubit")
         return (1,)
     available = sum(
         entity.kind == "logical_qubit"

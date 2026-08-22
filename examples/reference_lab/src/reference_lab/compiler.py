@@ -324,7 +324,7 @@ class QuantumLabCompiler:
                 artifact.target_artifact
             ),
             realtime_state_invalidations=(),
-            transition_policy="batched",
+            transition_policy="abnormal_only",
             next_batch_max_points=(
                 artifact.target_artifact.compilation_budget.next_batch_max_points
             ),
