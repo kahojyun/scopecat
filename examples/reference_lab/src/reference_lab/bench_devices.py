@@ -31,12 +31,16 @@ from scopecat.sdk.instruments import (
     DriverStateReadRequest,
     DriverSuccess,
     InstrumentDescription,
+    ObjectInstrumentDriver,
     PropertyRef,
+    implements,
     instrument_component,
+    instrument_driver,
     interface_mount,
     state_readback,
 )
-from scopecat_instruments.interfaces import reference_clock_interface
+from scopecat.sdk.instruments.declarations import compile_interface
+from scopecat_instruments.interface_declarations import ReferenceClockInterface
 from scopecat_instruments.members import REFERENCE_CLOCK_REFERENCE_SOURCE
 
 from reference_lab.bench_interfaces import (
@@ -45,17 +49,21 @@ from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT_OFFSET,
     ANALOG_WAVEFORM_OUTPUT_PLAY,
     ANALOG_WAVEFORM_OUTPUT_RESET,
+    ANALOG_WAVEFORM_OUTPUT_SPEC,
     ANALOG_WAVEFORM_OUTPUT_WAVEFORM,
     AWG_ARM_PROGRAM,
     AWG_LOAD_PROGRAM,
     AWG_PROGRAM,
     AWG_RUN_MODE,
     AWG_SAMPLE_RATE,
+    AWG_SEQUENCER_SPEC,
     DIGITIZER_ARM_PROGRAM,
+    DIGITIZER_CONTROL_SPEC,
     DIGITIZER_FETCH_PROGRAM_IQ,
     DIGITIZER_INPUT_COUPLING,
     DIGITIZER_INPUT_ENABLED,
     DIGITIZER_INPUT_RANGE,
+    DIGITIZER_INPUT_SPEC,
     DIGITIZER_LOAD_PROGRAM,
     DIGITIZER_PROGRAM,
     DIGITIZER_RECORD_LENGTH,
@@ -64,32 +72,24 @@ from reference_lab.bench_interfaces import (
     OSCILLOSCOPE_ARM,
     OSCILLOSCOPE_ARMED,
     OSCILLOSCOPE_BANDWIDTH_LIMIT,
+    OSCILLOSCOPE_CONTROL_SPEC,
     OSCILLOSCOPE_COUPLING,
     OSCILLOSCOPE_FETCH_TIME,
     OSCILLOSCOPE_IMPEDANCE,
     OSCILLOSCOPE_INPUT_ENABLED,
+    OSCILLOSCOPE_INPUT_SPEC,
     OSCILLOSCOPE_RECORD_LENGTH,
     OSCILLOSCOPE_SAMPLE_RATE,
     OSCILLOSCOPE_TRIGGER_LEVEL,
     OSCILLOSCOPE_TRIGGER_SOURCE,
     OSCILLOSCOPE_VERTICAL_OFFSET,
     OSCILLOSCOPE_VERTICAL_SCALE,
-    TRIGGER_LOAD_PROGRAM,
-    TRIGGER_PROGRAM,
-    TRIGGER_START_PROGRAM,
-    TRIGGER_START_PROGRAM_IDEMPOTENT,
-    analog_waveform_output_interface,
-    awg_sequencer_interface,
-    digitizer_control_interface,
-    digitizer_input_interface,
-    oscilloscope_control_interface,
-    oscilloscope_input_interface,
-    trigger_coordinator_interface,
+    TriggerCoordinatorInterface,
 )
 from reference_lab.interfaces import (
     CLOCK_TIMING_FREQUENCY,
     CLOCK_TIMING_LOCKED,
-    clock_timing_interface,
+    CLOCK_TIMING_SPEC,
 )
 from reference_lab.payloads import (
     DecodedAwgEntry,
@@ -104,11 +104,7 @@ from reference_lab.targets.list_mode.iq_semantics import (
     integrate_rectangular_iq,
 )
 from reference_lab.virtual_lab.capture_payload import DecodedVirtualCaptureQueue
-from reference_lab.virtual_lab.capture_plant import (
-    VIRTUAL_CAPTURE_LOAD,
-    VIRTUAL_CAPTURE_QUEUE,
-    virtual_capture_source_interface,
-)
+from reference_lab.virtual_lab.capture_plant import VirtualCaptureSourceInterface
 
 AWG_OUTPUT_COMPONENT_IDS = tuple(f"ch{index}" for index in range(1, 9))
 DIGITIZER_INPUT_COMPONENT_IDS = ("ch1", "ch2")
@@ -118,6 +114,7 @@ VIRTUAL_AWG_DRIVER_ID = "reference_lab.virtual.awg"
 VIRTUAL_DIGITIZER_DRIVER_ID = "reference_lab.virtual.digitizer"
 VIRTUAL_OSCILLOSCOPE_DRIVER_ID = "reference_lab.virtual.oscilloscope"
 VIRTUAL_TIMING_CONTROLLER_DRIVER_ID = "reference_lab.virtual.timing_controller"
+REFERENCE_CLOCK_SPEC = compile_interface(ReferenceClockInterface).spec
 
 
 def _virtual_driver_spec(
@@ -477,7 +474,7 @@ class VirtualAwg:
             )
 
     def describe(self) -> InstrumentDescription:
-        output = analog_waveform_output_interface()
+        output = ANALOG_WAVEFORM_OUTPUT_SPEC
         return InstrumentDescription(
             instrument_id=self.instrument_id,
             implementation_id=self.implementation_id,
@@ -497,9 +494,9 @@ class VirtualAwg:
                 ),
             ],
             interfaces=[
-                awg_sequencer_interface(),
-                reference_clock_interface(),
-                clock_timing_interface(),
+                AWG_SEQUENCER_SPEC,
+                REFERENCE_CLOCK_SPEC,
+                CLOCK_TIMING_SPEC,
                 output,
             ],
             interface_mounts=[
@@ -788,7 +785,7 @@ class VirtualDigitizer:
             )
 
     def describe(self) -> InstrumentDescription:
-        input_interface = digitizer_input_interface()
+        input_interface = DIGITIZER_INPUT_SPEC
         return InstrumentDescription(
             instrument_id=self.instrument_id,
             implementation_id=self.implementation_id,
@@ -807,7 +804,10 @@ class VirtualDigitizer:
                     ),
                 )
             ],
-            interfaces=[digitizer_control_interface(), input_interface],
+            interfaces=[
+                DIGITIZER_CONTROL_SPEC,
+                input_interface,
+            ],
             interface_mounts=[
                 interface_mount(input_interface.id, "inputs", channel_id)
                 for channel_id in self._input_component_ids
@@ -953,11 +953,18 @@ class VirtualDigitizer:
         self._world.abort_instrument(self.instrument_id)
 
 
-class VirtualTimingController:
+@instrument_driver(
+    VIRTUAL_TIMING_CONTROLLER_DRIVER_ID,
+    "v1",
+    interfaces=(TriggerCoordinatorInterface, VirtualCaptureSourceInterface),
+    label="Virtual timing controller",
+    description=(
+        "A single shared trigger edge for armed AWGs and digitizers. "
+        "The virtual capture interface is a test-plant input."
+    ),
+)
+class VirtualTimingController(ObjectInstrumentDriver):
     """A programmable shared-trigger source plus a test-only virtual plant input."""
-
-    implementation_id = VIRTUAL_TIMING_CONTROLLER_DRIVER_ID
-    implementation_version = "v1"
 
     def __init__(self, instrument_id: str, world: BenchSignalWorld) -> None:
         self.instrument_id = instrument_id
@@ -965,117 +972,59 @@ class VirtualTimingController:
         self._loaded_program: DecodedTriggerProgram | None = None
         self._started_programs: dict[str, DecodedTriggerProgram] = {}
 
-    def describe(self) -> InstrumentDescription:
-        return InstrumentDescription(
-            instrument_id=self.instrument_id,
-            implementation_id=self.implementation_id,
-            implementation_version=self.implementation_version,
-            label="Virtual timing controller",
-            description=(
-                "A single shared trigger edge for armed AWGs and digitizers. "
-                "The virtual capture interface is a test-plant input."
-            ),
-            interfaces=[
-                trigger_coordinator_interface(),
-                virtual_capture_source_interface(),
-            ],
+    @implements(VirtualCaptureSourceInterface.load)
+    def load_captures(self, *, captures: DriverPayload) -> DriverSuccess[None]:
+        queue = cast("DecodedVirtualCaptureQueue", captures.value)
+        self._world.load_capture_queue(queue)
+        return DriverSuccess(None, metadata={"capture_count": len(queue.captures)})
+
+    @implements(TriggerCoordinatorInterface.load_program)
+    def load_trigger_program(self, *, program: DriverPayload) -> DriverSuccess[None]:
+        self._loaded_program = cast("DecodedTriggerProgram", program.value)
+        return DriverSuccess(
+            None,
+            metadata={
+                "program_id": self._loaded_program.program_id,
+                "entry_count": len(self._loaded_program.entries),
+                "repetitions": self._loaded_program.repetitions,
+            },
         )
 
-    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
-        return state_readback(
-            request,
-            {},
-        )
+    @implements(TriggerCoordinatorInterface.start_program)
+    def start_program(self) -> DriverSuccess[None]:
+        return self._start_program(idempotent=False)
 
-    def apply_state(
-        self,
-        request: DriverStatePatch,
-    ) -> DriverOutcome[DriverStateReadback | None]:
-        del request
-        return DriverSuccess(None)
+    @implements(TriggerCoordinatorInterface.start_program_idempotent)
+    def start_program_idempotent(self) -> DriverSuccess[None]:
+        return self._start_program(idempotent=True)
 
-    def invoke(
-        self,
-        request: DriverOperation,
-    ) -> DriverOutcome[DriverStateReadback | None]:
-        if request.target.operation_id == VIRTUAL_CAPTURE_LOAD.operation_id:
-            queue = cast(
-                "DecodedVirtualCaptureQueue",
-                cast(
-                    "DriverPayload",
-                    request.arguments[VIRTUAL_CAPTURE_QUEUE.argument_id],
-                ).value,
-            )
-            self._world.load_capture_queue(queue)
-            return DriverSuccess(
-                None,
-                metadata={"capture_count": len(queue.captures)},
-            )
-        if request.target.operation_id == TRIGGER_LOAD_PROGRAM.operation_id:
-            self._loaded_program = cast(
-                "DecodedTriggerProgram",
-                cast(
-                    "DriverPayload",
-                    request.arguments[TRIGGER_PROGRAM.argument_id],
-                ).value,
-            )
-            return DriverSuccess(
-                None,
-                metadata={
-                    "program_id": self._loaded_program.program_id,
-                    "entry_count": len(self._loaded_program.entries),
-                    "repetitions": self._loaded_program.repetitions,
-                },
-            )
-        if request.target.operation_id in {
-            TRIGGER_START_PROGRAM.operation_id,
-            TRIGGER_START_PROGRAM_IDEMPOTENT.operation_id,
-        }:
-            if self._loaded_program is None:
-                raise ValueError("timing controller has no loaded program")
-            idempotent = (
-                request.target.operation_id
-                == TRIGGER_START_PROGRAM_IDEMPOTENT.operation_id
-            )
-            cached = self._started_programs.get(self._loaded_program.program_id)
-            if idempotent and cached is not None:
-                if cached != self._loaded_program:
-                    raise ValueError(
-                        "trigger program id was reused with different contents"
-                    )
-                awg_count, digitizer_count, replayed = 0, 0, True
-            else:
-                awg_count, digitizer_count = self._world.run_program(
+    def _start_program(self, *, idempotent: bool) -> DriverSuccess[None]:
+        if self._loaded_program is None:
+            raise ValueError("timing controller has no loaded program")
+        cached = self._started_programs.get(self._loaded_program.program_id)
+        if idempotent and cached is not None:
+            if cached != self._loaded_program:
+                raise ValueError(
+                    "trigger program id was reused with different contents"
+                )
+            awg_count, digitizer_count, replayed = 0, 0, True
+        else:
+            awg_count, digitizer_count = self._world.run_program(self._loaded_program)
+            replayed = False
+            if idempotent:
+                self._started_programs[self._loaded_program.program_id] = (
                     self._loaded_program
                 )
-                replayed = False
-                if idempotent:
-                    self._started_programs[self._loaded_program.program_id] = (
-                        self._loaded_program
-                    )
-            return DriverSuccess(
-                None,
-                metadata={
-                    "armed_awg_count": awg_count,
-                    "armed_digitizer_count": digitizer_count,
-                    "trigger_count": self._world.trigger_count,
-                    "trigger_program_id": self._loaded_program.program_id,
-                    "replayed": replayed,
-                },
-            )
-        raise ValueError(
-            f"unsupported timing operation {request.target.operation_id!r}"
+        return DriverSuccess(
+            None,
+            metadata={
+                "armed_awg_count": awg_count,
+                "armed_digitizer_count": digitizer_count,
+                "trigger_count": self._world.trigger_count,
+                "trigger_program_id": self._loaded_program.program_id,
+                "replayed": replayed,
+            },
         )
-
-    def collect(self, request: DriverAcquisition) -> DriverOutcome[DriverReadback]:
-        del request
-        raise NotImplementedError
-
-    def disconnect(self) -> None:
-        return None
-
-    def abort(self) -> None:
-        return None
 
 
 class VirtualOscilloscope:
@@ -1134,7 +1083,7 @@ class VirtualOscilloscope:
             )
 
     def describe(self) -> InstrumentDescription:
-        input_interface = oscilloscope_input_interface()
+        input_interface = OSCILLOSCOPE_INPUT_SPEC
         return InstrumentDescription(
             instrument_id=self.instrument_id,
             implementation_id=self.implementation_id,
@@ -1153,7 +1102,10 @@ class VirtualOscilloscope:
                     ),
                 ),
             ],
-            interfaces=[oscilloscope_control_interface(), input_interface],
+            interfaces=[
+                OSCILLOSCOPE_CONTROL_SPEC,
+                input_interface,
+            ],
             interface_mounts=[
                 interface_mount(input_interface.id, "inputs", channel_id)
                 for channel_id in self._input_component_ids

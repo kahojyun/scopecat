@@ -111,12 +111,14 @@ class MountedInstrumentRouter:
         if not normalized:
             raise ValueError("mounted instrument requires at least one child driver")
         for mount in normalized:
-            if not mount.path or any(not component for component in mount.path):
+            if any(not component for component in mount.path):
                 raise ValueError(
                     "mounted driver paths must contain non-empty components"
                 )
         for index, left in enumerate(normalized):
             for right in normalized[index + 1 :]:
+                if not left.path or not right.path:
+                    continue
                 if _path_prefix(left.path, right.path) or _path_prefix(
                     right.path, left.path
                 ):
@@ -292,9 +294,11 @@ class MountedInstrumentRouter:
 
     def _resolve(self, component_path: Sequence[str], *, kind: str) -> _Mount:
         selected = tuple(component_path)
-        for mount in self._mounts:
-            if _path_prefix(mount.path, selected):
-                return mount
+        candidates = tuple(
+            mount for mount in self._mounts if _path_prefix(mount.path, selected)
+        )
+        if candidates:
+            return max(candidates, key=lambda mount: len(mount.path))
         raise ValueError(
             f"{self.instrument_id} has no mounted {kind} at {_display_path(selected)!r}"
         )
@@ -399,6 +403,8 @@ def _compose_description(
     root = _ComponentNode()
     interfaces: dict[str, InterfaceSpec] = {}
     interface_mounts: list[InterfaceMountSpec] = []
+    root_interface_ids: set[str] = set()
+    mounted_interface_ids: set[str] = set()
     interface_property_implementations: list[InterfacePropertyImplementationSpec] = []
     device_specs: dict[DeviceSchemaId, list[tuple[MountPath, DeviceStateSpec]]] = {}
 
@@ -420,13 +426,18 @@ def _compose_description(
                     f"mounted drivers declare conflicting interface {interface.id!r}"
                 )
             relative_mounts = child_mounts.get(interface.id, [()])
-            interface_mounts.extend(
-                InterfaceMountSpec(
-                    interface_id=interface.id,
-                    component_path=[*mount.path, *relative_path],
+            for relative_path in relative_mounts:
+                physical_path = (*mount.path, *relative_path)
+                if not physical_path:
+                    root_interface_ids.add(interface.id)
+                    continue
+                mounted_interface_ids.add(interface.id)
+                interface_mounts.append(
+                    InterfaceMountSpec(
+                        interface_id=interface.id,
+                        component_path=list(physical_path),
+                    )
                 )
-                for relative_path in relative_mounts
-            )
         for device_schema in mount.description.device_schemas:
             device_specs.setdefault(device_schema.id, []).append(
                 (mount.path, device_schema)
@@ -447,6 +458,13 @@ def _compose_description(
                 value_type=implementation.value_type,
             )
             for implementation in mount.description.interface_property_implementations
+        )
+
+    ambiguous_interfaces = root_interface_ids & mounted_interface_ids
+    if ambiguous_interfaces:
+        raise ValueError(
+            "mounted drivers cannot expose one interface at both root and mounted "
+            "paths: " + ", ".join(sorted(ambiguous_interfaces))
         )
 
     known_schema_ids = set(device_specs)

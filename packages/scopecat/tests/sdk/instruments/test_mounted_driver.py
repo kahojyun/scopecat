@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import override
 
+import pytest
+
 from scopecat.kernel.value_types import Int, Scalar
 from scopecat.records.instrument import state_member_target
 from scopecat.records.measurement import MeasurementScalar
@@ -45,6 +47,8 @@ _ZERO = _INTERFACE.operation("zero")
 _SAMPLE = _INTERFACE.acquisition("sample")
 _RESULT = _SAMPLE.result("value")
 _LOCKED = DevicePropertyRef("test.mounted_child.device/v1", (), "locked")
+_ROOT_INTERFACE = InterfaceRef("test.mounted_root/v1")
+_ROOT_VALUE = _ROOT_INTERFACE.property("value")
 
 
 class _ChildDriver:
@@ -220,6 +224,43 @@ class _MountedDevice(MountedInstrumentDriver):
         return None
 
 
+class _RootDriver(_ChildDriver):
+    @override
+    def describe(self) -> InstrumentDescription:
+        return InstrumentDescription(
+            instrument_id=self.instrument_id,
+            implementation_id="test.mounted_root",
+            implementation_version="1",
+            interfaces=[
+                interface(
+                    _ROOT_INTERFACE.interface_id,
+                    properties=[int_property("value")],
+                )
+            ],
+        )
+
+    @override
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
+        self.state_requests.append(request)
+        return DriverStateReadback(
+            observations=tuple(
+                DriverStateObservation(target, self.value) for target in request.targets
+            )
+        )
+
+    @override
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverStateReadback | None]:
+        self.state_patches.append(request)
+        for entry in request.entries:
+            if entry.target == _ROOT_VALUE:
+                assert isinstance(entry.value, int)
+                self.value = entry.value
+        return DriverSuccess(None)
+
+
 def _mounted_property(target: PropertyRef, channel: str) -> PropertyRef:
     return PropertyRef(
         target.interface_id,
@@ -283,6 +324,51 @@ def test_mounted_router_composes_contracts_and_preserves_observation_provenance(
     assert observations[mounted_value].metadata == {"child": "child-2"}
     assert first.state_requests == [DriverStateReadRequest(frozenset({_VALUE}))]
     assert second.state_requests == [DriverStateReadRequest(frozenset({_VALUE}))]
+
+
+def test_mounted_router_combines_root_control_with_child_endpoints() -> None:
+    root = _RootDriver("root", 7)
+    child = _ChildDriver("child", 3)
+    router = MountedInstrumentRouter(
+        instrument_id="device",
+        implementation_id="test.root_and_mounted",
+        implementation_version="1",
+        mounts={(): root, ("channels", "1"): child},
+    )
+    mounted_value = _mounted_property(_VALUE, "1")
+
+    description = router.describe()
+    readback = router.read_state(
+        DriverStateReadRequest(frozenset({_ROOT_VALUE, mounted_value}))
+    )
+
+    assert {item.id for item in description.interfaces} == {
+        _ROOT_INTERFACE.interface_id,
+        _INTERFACE.interface_id,
+    }
+    assert [
+        (mount.interface_id, tuple(mount.component_path))
+        for mount in description.interface_mounts
+    ] == [(_INTERFACE.interface_id, ("channels", "1"))]
+    assert readback.values == {_ROOT_VALUE: 7, mounted_value: 3}
+    assert root.state_requests == [DriverStateReadRequest(frozenset({_ROOT_VALUE}))]
+    assert child.state_requests == [DriverStateReadRequest(frozenset({_VALUE}))]
+
+
+def test_mounted_router_rejects_one_interface_at_root_and_child_paths() -> None:
+    with pytest.raises(
+        ValueError,
+        match="one interface at both root and mounted paths",
+    ):
+        MountedInstrumentRouter(
+            instrument_id="device",
+            implementation_id="test.ambiguous_mount",
+            implementation_version="1",
+            mounts={
+                (): _ChildDriver("root", 1),
+                ("channels", "1"): _ChildDriver("child", 2),
+            },
+        )
 
 
 def test_mounted_router_routes_commands_and_marks_partial_apply_unknown() -> None:
