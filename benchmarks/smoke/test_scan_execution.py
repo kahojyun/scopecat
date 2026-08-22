@@ -163,6 +163,8 @@ def test_fixed_program_lo_sweep_avoids_per_point_durable_job_writes(
     assert scenario["profile"] == "fixed_program_host_lo_sweep"
     assert result["points_completed"] == point_count
     assert result["trigger_count"] == point_count
+    assert result["waveform_bytes_uploaded"] == result["max_waveform_batch_bytes"]
+    assert result["waveform_bytes_rendered"] == result["max_waveform_batch_bytes"]
     assert result["payload_spool_bytes_at_finish"] == 0
     assert (
         0

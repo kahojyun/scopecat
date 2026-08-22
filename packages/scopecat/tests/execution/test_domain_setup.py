@@ -307,6 +307,35 @@ def test_external_host_requirement_preserves_target_residency() -> None:
     assert cache.contents == {residency.address: residency.content_fingerprint}
 
 
+def test_target_requirement_on_resident_instrument_preserves_setup_content() -> None:
+    setup = _Setup()
+    realtime = _CompletingRealtime()
+    residency = _residency("program-a")
+    cache = DomainResidencyCache(
+        contents={residency.address: residency.content_fingerprint}
+    )
+    runtime = _PreparedDomainJobRuntime(
+        _prepared(
+            setup=setup,
+            realtime=realtime,
+            requirements=(_requirement(),),
+            residency=(residency,),
+        ),
+        cache,
+    )
+    operation_id = "domain:execution-key:reconcile-requirements"
+
+    result = runtime.start(
+        "execution-key",
+        object(),
+        instruments=_Executor(RunHardwareBatchReceipt(operation_id=operation_id)),
+    )
+
+    assert isinstance(result, DomainExecutionResult)
+    assert setup.calls == 0
+    assert cache.contents == {residency.address: residency.content_fingerprint}
+
+
 def test_transition_flush_failure_marks_run_indeterminate() -> None:
     class FailingWriter:
         def invocation(

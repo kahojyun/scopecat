@@ -329,7 +329,7 @@ class RunEffectInterpreter:
                     for effect in hardware
                     if isinstance(
                         effect.operation,
-                        ApplyStateOperation | InvokeOperation | CollectOperation,
+                        InvokeOperation | CollectOperation,
                     )
                 }
             )

@@ -10,6 +10,7 @@ from scopecat.inspection import (
     CompiledArtifactInspection,
     CompiledProgramInspectionQuery,
 )
+from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.json_types import JsonValue
 from scopecat.sdk.domain import (
     DomainBatchInputs,
@@ -66,6 +67,7 @@ from reference_lab.targets.list_mode import (
     build_list_mode_artifact_inspection_snapshot,
     list_mode_measurement_invocation_spec,
     list_mode_realtime_write_footprint,
+    list_mode_setup_residency_requirements,
     list_mode_setup_state_invalidations,
     list_mode_state_requirements,
     realize_executed_measurements,
@@ -208,19 +210,10 @@ class QuantumLabCompiler:
             point_ordinals,
             max_expanded_operations=self._target.max_program_event_count,
         )
-        entries = tuple(
-            prepare_quantum_target_entry(
-                TargetCompileEntryId(f"{program.id}.point-{point.values.ordinal}"),
-                plan_quantum_pulse_lowering(
-                    point.bound.verified,
-                    point.implementations,
-                    output_id=PulseProgramId(
-                        f"{program.id}.point-{point.values.ordinal}.pulses"
-                    ),
-                    max_expanded_operations=self._target.max_program_event_count,
-                ),
-            )
-            for point in points
+        entries = _prepare_target_entries(
+            program,
+            points,
+            max_expanded_operations=self._target.max_program_event_count,
         )
         batch = prepare_quantum_target_batch(
             entries,
@@ -316,6 +309,9 @@ class QuantumLabCompiler:
         return preparation.build(
             instrument_ids=artifact.target_artifact.instrument_ids,
             setup=job_runtime,
+            setup_residency_requirements=list_mode_setup_residency_requirements(
+                artifact.target_artifact
+            ),
             setup_state_invalidations=list_mode_setup_state_invalidations(
                 artifact.target_artifact
             ),
@@ -437,6 +433,50 @@ def _compile_points(
             )
         )
     return tuple(compiled)
+
+
+def _prepare_target_entries(
+    program: quantum.Program,
+    points: tuple[_CompiledQuantumPoint, ...],
+    *,
+    max_expanded_operations: int,
+) -> tuple[PreparedQuantumTargetEntry, ...]:
+    """Assign request-local identities from point-effective program content.
+
+    Logical point ordinals belong to result mapping, not physical compilation.
+    Reusing content-derived entry identities lets an identical one-entry target
+    program share the target compiler's staged caches across host-state points.
+    The occurrence suffix keeps duplicate entries unique inside one native batch.
+    """
+
+    occurrences: dict[str, int] = {}
+    entries: list[PreparedQuantumTargetEntry] = []
+    for point in points:
+        digest = stable_content_hash(
+            content_fingerprint(
+                {
+                    "schema": "reference_lab.quantum_point_program.v1",
+                    "program_id": program.id,
+                    "verified": point.bound.verified,
+                    "implementations": point.implementations,
+                }
+            )
+        )
+        occurrence = occurrences.get(digest, 0)
+        occurrences[digest] = occurrence + 1
+        local_id = f"{program.id}.content-{digest[:16]}.entry-{occurrence}"
+        entries.append(
+            prepare_quantum_target_entry(
+                TargetCompileEntryId(local_id),
+                plan_quantum_pulse_lowering(
+                    point.bound.verified,
+                    point.implementations,
+                    output_id=PulseProgramId(f"{local_id}.pulses"),
+                    max_expanded_operations=max_expanded_operations,
+                ),
+            )
+        )
+    return tuple(entries)
 
 
 def _result_address(

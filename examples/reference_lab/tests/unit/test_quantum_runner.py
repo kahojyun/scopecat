@@ -815,6 +815,8 @@ def test_fixed_if_lo_sweep_bounds_real_time_batches_with_host_effects() -> None:
         "readout-lo",
     }
     assert [job.point_ordinals for job in jobs] == [(0,), (1,), (2,)]
+    assert all(job.execution.setup_residency_requirements for job in jobs)
+    assert len({job.execution.setup_residency_requirements for job in jobs}) == 1
     assert all(job.execution.transition_policy == "abnormal_only" for job in jobs)
     assert plan.domain_target_requirement is not None
     assert plan.domain_target_requirement.instrument_ids == (

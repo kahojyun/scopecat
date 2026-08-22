@@ -248,13 +248,6 @@ class _PreparedDomainJobRuntime:
                 execution_key=execution_key,
                 instruments=instruments,
             )
-            if self.residency is not None:
-                self.residency.invalidate_instruments(
-                    {
-                        requirement.address.instrument_id
-                        for requirement in self.prepared.state_requirements
-                    }
-                )
         except OperationFailure as error:
             return DomainExecutionReceipt(
                 execution_key=execution_key,

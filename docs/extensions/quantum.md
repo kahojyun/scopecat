@@ -45,9 +45,13 @@ The fingerprint must cover device-effective setup content but exclude physical
 batch ordinals, logical point identities, and result mappings. Scopecat runs
 `setup` when the current slot differs, then retains that knowledge for the live
 run connection. A later host effect on the same physical instrument
-conservatively invalidates its opaque slots; effects on an independently routed
-LO source do not invalidate a controller program. Targets may also declare
-explicit setup or realtime residency invalidations.
+invalidates its opaque slots when it invokes a command or collects a result.
+Ordinary state reconciliation changes only its declared interface members and
+does not imply that unrelated device memory was erased; a device whose state
+patch does erase loaded content must expose that fact through its driver/target
+contract. Effects on an independently routed LO source likewise do not
+invalidate a controller program. Targets may also declare explicit setup or
+realtime residency invalidations.
 
 Residency is not an instrument interface property, device readback, or durable
 resume proof. Losing the connection loses the knowledge. The driver remains the

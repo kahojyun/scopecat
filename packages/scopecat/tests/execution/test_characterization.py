@@ -155,7 +155,7 @@ def test_normal_completion_applies_success_state_after_point_coverage() -> None:
     ) == StateValue(0.0)
 
 
-def test_host_effect_invalidates_only_same_instrument_domain_residency() -> None:
+def test_host_state_reconciliation_preserves_opaque_domain_residency() -> None:
     driver = SignalInstrumentDriver(instrument_id="lo-source")
     program = LocalEffectInspection.at_point(
         AcceptedRunPoint(_logical_point_id("host-residency-point"), {}),
@@ -179,7 +179,8 @@ def test_host_effect_invalidates_only_same_instrument_domain_residency() -> None
 
     assert not result.problems
     assert engine._domain_residency.contents == {
-        controller_residency: "waveform-program"
+        lo_residency: "lo-program",
+        controller_residency: "waveform-program",
     }
 
 
