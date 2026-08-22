@@ -55,16 +55,26 @@ uv run --locked python scripts/generate_instrument_clients.py
 uv run --locked python scripts/generate_instrument_clients.py --check
 ```
 
-External packages invoke the same generator with their own manifest, import
-prefix, and source directory; `--no-fixtures` omits Scopecat's internal test
-catalog:
+External packages use the installed Scopecat command with their own manifest,
+import prefix, and source directory. The command has no checkout-relative path
+or first-party fixture behavior:
+
+```python
+from scopecat.sdk.instruments.client_manifest import (
+    ClientPackageManifest,
+    InterfaceSurfaceRegistration,
+)
+
+PACKAGE_MANIFEST = ClientPackageManifest(
+    surfaces=(InterfaceSurfaceRegistration(MyInstrumentInterface),),
+)
+```
 
 ```console
-uv run python ../scopecat/scripts/generate_instrument_clients.py \
+uv run scopecat-generate-instrument-clients \
   --manifest example_lab.instruments.package_manifest:PACKAGE_MANIFEST \
   --package-module example_lab.instrument_clients \
-  --output-root src/example_lab/instrument_clients \
-  --no-fixtures
+  --output-root src/example_lab/instrument_clients
 ```
 
 Generated modules and the package facade are committed build outputs; edit the

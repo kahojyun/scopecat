@@ -173,15 +173,16 @@ def test_codegen_parameterizes_manifest_package_and_output(
 ) -> None:
     output_root = tmp_path / "generated" / "lab_instruments"
     command = [
-        sys.executable,
-        str(GENERATOR),
+        "uv",
+        "run",
+        "--locked",
+        "scopecat-generate-instrument-clients",
         "--manifest",
         "scopecat_instruments.package_manifest:PACKAGE_MANIFEST",
         "--package-module",
         "generated.lab_instruments",
         "--output-root",
         str(output_root),
-        "--no-fixtures",
     ]
 
     completed = subprocess.run(  # noqa: S603 - fixed interpreter and repository code

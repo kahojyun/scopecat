@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 from pydantic import BaseModel
-from scopecat.sdk.instruments.declarations import Member, MemberObservation
+from scopecat.sdk.instruments.client_manifest import (
+    AcquisitionPublicNames,
+    CompositeMemberNameOverride,
+    CompositeMethodNameOverride,
+    CompositeSurfaceRegistration,
+    InterfaceSurfaceRegistration,
+    SurfaceRegistration,
+)
 
 from scopecat_instruments.connection_options import (
     E5080BConnectionOptions,
@@ -66,36 +72,6 @@ class DriverManagedFactory(Protocol):
         /,
         **options: object,
     ) -> InstrumentDriver: ...
-
-
-@dataclass(frozen=True, slots=True)
-class AcquisitionPublicNames:
-    acquisition: Callable[..., object] | MemberObservation
-    readback: str | None = None
-    products: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class InterfaceSurfaceRegistration:
-    interface_type: type[object]
-    acquisition_names: tuple[AcquisitionPublicNames, ...] = ()
-
-
-type CompositeMemberNameOverride = tuple[Member[object], str]
-type CompositeMethodNameOverride = tuple[Callable[..., object] | MemberObservation, str]
-
-
-@dataclass(frozen=True, slots=True)
-class CompositeSurfaceRegistration:
-    name: str
-    interface_types: tuple[type[object], ...]
-    driver_optional_flag: str | None = None
-    member_name_overrides: tuple[CompositeMemberNameOverride, ...] = ()
-    method_name_overrides: tuple[CompositeMethodNameOverride, ...] = ()
-    acquisition_names: tuple[AcquisitionPublicNames, ...] = ()
-
-
-type SurfaceRegistration = InterfaceSurfaceRegistration | CompositeSurfaceRegistration
 
 
 @dataclass(frozen=True, slots=True)

@@ -12,6 +12,9 @@ dependencies = [
   "xarray>=2024.1",
 ]
 
+[project.scripts]
+scopecat-generate-instrument-clients = "scopecat.sdk.instruments.client_codegen:main"
+
 [project.optional-dependencies]
 pandas = [
   "pandas>=2",
