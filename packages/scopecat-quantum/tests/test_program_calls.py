@@ -564,6 +564,33 @@ def test_program_call_binds_compiler_collection_outside_program_arguments() -> N
     )
 
 
+def test_program_call_captures_scalar_compiler_input_literals() -> None:
+    @authoring.program(id="test.quantum.compiler-literal")
+    def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        return authoring.measure(qubit, result="iq")
+
+    call = declaration("q0").with_compiler_inputs(
+        detuning=sc.Quantity(5, "MHz"),
+        enabled=True,
+    )
+
+    assert tuple(name for name, _value in call.compiler_arguments) == (
+        "detuning",
+        "enabled",
+    )
+    compiler_types = tuple(
+        port.value_type
+        for port in call.domain_call.execution.program.compiler_input_ports
+    )
+    assert isinstance(compiler_types[0], sc.ScalarType)
+    assert compiler_types[0].atom == sc.QuantityType(
+        unit="MHz",
+        minimum=5,
+        maximum=5,
+    )
+    assert compiler_types[1] == sc.ScalarType(sc.BoolType())
+
+
 def test_repeated_program_calls_require_explicit_instances() -> None:
     @authoring.program(id="test.quantum.repeated")
     def declaration(qubit: authoring.Qubit) -> authoring.QuantumFragment:

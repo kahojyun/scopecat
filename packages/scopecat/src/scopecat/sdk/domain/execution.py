@@ -2,17 +2,16 @@
 
 Domain compilers consume the target-neutral bound program and close target,
 result, and value decisions before a bounded batch enters domain effects.
-Scopecat retains ownership of runtime execution, correlation, recording, and
-terminal run evidence.
-
-The runtime boundary is synchronous: one execute returns the complete result
-while receipts preserve known and indeterminate outcomes.
+Scopecat retains ownership of job advancement, correlation, recording, and
+terminal run evidence. Synchronous targets finish from ``start``; externally
+resumable targets may expose one or more correlated checkpoint transitions.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
+from typing import Literal
 
 from scopecat.inspection import (
     CompiledArtifactInspection,
@@ -24,12 +23,12 @@ from scopecat.measurements.values import MeasurementValueCandidate
 from scopecat.sdk.domain.invocation import ClosedDomainInvocation
 from scopecat.sdk.domain.runtime import (
     DomainExecutionResult,
-    DomainRuntime,
+    DomainJobRuntime,
     DomainSetup,
 )
 
 type ErasedDomainInvocation = ClosedDomainInvocation[Hashable, object]
-type ErasedDomainRuntime = DomainRuntime[object, object]
+type ErasedDomainJobRuntime = DomainJobRuntime[object, object]
 type ErasedDomainSetup = DomainSetup[object]
 type ErasedDomainResultSink = Callable[[MeasurementValueCandidate], None]
 type ErasedDomainRealizer = Callable[
@@ -39,6 +38,11 @@ type ErasedDomainRealizer = Callable[
 type CompiledInspectionProjector = Callable[
     [CompiledProgramInspectionQuery | None],
     CompiledArtifactInspection,
+]
+type DomainTransitionPolicy = Literal[
+    "write_ahead",
+    "batched",
+    "abnormal_only",
 ]
 
 
@@ -71,6 +75,36 @@ class DomainStateRequirement:
     value: StateValue
 
 
+@dataclass(frozen=True, slots=True, order=True)
+class DomainResidencyAddress:
+    """One connection-owned opaque target setup slot.
+
+    Residency is runtime knowledge such as the content currently loaded in an
+    AWG or FPGA program bank. It is deliberately separate from public
+    instrument interface state: experiment authors do not select it, drivers
+    need not make it queryable, and losing the connection loses the knowledge.
+    """
+
+    instrument_id: str
+    slot_id: str
+
+    def __post_init__(self) -> None:
+        if not self.instrument_id or not self.slot_id:
+            raise ValueError("domain residency identity fields must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class DomainResidencyRequirement:
+    """Content that target setup leaves resident in one opaque slot."""
+
+    address: DomainResidencyAddress
+    content_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if not self.content_fingerprint:
+            raise ValueError("domain residency fingerprint must be non-empty")
+
+
 @dataclass(frozen=True, slots=True)
 class PreparedDomainExecution:
     """A pure proof that one bound program is ready for domain effects.
@@ -83,9 +117,15 @@ class PreparedDomainExecution:
     only after that boundary. Write footprints declare target authority and an
     unknown postcondition; invalidations only withdraw planner knowledge and may
     name physically coupled properties outside the target footprint. The
-    continuation capacity is compiler feedback from this concrete artifact; it
-    bounds the next contiguous batch after payload shape and device limits are
-    known without making those resource dimensions part of core semantics.
+    continuation maximum is compiler feedback from this concrete artifact; it
+    bounds the next candidate after payload shape and device limits are known.
+    The compiler still selects the candidate's compatible prefix, without
+    making those resource dimensions part of core semantics. The transition
+    policy controls evidence persistence only: write-ahead retains every
+    semantic boundary before the adjacent target effect, batched mode accepts a
+    bounded loss window, and abnormal-only omits ordinary synchronous successes
+    while retaining negative, interrupted, or checkpoint-bearing jobs. None
+    changes hardware ordering.
     """
 
     instrument_ids: tuple[str, ...]
@@ -97,7 +137,7 @@ class PreparedDomainExecution:
     next_batch_max_points: int
     invocation: ErasedDomainInvocation = field(repr=False)
     setup: ErasedDomainSetup | None = field(repr=False, compare=False)
-    runtime: ErasedDomainRuntime = field(repr=False, compare=False)
+    job_runtime: ErasedDomainJobRuntime = field(repr=False, compare=False)
     realize_into: ErasedDomainRealizer = field(repr=False, compare=False)
     inspection: CompiledArtifactInspection | None = field(
         default=None,
@@ -109,10 +149,14 @@ class PreparedDomainExecution:
         repr=False,
         compare=False,
     )
+    setup_residency_requirements: tuple[DomainResidencyRequirement, ...] = ()
+    setup_residency_invalidations: tuple[DomainResidencyAddress, ...] = ()
+    realtime_residency_invalidations: tuple[DomainResidencyAddress, ...] = ()
+    transition_policy: DomainTransitionPolicy = "write_ahead"
 
     def __post_init__(self) -> None:
         if self.next_batch_max_points <= 0:
-            raise ValueError("next domain batch capacity must be positive")
+            raise ValueError("next domain batch maximum must be positive")
         if any(not instrument_id for instrument_id in self.instrument_ids):
             raise ValueError("prepared domain instrument ids must be non-empty")
         if len(self.instrument_ids) != len(set(self.instrument_ids)):
@@ -125,10 +169,34 @@ class PreparedDomainExecution:
                 "prepared domain write footprints must belong to its instrument "
                 "footprint"
             )
+        residency_addresses = tuple(
+            requirement.address for requirement in self.setup_residency_requirements
+        )
+        if len(residency_addresses) != len(set(residency_addresses)):
+            raise ValueError("prepared domain residency slots must be unique")
+        if self.setup is None and (
+            self.setup_residency_requirements or self.setup_residency_invalidations
+        ):
+            raise ValueError("domain setup residency contract requires target setup")
+        if any(
+            address.instrument_id not in self.instrument_ids
+            for address in (
+                *residency_addresses,
+                *self.setup_residency_invalidations,
+                *self.realtime_residency_invalidations,
+            )
+        ):
+            raise ValueError(
+                "prepared domain residency slots must belong to its instrument "
+                "footprint"
+            )
 
 
 __all__ = [
+    "DomainResidencyAddress",
+    "DomainResidencyRequirement",
     "DomainStateAddress",
     "DomainStateRequirement",
+    "DomainTransitionPolicy",
     "PreparedDomainExecution",
 ]

@@ -68,8 +68,8 @@ Every applicable profile should verify that:
   sizes;
 - compiler requests respect backend-declared capacity;
 - completed measurement prefixes are readable before terminal completion;
-- SQLite events and control records grow at batch, checkpoint, or durable state
-  transition granularity;
+- SQLite events and control records grow at batch or domain-job transition
+  granularity;
 - binary objects carry large values while control responses remain bounded
   descriptors;
 - notebook reads keep memory proportional to the requested measurement batch;
@@ -357,6 +357,31 @@ The synthetic dwell makes the two virtual paths wait for equal aggregate
 logical-point time. Physical-hardware validation remains necessary for driver
 and timing behavior.
 
+### Fixed-program Host-LO Sweep
+
+The `lo-sweep` profile models dense spectroscopy where the outer scan changes
+the host-controlled RF source and the quantum target receives the same fixed-IF
+Ramsey program at every point:
+
+```console
+uv run python -m benchmarks run scan-execution \
+  --profile lo-sweep \
+  --runners scopecat \
+  --points 10,100,1000 \
+  --host-label lab-pc-hdd \
+  --storage-root /path/on/the/experiment-drive
+```
+
+The logical regression requires the LO coordinate to appear in an RF interface
+member assignment and not in the domain program inputs. Each host step still
+causes one physical trigger, but an ordinary synchronous success uses
+`abnormal_only` evidence: it adds no domain-job transition row. Measurement
+appends remain bounded chunks, command payloads remain transient, and no
+waveform or domain program becomes durable run content. Compare preparation,
+active time, peak payload-spool bytes, control bytes, and file count on the
+actual HDD; wall times remain observations rather than machine-independent CI
+thresholds.
+
 ### Latest Multichannel Waveform Profile
 
 The waveform profile varies the per-point physical waveform working set while
@@ -516,8 +541,8 @@ acceptance gates:
   to total wall time, whichever allowance is larger;
 - peak memory is bounded by physical batch and current-point payload size, not
   total scan waveform volume;
-- durable file and control-record counts grow with batches or checkpoints, not
-  one object per logical point.
+- durable file and control-record counts grow with batches or domain-job
+  transitions, not one object per logical point.
 
 The absolute one-second limits are UX budgets, not ratios against a nearly
 zero-duration direct loop. Change them only with a recorded lab workflow and
@@ -630,12 +655,17 @@ The present architecture provides a direct end-to-end baseline:
   canonical values one at a time into the execution coverage sink; the daemon
   then owns bounded pending Arrow chunks until durable ingest acceptance rather
   than retaining a second complete candidate tuple;
-- cancellation fences every hardware batch submitted from a synchronous domain
-  runtime, including each bounded shot chunk. A request arriving during a
-  driver call is honored before the next batch; the completed receipt is still
-  interpreted first, so cancellation cannot turn known hardware evidence into
-  a fabricated indeterminate failure. The maximum cooperative cancellation
-  delay is therefore one active driver call or one configured result chunk;
+- cancellation fences every hardware batch submitted from a domain job runtime,
+  including each bounded shot chunk. The invocation identity is durable before
+  domain setup or provider start, each checkpoint is durable before its next
+  `resume`, and the terminal receipt is durable before result realization. A
+  request arriving during a driver call is honored before the next batch; the
+  completed receipt is still interpreted first, so cancellation cannot turn
+  known hardware evidence into a fabricated indeterminate failure. The maximum
+  cooperative cancellation delay is therefore one active driver call or one
+  configured result chunk. Complete invocation intent, checkpoints, and
+  receipts live only in the paged transition ledger; the run terminal retains
+  aggregate counts and target ids instead of an O(job-count) attempt array;
 - admission uses the domain compiler's static instrument footprint and all
   structurally compatible local route candidates. Point-local routing narrows
   the operations actually emitted, so a run may conservatively reserve an

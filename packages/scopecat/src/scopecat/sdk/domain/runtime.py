@@ -1,22 +1,18 @@
-"""One synchronous, correlated effect for a closed domain invocation."""
+"""Correlated job lifecycle for one closed domain invocation."""
 
 from __future__ import annotations
 
-from collections.abc import Hashable
+from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    field_validator,
-    model_validator,
-)
-
-from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.errors import (
     DomainExecutionFailed,
+)
+from scopecat.records.execution import (
+    DomainExecutionId,
+    DomainExecutionReceipt,
+    DomainJobCheckpoint,
 )
 from scopecat.sdk.domain.invocation import (
     ClosedDomainInvocation,
@@ -36,92 +32,6 @@ if TYPE_CHECKING:
     )
 
 
-class DomainExecutionId(BaseModel):
-    """Deterministic identity for one synchronous domain execution."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    run_id: str
-    logical_compute_node_id: str
-    invocation_id: str
-    intent_fingerprint: str
-
-    @field_validator(
-        "run_id",
-        "logical_compute_node_id",
-        "invocation_id",
-        "intent_fingerprint",
-    )
-    @classmethod
-    def validate_required_text(cls, value: str) -> str:
-        if not value:
-            raise ValueError("domain execution identity fields must be non-empty")
-        return value
-
-    @property
-    def execution_key(self) -> str:
-        return stable_content_hash(
-            {
-                "schema": "scopecat.domain_execution_key.v1",
-                "run_id": self.run_id,
-                "logical_compute_node_id": self.logical_compute_node_id,
-                "invocation_id": self.invocation_id,
-                "intent_fingerprint": self.intent_fingerprint,
-            }
-        )
-
-    @property
-    def operation_id(self) -> str:
-        return f"domain:{self.execution_key}:execute"
-
-
-class DomainExecutionReceipt(BaseModel):
-    """Provider evidence for one complete synchronous target call.
-
-    ``completed`` supplies correlated result evidence and proves that the
-    realtime call completed. ``not_executed`` proves that realtime execution
-    did not begin, even if declared setup work changed state. ``unknown`` means
-    hardware may have changed without a correlated completion. Both negative
-    statuses carry problems and no result evidence.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    execution_key: str
-    status: Literal["completed", "not_executed", "unknown"]
-    result_fingerprint: str | None = None
-    result_count: int | None = Field(default=None, ge=0)
-    problems: tuple[Problem, ...] = ()
-
-    @field_validator("execution_key")
-    @classmethod
-    def validate_execution_key(cls, value: str) -> str:
-        if not value:
-            raise ValueError("domain execution receipts require an execution key")
-        return value
-
-    @model_validator(mode="after")
-    def validate_outcome(self) -> DomainExecutionReceipt:
-        has_result = (
-            self.result_fingerprint is not None and self.result_count is not None
-        )
-        if self.status == "completed":
-            if not has_result or not self.result_fingerprint or self.problems:
-                raise ValueError(
-                    "completed domain receipts require result evidence and no problems"
-                )
-        elif (
-            has_result
-            or self.result_fingerprint is not None
-            or self.result_count is not None
-            or not self.problems
-        ):
-            raise ValueError(
-                "negative domain receipts require problems and no result evidence"
-            )
-        return self
-
-
 @dataclass(frozen=True, slots=True)
 class DomainExecutionResult[ResultT]:
     """One complete target result paired with correlated provider evidence."""
@@ -134,8 +44,13 @@ class DomainExecutionResult[ResultT]:
             raise ValueError("domain results require completed receipt evidence")
 
 
+type DomainJobTransition[ResultT] = (
+    DomainJobCheckpoint | DomainExecutionReceipt | DomainExecutionResult[ResultT]
+)
+
+
 class DomainExecutionCancellationRequested(Exception):
-    """Stop a synchronous domain call before its next hardware batch.
+    """Stop a domain job before its next transition or hardware batch.
 
     Core raises this only at a boundary where no new hardware batch has been
     submitted. It is control flow rather than provider failure evidence and
@@ -162,17 +77,35 @@ class DomainSetup[PayloadT](Protocol):
     ) -> None: ...
 
 
-class DomainRuntime[PayloadT, ResultT](Protocol):
-    """Execute one target invocation completely in the current run host."""
+class DomainJobRuntime[PayloadT, ResultT](Protocol):
+    """Start one target job in the current run host.
 
-    def execute(
+    A synchronously completing target returns terminal receipt/result evidence
+    directly. A target with an externally resumable job returns a
+    :class:`DomainJobCheckpoint` and also implements
+    :class:`ResumableDomainJobRuntime`.
+    """
+
+    def start(
         self,
         execution_key: str,
         payload: PayloadT,
         /,
         *,
         instruments: DomainInstrumentExecutor,
-    ) -> DomainExecutionReceipt | DomainExecutionResult[ResultT]: ...
+    ) -> DomainJobTransition[ResultT]: ...
+
+
+class ResumableDomainJobRuntime[ResultT](Protocol):
+    """Advance one previously checkpointed target job."""
+
+    def resume(
+        self,
+        checkpoint: DomainJobCheckpoint,
+        /,
+        *,
+        instruments: DomainInstrumentExecutor,
+    ) -> DomainJobTransition[ResultT]: ...
 
 
 def plan_domain_execution[
@@ -193,33 +126,52 @@ def plan_domain_execution[
     )
 
 
-def execute_domain_invocation[
+def run_domain_invocation[
     ResultAddressT: Hashable,
     PayloadT,
     ResultT,
 ](
-    runtime: DomainRuntime[PayloadT, ResultT],
+    job_runtime: DomainJobRuntime[PayloadT, ResultT],
     invocation: ClosedDomainInvocation[ResultAddressT, PayloadT],
     execution_id: DomainExecutionId,
     *,
     instruments: DomainInstrumentExecutor,
+    observe_checkpoint: Callable[[DomainJobCheckpoint], None] | None = None,
 ) -> DomainExecutionResult[ResultT]:
-    """Execute once and validate exact, correlated provider evidence."""
+    """Advance one job to terminal and validate every correlated transition."""
 
     intent = invocation.intent
     _validate_execution_id(intent, execution_id)
     try:
-        outcome = runtime.execute(
+        outcome = job_runtime.start(
             execution_id.execution_key,
             invocation.payload,
             instruments=instruments,
         )
+        previous: DomainJobCheckpoint | None = None
+        while isinstance(outcome, DomainJobCheckpoint):
+            _validate_checkpoint(execution_id, previous, outcome)
+            if observe_checkpoint is not None:
+                observe_checkpoint(outcome)
+            if not hasattr(job_runtime, "resume"):
+                raise TypeError(
+                    "a job runtime that returns a pending domain checkpoint must "
+                    "implement resume"
+                )
+            resumable = cast(
+                "ResumableDomainJobRuntime[ResultT]",
+                cast("object", job_runtime),
+            )
+            previous = outcome
+            outcome = resumable.resume(outcome, instruments=instruments)
     except DomainExecutionCancellationRequested:
+        raise
+    except DomainExecutionFailed:
         raise
     except Exception as error:
         execution_problem = problem_from_exception(
             "domain_execution_raised",
-            "domain runtime raised during synchronous execution",
+            "domain job runtime raised while advancing its job",
             run_id=execution_id.run_id,
             operation_id=execution_id.operation_id,
             error=error,
@@ -231,16 +183,19 @@ def execute_domain_invocation[
             invocation_id=intent.invocation_id,
             execution_key=execution_id.execution_key,
             certainty="indeterminate",
+            receipt=None,
         ) from error
     try:
-        receipt = (
-            outcome.receipt if isinstance(outcome, DomainExecutionResult) else outcome
-        )
+        result: DomainExecutionResult[ResultT] | None
+        if isinstance(outcome, DomainExecutionResult):
+            result = outcome
+            receipt = result.receipt
+        else:
+            result = None
+            receipt = outcome
         if receipt.execution_key != execution_id.execution_key:
             raise ValueError("domain receipt belongs to another execution")
-        if receipt.status == "completed" and not isinstance(
-            outcome, DomainExecutionResult
-        ):
+        if receipt.status == "completed" and result is None:
             raise ValueError("completed domain receipts require a result")
     except Exception as error:
         provider_problem = _provider_problem(execution_id, error)
@@ -251,6 +206,7 @@ def execute_domain_invocation[
             invocation_id=intent.invocation_id,
             execution_key=execution_id.execution_key,
             certainty="indeterminate",
+            receipt=None,
         ) from error
 
     problems = contextualize_problems(
@@ -258,8 +214,8 @@ def execute_domain_invocation[
         run_id=execution_id.run_id,
         operation_id=execution_id.operation_id,
     )
-    if isinstance(outcome, DomainExecutionResult):
-        return outcome
+    if result is not None:
+        return result
 
     certainty: Literal["known", "indeterminate"] = (
         "known" if receipt.status == "not_executed" else "indeterminate"
@@ -271,6 +227,7 @@ def execute_domain_invocation[
         invocation_id=intent.invocation_id,
         execution_key=execution_id.execution_key,
         certainty=certainty,
+        receipt=receipt,
     )
 
 
@@ -285,13 +242,28 @@ def _validate_execution_id(
         raise ValueError("domain execution identity does not match its invocation")
 
 
+def _validate_checkpoint(
+    execution_id: DomainExecutionId,
+    previous: DomainJobCheckpoint | None,
+    checkpoint: DomainJobCheckpoint,
+) -> None:
+    if checkpoint.execution_key != execution_id.execution_key:
+        raise ValueError("domain job checkpoint belongs to another execution")
+    if previous is None:
+        return
+    if checkpoint.job_id != previous.job_id:
+        raise ValueError("domain job checkpoint changed its job identity")
+    if checkpoint.revision <= previous.revision:
+        raise ValueError("domain job checkpoint revisions must increase")
+
+
 def _provider_problem(
     execution_id: DomainExecutionId,
     error: Exception,
 ) -> Problem:
     return runtime_problem(
         "domain_execution_receipt_invalid",
-        "domain runtime returned invalid or uncorrelated result evidence",
+        "domain job runtime returned invalid or uncorrelated result evidence",
         run_id=execution_id.run_id,
         operation_id=execution_id.operation_id,
         details={"error_type": f"{type(error).__module__}.{type(error).__qualname__}"},
@@ -304,8 +276,11 @@ __all__ = [
     "DomainExecutionReceipt",
     "DomainExecutionResult",
     "DomainInstrumentExecutor",
-    "DomainRuntime",
+    "DomainJobCheckpoint",
+    "DomainJobRuntime",
+    "DomainJobTransition",
     "DomainSetup",
-    "execute_domain_invocation",
+    "ResumableDomainJobRuntime",
     "plan_domain_execution",
+    "run_domain_invocation",
 ]

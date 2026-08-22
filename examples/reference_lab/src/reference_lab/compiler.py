@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 from scopecat.inspection import (
     CompiledArtifactInspection,
     CompiledProgramInspectionQuery,
 )
+from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
+from scopecat.kernel.json_types import JsonValue
 from scopecat.sdk.domain import (
+    DomainBatchCandidate,
     DomainBatchInputs,
     DomainBatchRequest,
     DomainCallView,
@@ -41,6 +45,7 @@ from scopecat_quantum.programs import (
     plan_quantum_pulse_lowering,
 )
 from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
+from scopecat_quantum.targets import TargetCompileEntry
 
 from reference_lab.parameters import QUBITS
 from reference_lab.point_values import QuantumLabPointValues
@@ -55,7 +60,7 @@ from reference_lab.targets.list_mode import (
     ConfiguredRoutePlacementProvider,
     ListModeArtifact,
     ListModeCompilationTrace,
-    ListModeDomainRuntime,
+    ListModeDomainJobRuntime,
     ListModePlacementProvider,
     ListModeRun,
     ListModeTarget,
@@ -64,12 +69,13 @@ from reference_lab.targets.list_mode import (
     build_list_mode_artifact_inspection_snapshot,
     list_mode_measurement_invocation_spec,
     list_mode_realtime_write_footprint,
+    list_mode_setup_residency_requirements,
     list_mode_setup_state_invalidations,
     list_mode_state_requirements,
     realize_executed_measurements,
 )
 
-_QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId("reference-lab.list-mode-target.v1")
+_QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId("reference-lab.list-mode-target.v2")
 _INITIAL_BATCH_SIZE = 1
 
 
@@ -96,7 +102,7 @@ class _CompiledQuantumPoint:
 
 
 @dataclass(frozen=True, slots=True)
-class QuantumRuntimeContext:
+class QuantumJobRuntimeContext:
     """Compiled logical context available to an optional execution adapter."""
 
     program: quantum.Program = field(repr=False)
@@ -106,17 +112,20 @@ class QuantumRuntimeContext:
 
 
 @dataclass(frozen=True, slots=True)
-class QuantumRuntimeSelection:
-    """Runtime plus stable response intent selected by a lab composition."""
+class QuantumJobRuntimeSelection:
+    """Job runtime plus stable response intent selected by a lab composition."""
 
-    runtime: ListModeDomainRuntime
-    response_intent: object | None = None
+    job_runtime: ListModeDomainJobRuntime
+    response_intent: Mapping[str, JsonValue] | None = None
 
 
-class QuantumRuntimeSelector(Protocol):
+class QuantumJobRuntimeSelector(Protocol):
     """Select execution behavior without changing target compilation."""
 
-    def __call__(self, context: QuantumRuntimeContext) -> QuantumRuntimeSelection: ...
+    def __call__(
+        self,
+        context: QuantumJobRuntimeContext,
+    ) -> QuantumJobRuntimeSelection: ...
 
 
 class QuantumLabCompiler:
@@ -131,12 +140,12 @@ class QuantumLabCompiler:
         self,
         *,
         target: ListModeTarget,
-        runtime_selector: QuantumRuntimeSelector | None = None,
+        job_runtime_selector: QuantumJobRuntimeSelector | None = None,
         placement_provider: ListModePlacementProvider | None = None,
     ) -> None:
         self._target = target
-        self._runtime = ListModeDomainRuntime()
-        self._runtime_selector = runtime_selector
+        self._job_runtime = ListModeDomainJobRuntime()
+        self._job_runtime_selector = job_runtime_selector
         selected_placement_provider = (
             ConfiguredRoutePlacementProvider()
             if placement_provider is None
@@ -175,7 +184,7 @@ class QuantumLabCompiler:
             )
         )
 
-    def initial_batch_size(self, point_count: int) -> int:
+    def initial_batch_max_points(self, point_count: int) -> int:
         """Bound the first preparation without materializing program inputs."""
 
         return min(
@@ -184,34 +193,62 @@ class QuantumLabCompiler:
             self._target.max_list_entries,
         )
 
+    def prepare_batch(self, request: DomainBatchRequest) -> DomainBatchCandidate:
+        """Lower candidate points once and retain them across host-state splits."""
+
+        program = _quantum_program(request.call)
+        _validate_call(request.call, program)
+        shots = _shot_count(request.call)
+        points = _compile_points(
+            program,
+            request.inputs,
+            request.point_ordinals,
+            max_expanded_operations=self._target.max_program_event_count,
+        )
+        entries = _prepare_target_entries(
+            program,
+            points,
+            max_expanded_operations=self._target.max_program_event_count,
+        )
+        source_indices = {
+            point_ordinal: index
+            for index, point_ordinal in enumerate(request.point_ordinals)
+        }
+
+        def compile_exact(
+            exact_request: DomainBatchRequest,
+        ) -> PreparedDomainExecution:
+            selected_indices = tuple(
+                source_indices[point_ordinal]
+                for point_ordinal in exact_request.point_ordinals
+            )
+            selected_points = tuple(points[index] for index in selected_indices)
+            selected_entries = _retarget_target_entries(
+                program,
+                selected_points,
+                tuple(entries[index] for index in selected_indices),
+            )
+            return self._compile_prepared_batch(
+                exact_request,
+                program=program,
+                points=selected_points,
+                entries=selected_entries,
+                shots=shots,
+            )
+
+        return DomainBatchCandidate(
+            compatible_point_count=len(request.points),
+            _compile=compile_exact,
+        )
+
     def _compile_target_artifact(
         self,
         program: quantum.Program,
-        inputs: DomainBatchInputs,
-        point_ordinals: tuple[int, ...],
+        points: tuple[_CompiledQuantumPoint, ...],
+        entries: tuple[PreparedQuantumTargetEntry, ...],
         *,
         shots: int,
     ) -> _ListQuantumLabArtifact:
-        points = _compile_points(
-            program,
-            inputs,
-            point_ordinals,
-            max_expanded_operations=self._target.max_program_event_count,
-        )
-        entries = tuple(
-            prepare_quantum_target_entry(
-                TargetCompileEntryId(f"{program.id}.point-{point.values.ordinal}"),
-                plan_quantum_pulse_lowering(
-                    point.bound.verified,
-                    point.implementations,
-                    output_id=PulseProgramId(
-                        f"{program.id}.point-{point.values.ordinal}.pulses"
-                    ),
-                    max_expanded_operations=self._target.max_program_event_count,
-                ),
-            )
-            for point in points
-        )
         batch = prepare_quantum_target_batch(
             entries,
             repetitions=shots,
@@ -229,17 +266,20 @@ class QuantumLabCompiler:
             compilation_trace=compilation_trace,
         )
 
-    def compile_batch(
+    def _compile_prepared_batch(
         self,
         request: DomainBatchRequest,
+        *,
+        program: quantum.Program,
+        points: tuple[_CompiledQuantumPoint, ...],
+        entries: tuple[PreparedQuantumTargetEntry, ...],
+        shots: int,
     ) -> PreparedDomainExecution:
-        program = _quantum_program(request.call)
-        _validate_call(request.call, program)
         artifact = self._compile_target_artifact(
             program,
-            request.inputs,
-            request.point_ordinals,
-            shots=_shot_count(request.call),
+            points,
+            entries,
+            shots=shots,
         )
         preparation = DomainPreparationBuilder(request)
         entries = artifact.entries
@@ -265,15 +305,15 @@ class QuantumLabCompiler:
             artifact.target_artifact,
             mapping,
         )
-        selection = self._select_runtime(
-            QuantumRuntimeContext(
+        selection = self._select_job_runtime(
+            QuantumJobRuntimeContext(
                 program=artifact.program,
                 points=artifact.points,
                 entries=entries,
                 repetitions=batch.request.repetitions,
             )
         )
-        runtime = selection.runtime
+        job_runtime = selection.job_runtime
         invocation = list_mode_measurement_invocation_spec(
             mapped_target,
             invocation_id=(
@@ -305,7 +345,10 @@ class QuantumLabCompiler:
 
         return preparation.build(
             instrument_ids=artifact.target_artifact.instrument_ids,
-            setup=runtime,
+            setup=job_runtime,
+            setup_residency_requirements=list_mode_setup_residency_requirements(
+                artifact.target_artifact
+            ),
             setup_state_invalidations=list_mode_setup_state_invalidations(
                 artifact.target_artifact
             ),
@@ -314,6 +357,7 @@ class QuantumLabCompiler:
                 artifact.target_artifact
             ),
             realtime_state_invalidations=(),
+            transition_policy="abnormal_only",
             next_batch_max_points=(
                 artifact.target_artifact.compilation_budget.next_batch_max_points
             ),
@@ -327,17 +371,17 @@ class QuantumLabCompiler:
             ),
             mapping=mapping,
             invocation=invocation,
-            runtime=runtime,
+            job_runtime=job_runtime,
             realize=lambda fetched: _realize(mapped_target, fetched),
         )
 
-    def _select_runtime(
+    def _select_job_runtime(
         self,
-        context: QuantumRuntimeContext,
-    ) -> QuantumRuntimeSelection:
-        if self._runtime_selector is None:
-            return QuantumRuntimeSelection(self._runtime)
-        return self._runtime_selector(context)
+        context: QuantumJobRuntimeContext,
+    ) -> QuantumJobRuntimeSelection:
+        if self._job_runtime_selector is None:
+            return QuantumJobRuntimeSelection(self._job_runtime)
+        return self._job_runtime_selector(context)
 
 
 def _quantum_program(call: DomainCallView) -> quantum.Program:
@@ -412,20 +456,129 @@ def _compile_points(
         for index, ordinal in enumerate(point_ordinals)
     )
     compiled: list[_CompiledQuantumPoint] = []
+    effective_points: dict[
+        str,
+        tuple[quantum.BoundProgram, ResolvedPulseImplementations],
+    ] = {}
     for point, parameters in zip(points, compiler_parameters, strict=True):
-        bound = quantum.bind(program, dict(point.values))
+        effective_fingerprint = stable_content_hash(
+            content_fingerprint(
+                {
+                    "schema": "reference_lab.quantum_point_inputs.v1",
+                    "program_id": program.id,
+                    "values": point.values,
+                    "compiler_parameters": parameters,
+                }
+            )
+        )
+        retained = effective_points.get(effective_fingerprint)
+        if retained is None:
+            bound = quantum.bind(program, dict(point.values))
+            implementations = QUANTUM_PULSE_PROFILE.materialize_quantum(
+                parameters,
+                bound.verified,
+                max_expanded_operations=max_expanded_operations,
+            )
+            effective_points[effective_fingerprint] = (bound, implementations)
+        else:
+            bound, implementations = retained
         compiled.append(
             _CompiledQuantumPoint(
                 values=point,
                 bound=bound,
-                implementations=QUANTUM_PULSE_PROFILE.materialize_quantum(
-                    parameters,
-                    bound.verified,
-                    max_expanded_operations=max_expanded_operations,
-                ),
+                implementations=implementations,
             )
         )
     return tuple(compiled)
+
+
+def _prepare_target_entries(
+    program: quantum.Program,
+    points: tuple[_CompiledQuantumPoint, ...],
+    *,
+    max_expanded_operations: int,
+) -> tuple[PreparedQuantumTargetEntry, ...]:
+    """Assign request-local identities from point-effective program content.
+
+    Logical point ordinals belong to result mapping, not physical compilation.
+    Reusing content-derived entry identities lets an identical one-entry target
+    program share the target compiler's staged caches across host-state points.
+    The occurrence suffix keeps duplicate entries unique inside one native batch.
+    """
+
+    occurrences: dict[str, int] = {}
+    scheduled_by_digest: dict[str, PreparedQuantumTargetEntry] = {}
+    entries: list[PreparedQuantumTargetEntry] = []
+    for point in points:
+        digest = _compiled_point_program_digest(program, point)
+        occurrence = occurrences.get(digest, 0)
+        occurrences[digest] = occurrence + 1
+        local_id = f"{program.id}.content-{digest[:16]}.entry-{occurrence}"
+        retained = scheduled_by_digest.get(digest)
+        if retained is None:
+            retained = prepare_quantum_target_entry(
+                TargetCompileEntryId(local_id),
+                plan_quantum_pulse_lowering(
+                    point.bound.verified,
+                    point.implementations,
+                    output_id=PulseProgramId(
+                        f"{program.id}.content-{digest[:16]}.pulses"
+                    ),
+                    max_expanded_operations=max_expanded_operations,
+                ),
+            )
+            scheduled_by_digest[digest] = retained
+        entries.append(
+            PreparedQuantumTargetEntry(
+                replace(
+                    retained.target_entry,
+                    id=TargetCompileEntryId(local_id),
+                )
+            )
+        )
+    return tuple(entries)
+
+
+def _compiled_point_program_digest(
+    program: quantum.Program,
+    point: _CompiledQuantumPoint,
+) -> str:
+    return stable_content_hash(
+        content_fingerprint(
+            {
+                "schema": "reference_lab.quantum_point_program.v1",
+                "program_id": program.id,
+                "verified": point.bound.verified,
+                "implementations": point.implementations,
+            }
+        )
+    )
+
+
+def _retarget_target_entries(
+    program: quantum.Program,
+    points: tuple[_CompiledQuantumPoint, ...],
+    entries: tuple[PreparedQuantumTargetEntry, ...],
+) -> tuple[PreparedQuantumTargetEntry, ...]:
+    """Normalize request-local entry occurrence ids without re-lowering pulses."""
+
+    occurrences: dict[str, int] = {}
+    selected: list[PreparedQuantumTargetEntry] = []
+    for point, entry in zip(points, entries, strict=True):
+        digest = _compiled_point_program_digest(program, point)
+        occurrence = occurrences.get(digest, 0)
+        occurrences[digest] = occurrence + 1
+        selected.append(
+            PreparedQuantumTargetEntry(
+                TargetCompileEntry(
+                    id=TargetCompileEntryId(
+                        f"{program.id}.content-{digest[:16]}.entry-{occurrence}"
+                    ),
+                    program=entry.scheduled,
+                )
+            )
+        )
+    return tuple(selected)
 
 
 def _result_address(
@@ -459,8 +612,8 @@ def _realize(
 
 
 __all__ = [
+    "QuantumJobRuntimeContext",
+    "QuantumJobRuntimeSelection",
+    "QuantumJobRuntimeSelector",
     "QuantumLabCompiler",
-    "QuantumRuntimeContext",
-    "QuantumRuntimeSelection",
-    "QuantumRuntimeSelector",
 ]

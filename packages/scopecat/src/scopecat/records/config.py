@@ -18,8 +18,8 @@ from pydantic import (
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.records.instrument import (
-    InstrumentPropertyState,
-    property_target_identity,
+    InstrumentStateSetting,
+    state_member_identity,
 )
 from scopecat.records.parameter import (
     ParameterCatalog,
@@ -117,6 +117,12 @@ class VirtualInstrumentConnection(_InstrumentConnection):
     kind: Literal["virtual"] = "virtual"
 
 
+class DriverManagedInstrumentConnection(_InstrumentConnection):
+    """Physical connection whose resources are owned by its driver factory."""
+
+    kind: Literal["driver_managed"] = "driver_managed"
+
+
 class TcpipSocketInstrumentConnection(_InstrumentConnection):
     kind: Literal["tcpip_socket"] = "tcpip_socket"
     host: Annotated[str, Field(min_length=1)]
@@ -124,8 +130,36 @@ class TcpipSocketInstrumentConnection(_InstrumentConnection):
     timeout_seconds: float = Field(default=5.0, gt=0)
 
 
+class SerialInstrumentConnection(_InstrumentConnection):
+    """One locally attached serial port with explicit framing settings."""
+
+    kind: Literal["serial"] = "serial"
+    port: Annotated[str, Field(min_length=1)]
+    baud_rate: int = Field(default=9600, ge=1)
+    timeout_seconds: float = Field(default=1.0, gt=0)
+    write_timeout_seconds: float = Field(default=1.0, gt=0)
+    data_bits: Literal[5, 6, 7, 8] = 8
+    parity: Literal["none", "even", "odd", "mark", "space"] = "none"
+    stop_bits: float = 1.0
+    xonxoff: bool = False
+    rtscts: bool = False
+    dsrdtr: bool = False
+
+    @field_validator("stop_bits")
+    @classmethod
+    def validate_stop_bits(cls, value: float) -> float:
+        if value not in {1.0, 1.5, 2.0}:
+            raise ValueError("serial stop_bits must be 1, 1.5, or 2")
+        return value
+
+
 type InstrumentConnection = Annotated[
-    VirtualInstrumentConnection | TcpipSocketInstrumentConnection,
+    (
+        VirtualInstrumentConnection
+        | DriverManagedInstrumentConnection
+        | TcpipSocketInstrumentConnection
+        | SerialInstrumentConnection
+    ),
     Field(discriminator="kind"),
 ]
 
@@ -165,26 +199,19 @@ class InstrumentSpec(BaseModel):
     exclusivity_key: Annotated[str, Field(min_length=1)]
     driver_id: Annotated[str, Field(min_length=1)]
     connection: InstrumentConnection
-    default_state: list[InstrumentPropertyState] = Field(default_factory=list)
+    default_state: list[InstrumentStateSetting] = Field(default_factory=list)
     run_start: InstrumentRunStartPolicy
     success_action: InstrumentSuccessAction
-    safe_state: list[InstrumentPropertyState] = Field(default_factory=list)
+    safe_state: list[InstrumentStateSetting] = Field(default_factory=list)
     failure_action: InstrumentFailureAction
 
     @field_validator("default_state", "safe_state")
     @classmethod
     def validate_unique_state_targets(
         cls,
-        value: list[InstrumentPropertyState],
-    ) -> list[InstrumentPropertyState]:
-        identities = [
-            property_target_identity(
-                item.interface_id,
-                item.component_path,
-                item.property_id,
-            )
-            for item in value
-        ]
+        value: list[InstrumentStateSetting],
+    ) -> list[InstrumentStateSetting]:
+        identities = [state_member_identity(item.target) for item in value]
         if len(identities) != len(set(identities)):
             raise ValueError("configured state property targets must be unique")
         return value

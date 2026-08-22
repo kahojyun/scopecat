@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Literal, cast
 
 from scopecat.kernel.errors import (
-    DomainRuntimeFailure,
+    DomainExecutionFailed,
     MeasurementRecordingError,
     OperationFailure,
 )
+from scopecat.kernel.instrument_members import PropertyRef
 from scopecat.kernel.problems import (
     Problem,
     ProblemPhase,
@@ -17,17 +19,27 @@ from scopecat.kernel.problems import (
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
 )
-from scopecat.sdk.domain.execution import PreparedDomainExecution
+from scopecat.records.instrument import state_member_target
+from scopecat.sdk.domain.execution import (
+    DomainResidencyAddress,
+    DomainResidencyRequirement,
+    PreparedDomainExecution,
+)
 from scopecat.sdk.domain.runtime import (
+    DomainExecutionCancellationRequested,
+    DomainExecutionId,
     DomainExecutionReceipt,
     DomainExecutionResult,
     DomainInstrumentExecutor,
-    execute_domain_invocation,
+    DomainJobCheckpoint,
+    ResumableDomainJobRuntime,
     plan_domain_execution,
+    run_domain_invocation,
 )
 from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from scopecat.sdk.instruments.execution import RunHardwareApply, RunHardwareBatch
 from scopecat.sdk.runtime_problems import (
+    problem_from_exception,
     runtime_problem,
 )
 
@@ -39,41 +51,198 @@ def execute_domain_job_values(
     run_id: str,
     instruments: DomainInstrumentExecutor,
     accept: Callable[[MeasurementValueCandidate], None],
+    observe_attempt: Callable[
+        [
+            DomainExecutionId,
+            tuple[DomainJobCheckpoint, ...],
+            DomainExecutionReceipt | None,
+        ],
+        None,
+    ],
+    commit_invocation: Callable[[DomainExecutionId], None] | None = None,
+    commit_checkpoint: Callable[[DomainExecutionId, DomainJobCheckpoint], None]
+    | None = None,
+    commit_terminal: Callable[[DomainExecutionId, DomainExecutionReceipt], None]
+    | None = None,
+    residency: DomainResidencyCache | None = None,
 ) -> None:
-    """Execute one closed domain job into the execution-owned coverage sink."""
+    """Execute one closed domain job into the execution-owned coverage sink.
+
+    Invocation and terminal callbacks run at their semantic boundaries, before
+    domain setup/provider ``start`` and result realization respectively. The
+    selected transition writer may persist them write-ahead or stage them for a
+    bounded append. Checkpoint callbacks remain durable before resume. The
+    attempt retains the same receipt when a boundary callback fails.
+    """
 
     invocation = prepared.invocation
-    runtime = _RequirementReconciledRuntime(prepared)
+    runtime = _PreparedDomainJobRuntime(prepared, residency)
     execution_id = plan_domain_execution(
         invocation,
         run_id=run_id,
         logical_compute_node_id=logical_compute_node_id,
     )
-    result = execute_domain_invocation(
-        runtime,
-        invocation,
-        execution_id,
-        instruments=instruments,
-    )
+    checkpoints: list[DomainJobCheckpoint] = []
+
+    def commit_invocation_intent() -> None:
+        if commit_invocation is None:
+            return
+        try:
+            commit_invocation(execution_id)
+        except DomainExecutionCancellationRequested:
+            raise
+        except Exception as error:
+            operation_id = f"{execution_id.operation_id}:invocation"
+            raise DomainExecutionFailed(
+                (
+                    problem_from_exception(
+                        "domain_job_invocation_commit_failed",
+                        "domain job invocation could not be committed before start",
+                        run_id=run_id,
+                        operation_id=operation_id,
+                        phase=ProblemPhase.PERSISTENCE,
+                        error=error,
+                    ),
+                ),
+                run_id=run_id,
+                operation_id=operation_id,
+                invocation_id=invocation.intent.invocation_id,
+                execution_key=execution_id.execution_key,
+                certainty="known",
+                receipt=None,
+            ) from error
+
+    def observe_checkpoint(checkpoint: DomainJobCheckpoint) -> None:
+        checkpoints.append(checkpoint)
+        if commit_checkpoint is None:
+            return
+        try:
+            commit_checkpoint(execution_id, checkpoint)
+        except DomainExecutionCancellationRequested:
+            raise
+        except Exception as error:
+            operation_id = (
+                f"{execution_id.operation_id}:checkpoint:{checkpoint.revision}"
+            )
+            raise DomainExecutionFailed(
+                (
+                    problem_from_exception(
+                        "domain_job_checkpoint_commit_failed",
+                        "domain job checkpoint could not be committed before resume",
+                        run_id=run_id,
+                        operation_id=operation_id,
+                        phase=ProblemPhase.PERSISTENCE,
+                        error=error,
+                    ),
+                ),
+                run_id=run_id,
+                operation_id=operation_id,
+                invocation_id=invocation.intent.invocation_id,
+                execution_key=execution_id.execution_key,
+                certainty="indeterminate",
+                receipt=None,
+            ) from error
+
+    def commit_terminal_receipt(
+        receipt: DomainExecutionReceipt,
+        *,
+        certainty: Literal["known", "indeterminate"],
+        prior_problems: tuple[Problem, ...] = (),
+    ) -> None:
+        if commit_terminal is None:
+            return
+        try:
+            commit_terminal(execution_id, receipt)
+        except Exception as error:
+            operation_id = f"{execution_id.operation_id}:terminal"
+            persistence_problem = problem_from_exception(
+                "domain_job_terminal_commit_failed",
+                "domain job terminal receipt could not be committed",
+                run_id=run_id,
+                operation_id=operation_id,
+                phase=ProblemPhase.PERSISTENCE,
+                error=error,
+            )
+            raise DomainExecutionFailed(
+                (*prior_problems, persistence_problem),
+                run_id=run_id,
+                operation_id=operation_id,
+                invocation_id=invocation.intent.invocation_id,
+                execution_key=execution_id.execution_key,
+                certainty=certainty,
+                receipt=receipt,
+            ) from error
+
+    try:
+        commit_invocation_intent()
+    except BaseException:
+        observe_attempt(execution_id, tuple(checkpoints), None)
+        raise
+
+    try:
+        result = run_domain_invocation(
+            runtime,
+            invocation,
+            execution_id,
+            instruments=instruments,
+            observe_checkpoint=observe_checkpoint,
+        )
+    except DomainExecutionFailed as error:
+        receipt = (
+            error.receipt if isinstance(error.receipt, DomainExecutionReceipt) else None
+        )
+        if receipt is not None:
+            try:
+                commit_terminal_receipt(
+                    receipt,
+                    certainty=error.certainty,
+                    prior_problems=tuple(error.problems),
+                )
+            except DomainExecutionFailed:
+                observe_attempt(execution_id, tuple(checkpoints), receipt)
+                raise
+        observe_attempt(
+            execution_id,
+            tuple(checkpoints),
+            receipt,
+        )
+        raise
+    except BaseException:
+        observe_attempt(execution_id, tuple(checkpoints), None)
+        raise
+    try:
+        commit_terminal_receipt(result.receipt, certainty="known")
+    except DomainExecutionFailed:
+        observe_attempt(execution_id, tuple(checkpoints), result.receipt)
+        raise
+    observe_attempt(execution_id, tuple(checkpoints), result.receipt)
     prepared.realize_into(result, accept)
 
 
 @dataclass(frozen=True, slots=True)
-class _RequirementReconciledRuntime:
+class _PreparedDomainJobRuntime:
     prepared: PreparedDomainExecution
+    residency: DomainResidencyCache | None = field(default=None, compare=False)
 
-    def execute(
+    def start(
         self,
         execution_key: str,
         payload: object,
         /,
         *,
         instruments: DomainInstrumentExecutor,
-    ) -> DomainExecutionReceipt | DomainExecutionResult[object]:
+    ) -> DomainJobCheckpoint | DomainExecutionReceipt | DomainExecutionResult[object]:
         try:
             setup = self.prepared.setup
-            if setup is not None:
+            if setup is not None and (
+                self.residency is None
+                or self.residency.requires_setup(
+                    self.prepared.setup_residency_requirements
+                )
+            ):
                 setup.prepare(execution_key, payload, instruments=instruments)
+                if self.residency is not None:
+                    self.residency.commit_setup(self.prepared)
             _reconcile_domain_state_requirements(
                 self.prepared,
                 execution_key=execution_key,
@@ -85,11 +254,69 @@ class _RequirementReconciledRuntime:
                 status="not_executed",
                 problems=error.problems,
             )
-        return self.prepared.runtime.execute(
+        if self.residency is not None:
+            self.residency.invalidate(self.prepared.realtime_residency_invalidations)
+        return self.prepared.job_runtime.start(
             execution_key,
             payload,
             instruments=instruments,
         )
+
+    def resume(
+        self,
+        checkpoint: DomainJobCheckpoint,
+        /,
+        *,
+        instruments: DomainInstrumentExecutor,
+    ) -> DomainJobCheckpoint | DomainExecutionReceipt | DomainExecutionResult[object]:
+        if not hasattr(self.prepared.job_runtime, "resume"):
+            raise TypeError(
+                "a job runtime that returns a pending domain checkpoint must "
+                "implement resume"
+            )
+        resumable = cast(
+            "ResumableDomainJobRuntime[object]",
+            cast("object", self.prepared.job_runtime),
+        )
+        return resumable.resume(checkpoint, instruments=instruments)
+
+
+@dataclass(slots=True)
+class DomainResidencyCache:
+    """Run-local knowledge of opaque content resident beside live connections."""
+
+    contents: dict[DomainResidencyAddress, str] = field(default_factory=dict)
+
+    def requires_setup(
+        self,
+        requirements: tuple[DomainResidencyRequirement, ...],
+    ) -> bool:
+        if not requirements:
+            return True
+        return any(
+            self.contents.get(requirement.address) != requirement.content_fingerprint
+            for requirement in requirements
+        )
+
+    def commit_setup(self, prepared: PreparedDomainExecution) -> None:
+        self.invalidate(prepared.setup_residency_invalidations)
+        self.contents.update(
+            {
+                requirement.address: requirement.content_fingerprint
+                for requirement in prepared.setup_residency_requirements
+            }
+        )
+
+    def invalidate(self, addresses: tuple[DomainResidencyAddress, ...]) -> None:
+        for address in addresses:
+            self.contents.pop(address, None)
+
+    def invalidate_instruments(self, instrument_ids: set[str]) -> None:
+        self.contents = {
+            address: fingerprint
+            for address, fingerprint in self.contents.items()
+            if address.instrument_id not in instrument_ids
+        }
 
 
 def _reconcile_domain_state_requirements(
@@ -104,9 +331,13 @@ def _reconcile_domain_state_requirements(
         grouped.setdefault(address.instrument_id, []).append(
             InstrumentStateAssignment(
                 resource_id=address.instrument_id,
-                interface_id=address.interface_id,
-                component_path=list(address.component_path),
-                property_id=address.property_id,
+                target=state_member_target(
+                    PropertyRef(
+                        address.interface_id,
+                        tuple(address.component_path),
+                        address.property_id,
+                    )
+                ),
                 value=requirement.value,
             )
         )
@@ -136,8 +367,8 @@ def _reconcile_domain_state_requirements(
         raise OperationFailure(receipt.problems)
 
 
-def domain_runtime_terminal_problem(
-    error: DomainRuntimeFailure,
+def domain_job_terminal_problem(
+    error: DomainExecutionFailed,
     *,
     run_id: str,
 ) -> Problem:
@@ -150,8 +381,8 @@ def domain_runtime_terminal_problem(
         "execution_key": error.execution_key,
     }
     return runtime_problem(
-        "domain_runtime_terminalized",
-        "the unified run was terminalized with domain target correlation retained",
+        "domain_job_terminalized",
+        "the unified run was terminalized with domain job correlation retained",
         run_id=run_id,
         operation_id=error.operation_id,
         details=details,

@@ -456,6 +456,26 @@ schemas. The internal execution model still has separate host and observation
 stages, but that distinction is compiler-owned rather than a second authoring
 API.
 
+When an array result preserves one measured input's local axes, name that input
+with `axes_from` instead of redeclaring a parallel dimension identity:
+
+```python
+states = experiment.compute(
+    fn=classify_shots,
+    shots=acquired.iq_shots,
+    axes_from=acquired.iq_shots,
+    output_type=sc.ArrayType(
+        dtype="int64",
+        dimensions=(sc.ArrayDimension("shot", None),),
+    ),
+)
+```
+
+Matching dimension IDs reuse the source axis's exact logical identity, including
+when the source came from a nested module or domain program. The derived array
+therefore aligns with the original shot dimension rather than creating another
+same-labelled axis.
+
 Earlier values can be bound directly beside measured products; no closure-based
 or second compute API is required:
 

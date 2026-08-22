@@ -4,14 +4,28 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
 from pydantic import BaseModel
 from scopecat.config.registry.ports import ConfigRegistryUnitOfWorkFactory
+from scopecat.daemon.wire import (
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionItem,
+)
 from scopecat.execution.services import ExecutionSession, RunDomainProposalWriter
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.records.execution import (
+    DomainExecutionId,
+    DomainExecutionReceipt,
+    DomainJobCheckpoint,
+    DomainJobCheckpointTransition,
+    DomainJobInvocationTransition,
+    DomainJobTerminalTransition,
+    DomainJobTransitionRecord,
+)
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetBatch,
@@ -23,12 +37,16 @@ from scopecat.records.run import RunConfigSource, RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.admission import RunSkeleton, build_run_admission
 from scopecat.runs.repository import RunRepository
+from scopecat.sdk.domain.invocation import DomainInvocationIntent
 from scopecat.sdk.instruments.execution import RunInstrumentHost
 from scopecat_server.services.active_measurements import ActiveMeasurementStore
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
-from scopecat_server.storage.sqlite.execution import SQLiteMeasurementDatasetRepository
+from scopecat_server.storage.sqlite.execution import (
+    SQLiteDomainJobTransitions,
+    SQLiteMeasurementDatasetRepository,
+)
 from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 from scopecat_server.storage.sqlite.run_repository import (
     SQLiteRunRepository,
@@ -139,6 +157,109 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
         return tuple(receipts)
 
 
+class SQLiteTestDomainJobTransitionWriter:
+    """Persist in-process domain evidence through the production ledger."""
+
+    def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
+        self._runs = runs
+        self._run_id = run_id
+        self._ledger = SQLiteDomainJobTransitions(runs, run_id=run_id)
+        self._pending: list[RunDomainJobTransitionItem] = []
+        with SQLiteControlPlane(runs.sqlite).write_transaction() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO scheduler_runs(
+                    submission_id, run_id, state, updated_at, admission_json
+                )
+                VALUES (?, ?, 'leased', ?, '{}')
+                """,
+                (f"in-process:{run_id}", run_id, datetime.now(UTC).isoformat()),
+            )
+
+    def invocation(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        execution_id: DomainExecutionId,
+        intent: DomainInvocationIntent,
+        write_ahead: bool,
+    ) -> None:
+        self._stage(
+            logical_compute_node_id=logical_compute_node_id,
+            point_ordinals=point_ordinals,
+            transition=DomainJobInvocationTransition(
+                execution_id=execution_id,
+                intent=intent,
+            ),
+            write_ahead=write_ahead,
+        )
+
+    def checkpoint(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        checkpoint: DomainJobCheckpoint,
+    ) -> None:
+        self._stage(
+            logical_compute_node_id=logical_compute_node_id,
+            point_ordinals=point_ordinals,
+            transition=DomainJobCheckpointTransition(checkpoint=checkpoint),
+            write_ahead=True,
+        )
+
+    def terminal(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        receipt: DomainExecutionReceipt,
+        write_ahead: bool,
+    ) -> None:
+        self._stage(
+            logical_compute_node_id=logical_compute_node_id,
+            point_ordinals=point_ordinals,
+            transition=DomainJobTerminalTransition(receipt=receipt),
+            write_ahead=write_ahead,
+        )
+
+    def flush(self) -> None:
+        self._send_pending()
+
+    def _stage(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        transition: DomainJobTransitionRecord,
+        write_ahead: bool,
+    ) -> None:
+        self._pending.append(
+            RunDomainJobTransitionItem(
+                logical_compute_node_id=logical_compute_node_id,
+                point_ordinals=point_ordinals,
+                transition=transition,
+            )
+        )
+        if write_ahead or len(self._pending) >= 64:
+            self._send_pending()
+
+    def _send_pending(self) -> None:
+        items = tuple(self._pending)
+        if not items:
+            return
+        with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:
+            self._ledger.commit_batch_in_transaction(
+                connection,
+                RunDomainJobTransitionBatchCommand(
+                    lease_id="in-process",
+                    items=items,
+                ),
+            )
+        self._pending.clear()
+
+
 @dataclass(frozen=True, slots=True)
 class SQLiteExecutionSession(ExecutionSession):
     """Concrete SQLite session exposing read models to test assertions."""
@@ -234,6 +355,10 @@ def sqlite_execution_session(
             run_id=run_id,
         ),
         instruments=instruments or TestRunInstrumentHost(),
+        domain_job_transitions=SQLiteTestDomainJobTransitionWriter(
+            selected_runs,
+            run_id=run_id,
+        ),
         domain_proposals=domain_proposals,
     )
 

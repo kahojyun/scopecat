@@ -11,6 +11,8 @@ from typing import cast
 
 from benchmarks.e2e.scan_execution import ScanScenario, _scopecat_invocation
 from scopecat.compiler.frontend.resolution import compile_invocation
+from scopecat.program.expressions import PointColumnScalarExpr
+from scopecat.program.logical import LogicalDomainExecution, LogicalEnsureState
 
 
 def test_multiqubit_derived_results_preserve_the_source_entity_axis() -> None:
@@ -30,10 +32,150 @@ def test_multiqubit_derived_results_preserve_the_source_entity_axis() -> None:
     source = products["multiqubit-results/iq_shots"]
     derived = products["entity-bit-shots"]
 
-    assert derived.axes == source.axes
+    assert [
+        (
+            axis.id,
+            type(axis.size),
+            axis.kind,
+            axis.unit,
+            axis.entity_values,
+            axis.shared_as,
+        )
+        for axis in derived.axes
+    ] == [
+        (
+            axis.id,
+            type(axis.size),
+            axis.kind,
+            axis.unit,
+            axis.entity_values,
+            axis.shared_as,
+        )
+        for axis in source.axes
+    ]
+    assert derived.axes[1].size == source.axes[1].size == 4
     assert derived.axes[0].kind == "entity"
     assert derived.axes[0].entity_values
     assert derived.axes[0].shared_as == "targets"
+
+
+def test_fixed_program_lo_sweep_keeps_the_scan_value_outside_domain_inputs() -> None:
+    scenario = ScanScenario(
+        point_count=33,
+        profile="fixed_program_host_lo_sweep",
+        qubit_count=1,
+        physical_channel_count=4,
+    )
+
+    logical = compile_invocation(_scopecat_invocation(scenario)).program.program
+    value_sources = {value.id: value.source for value in logical.value_defs}
+    [domain] = [
+        effect
+        for effect in logical.effects
+        if isinstance(effect, LogicalDomainExecution)
+    ]
+    host_state = [
+        effect for effect in logical.effects if isinstance(effect, LogicalEnsureState)
+    ]
+
+    assert all(
+        not isinstance(value_sources[value_id], PointColumnScalarExpr)
+        for _name, value_id in domain.inputs
+    )
+    assert any(
+        assignment.property_id == "frequency"
+        and isinstance(value_sources[assignment.value_id], PointColumnScalarExpr)
+        for effect in host_state
+        for assignment in effect.assignments
+    )
+
+
+def test_fixed_program_lo_sweep_avoids_per_point_durable_job_writes(
+    tmp_path: Path,
+) -> None:
+    point_count = 33
+    work_dir = tmp_path / "fixed-program-lo-sweep"
+    completed = subprocess.run(  # noqa: S603
+        (
+            sys.executable,
+            "-m",
+            "benchmarks",
+            "run",
+            "scan-execution",
+            "--worker",
+            "scopecat",
+            "--point-count",
+            str(point_count),
+            "--qubit-count",
+            "1",
+            "--profile",
+            "lo-sweep",
+            "--host-label",
+            "test",
+            "--work-dir",
+            str(work_dir),
+        ),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    result_line = next(
+        line
+        for line in completed.stdout.splitlines()
+        if line.startswith("BENCHMARK_RESULT=")
+    )
+    result = cast(
+        "dict[str, object]",
+        json.loads(result_line.removeprefix("BENCHMARK_RESULT=")),
+    )
+    scenario = cast("dict[str, object]", result["scenario"])
+    database = next(work_dir.rglob("control.sqlite3"))
+    with sqlite3.connect(database) as connection:
+        domain_transition_count = cast(
+            "tuple[int]",
+            connection.execute(
+                "SELECT COUNT(*) FROM execution_domain_job_transitions"
+            ).fetchone(),
+        )[0]
+        measurement_append_count = cast(
+            "tuple[int]",
+            connection.execute(
+                "SELECT COUNT(*) FROM execution_measurement_appends"
+            ).fetchone(),
+        )[0]
+        durable_event_count = cast(
+            "tuple[int]",
+            connection.execute("SELECT COUNT(*) FROM durable_events").fetchone(),
+        )[0]
+        durable_refs = tuple(
+            row[0]
+            for row in cast(
+                "list[tuple[str]]",
+                connection.execute(
+                    "SELECT ref FROM run_repository_refs ORDER BY ref"
+                ).fetchall(),
+            )
+        )
+
+    assert result["case_version"] == 8
+    assert scenario["profile"] == "fixed_program_host_lo_sweep"
+    assert result["points_completed"] == point_count
+    assert result["trigger_count"] == point_count
+    assert result["waveform_bytes_uploaded"] == result["max_waveform_batch_bytes"]
+    assert result["waveform_bytes_rendered"] == result["max_waveform_batch_bytes"]
+    assert result["payload_spool_bytes_at_finish"] == 0
+    assert (
+        0
+        < cast("int", result["peak_payload_spool_bytes"])
+        <= 2 * cast("int", result["max_waveform_batch_bytes"])
+    )
+    assert domain_transition_count == 0
+    assert measurement_append_count == 1
+    assert durable_event_count < point_count
+    assert cast("int", result["durable_file_count"]) < point_count
+    assert not any("program" in ref or "waveform" in ref for ref in durable_refs)
 
 
 def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
@@ -102,7 +244,7 @@ def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
     assert all(result["points_completed"] == 3 for result in results)
     assert all(result["schema"] == "scopecat.benchmark_result.v1" for result in results)
     assert all(result["case_id"] == "scan-execution" for result in results)
-    assert all(result["case_version"] == 7 for result in results)
+    assert all(result["case_version"] == 8 for result in results)
     assert all(result["kind"] == "e2e" for result in results)
     assert all(
         cast("dict[str, object]", result["scenario"])["acquisition_dsp_policy"]

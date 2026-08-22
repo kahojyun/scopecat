@@ -15,9 +15,13 @@ from scopecat.sdk.instruments import (
     DriverRejected,
     DriverScalar,
     DriverStatePatch,
+    DriverStateReadback,
     DriverSuccess,
     DriverUnknown,
+    InstrumentDriver,
     PropertyRef,
+    device_member_ref,
+    state_capture_request,
 )
 from scopecat.sdk.instruments.scpi import TransportError
 
@@ -51,10 +55,10 @@ from scopecat_instruments.members import (
     NETWORK_SWEEP_SOURCE_POWER,
     NETWORK_SWEEP_START_FREQUENCY,
     NETWORK_SWEEP_STOP_FREQUENCY,
+    REFERENCE_CLOCK_REFERENCE_SOURCE,
     RF_OUTPUT_ENABLED,
     RF_OUTPUT_FREQUENCY,
     RF_OUTPUT_POWER,
-    RF_OUTPUT_REFERENCE_SOURCE,
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
     TEMPERATURE_READOUT_RESISTANCE_RESULT,
     TEMPERATURE_READOUT_SAMPLE,
@@ -63,11 +67,19 @@ from scopecat_instruments.members import (
 )
 from scopecat_instruments.testing import ScriptedExchange, ScriptedTransport
 
+_GS200_MONITOR_OPTION = device_member_ref(YokogawaGS200.monitor_option)
+_GS200_REMOTE_SENSE = device_member_ref(YokogawaGS200.remote_sense)
+_GS200_GUARD_ENABLED = device_member_ref(YokogawaGS200.guard_enabled)
+
 
 def _apply_request(
     properties: list[tuple[PropertyRef, DriverScalar]],
 ) -> DriverStatePatch:
     return DriverStatePatch(values=dict(properties))
+
+
+def _capture(driver: InstrumentDriver) -> DriverStateReadback:
+    return driver.read_state(state_capture_request(driver.describe()))
 
 
 def _collect_request(
@@ -190,7 +202,7 @@ def test_gs200_source_and_monitor_transcript() -> None:
     driver.set_voltage_protection(12.0)
     driver.set_current_protection(0.01)
     driver.set_output(True)
-    state = driver.read_state()
+    state = _capture(driver)
     receipt = driver.collect(
         _collect_request(
             DC_MONITOR_MEASURE_CURRENT,
@@ -200,8 +212,14 @@ def test_gs200_source_and_monitor_transcript() -> None:
 
     assert identity.model == "GS210"
     assert isinstance(transitioned, DriverSuccess)
-    assert state.metadata["identity"] == identity.raw
-    assert set(state.metadata) == {"manufacturer", "model", "identity"}
+    assert state.observations
+    assert all(
+        observation.metadata["identity"] == identity.raw
+        for observation in state.observations
+    )
+    assert {frozenset(observation.metadata) for observation in state.observations} == {
+        frozenset({"manufacturer", "model", "identity"})
+    }
     assert state.values[DC_MONITOR_MEASUREMENT_ENABLED] is True
     assert state.values[DC_MONITOR_INTEGRATION_CYCLES] == 5
     assert state.values[DC_MONITOR_MEASUREMENT_DELAY] == Quantity(
@@ -257,7 +275,7 @@ def test_gs200_source_operation_restores_output_after_safe_transition(
 
     assert isinstance(receipt, DriverSuccess)
     assert receipt.value is None
-    state = driver.read_state()
+    state = _capture(driver)
     assert state.values[DC_SOURCE_MODE] == "voltage"
     assert state.values[DC_SOURCE_OUTPUT_ENABLED] is output_enabled
     assert set(state.values) == {
@@ -265,7 +283,20 @@ def test_gs200_source_operation_restores_output_after_safe_transition(
         DC_SOURCE_VOLTAGE_PROTECTION,
         DC_SOURCE_CURRENT_PROTECTION,
         DC_SOURCE_OUTPUT_ENABLED,
+        _GS200_MONITOR_OPTION,
+        _GS200_REMOTE_SENSE,
+        _GS200_GUARD_ENABLED,
     }
+    assert state.values[_GS200_MONITOR_OPTION] is False
+    assert state.values[_GS200_REMOTE_SENSE] is False
+    assert state.values[_GS200_GUARD_ENABLED] is False
+    for target in (
+        _GS200_MONITOR_OPTION,
+        _GS200_REMOTE_SENSE,
+        _GS200_GUARD_ENABLED,
+    ):
+        observation = next(item for item in state.observations if item.target == target)
+        assert observation.source == "configured_fixed"
     transport.assert_complete()
 
 
@@ -312,7 +343,7 @@ def test_gs200_applies_and_monitors_current_source_case() -> None:
             [(DC_SOURCE_OUTPUT_ENABLED, True)],
         )
     )
-    state = driver.read_state()
+    state = _capture(driver)
     monitored = driver.collect(
         _collect_request(
             DC_MONITOR_MEASURE_VOLTAGE,
@@ -360,7 +391,7 @@ def test_gs200_adjusts_compliance_without_interrupting_live_output() -> None:
 
     assert isinstance(receipt, DriverSuccess)
     assert receipt.value is None
-    state = driver.read_state()
+    state = _capture(driver)
     assert state.values[DC_SOURCE_CURRENT_PROTECTION] == Quantity(0.005, "A")
     transport.assert_complete()
 
@@ -457,7 +488,7 @@ def test_gs200_read_state_rejects_connection_profile_drift() -> None:
     driver = YokogawaGS200("bias", transport)
 
     with pytest.raises(ValueError, match="guard state"):
-        driver.read_state()
+        _capture(driver)
 
     transport.assert_complete()
 
@@ -474,7 +505,7 @@ def test_gs200_read_state_rejects_remote_sense_on_a_millivolt_range() -> None:
     driver = YokogawaGS200("bias", transport, remote_sense=True)
 
     with pytest.raises(ValueError, match="at least 1 V"):
-        driver.read_state()
+        _capture(driver)
 
     transport.assert_complete()
 
@@ -535,7 +566,7 @@ def test_gs200_applies_monitor_settings_while_measurement_is_disabled() -> None:
 
     assert isinstance(receipt, DriverSuccess)
     assert receipt.value is None
-    properties = driver.read_state().values
+    properties = _capture(driver).values
     assert properties[DC_MONITOR_MEASUREMENT_ENABLED] is True
     assert properties[DC_MONITOR_INTEGRATION_CYCLES] == 10
     assert properties[DC_MONITOR_MEASUREMENT_DELAY] == Quantity(
@@ -719,7 +750,11 @@ class _RestoreFailingTransport(ScriptedTransport):
     @override
     def write(self, command: str) -> None:
         if command == ":SENS:TRIG IMM":
-            raise TransportError("trigger restore failed")
+            raise TransportError(
+                "trigger restore failed",
+                operation="write",
+                command_may_have_reached_device=True,
+            )
         super().write(command)
 
 
@@ -769,11 +804,11 @@ def test_sgs100a_cw_source_transcript() -> None:
     driver.set_power(-27.5)
     driver.set_reference_source("external")
     driver.set_output(True)
-    state = driver.read_state()
+    state = _capture(driver)
 
     assert state.values[RF_OUTPUT_FREQUENCY] == Quantity(5.0e9, "Hz")
     assert state.values[RF_OUTPUT_POWER] == Quantity(-27.5, "dBm")
-    assert state.values[RF_OUTPUT_REFERENCE_SOURCE] == "external"
+    assert state.values[REFERENCE_CLOCK_REFERENCE_SOURCE] == "external"
     assert state.values[RF_OUTPUT_ENABLED] is True
     transport.assert_complete()
 
@@ -816,7 +851,7 @@ def test_sgs100a_apply_orders_output_around_frequency_and_power(
 
     assert isinstance(receipt, DriverSuccess)
     assert receipt.value is None
-    state = driver.read_state()
+    state = _capture(driver)
     assert state.values[RF_OUTPUT_FREQUENCY] == Quantity(5.0e9, "Hz")
     assert state.values[RF_OUTPUT_POWER] == Quantity(-27.5, "dBm")
     assert state.values[RF_OUTPUT_ENABLED] is enabled
@@ -847,7 +882,7 @@ def test_sgs100a_read_state_rejects_non_cw_hardware_without_writing(
     driver = RohdeSchwarzSGS100A("readout-lo", transport)
 
     with pytest.raises(ValueError, match=diagnostic):
-        driver.read_state()
+        _capture(driver)
 
     transport.assert_complete()
 
@@ -865,7 +900,7 @@ def test_lakeshore_372_state_contains_only_persistent_scanner_state() -> None:
     driver = LakeShore372("fridge", transport)
 
     driver.identify()
-    state = driver.read_state()
+    state = _capture(driver)
 
     properties = state.values
     assert set(properties) == {
@@ -886,7 +921,7 @@ def test_lakeshore_372_rejects_observed_state_apply_without_io() -> None:
     )
 
     assert isinstance(receipt, DriverRejected)
-    assert receipt.problems[0].code == "instrument_state_not_implemented"
+    assert receipt.problems[0].code == "instrument_state_member_not_implemented"
     transport.assert_complete()
 
 
@@ -1211,7 +1246,7 @@ def test_e5080b_state_sync_rejects_non_linear_front_panel_mode() -> None:
     driver = KeysightE5080B("vna", transport)
 
     with pytest.raises(ValueError, match="linear-sweep profile"):
-        driver.read_state()
+        _capture(driver)
 
     transport.assert_complete()
 
@@ -1252,7 +1287,7 @@ def test_e5080b_apply_uses_typed_sweep_patch_in_hardware_command_order() -> None
 
     assert isinstance(receipt, DriverSuccess)
     assert receipt.value is None
-    assert driver.read_state().values == {
+    assert _capture(driver).values == {
         NETWORK_SWEEP_START_FREQUENCY: Quantity(4.9e9, "Hz"),
         NETWORK_SWEEP_STOP_FREQUENCY: Quantity(5.1e9, "Hz"),
         NETWORK_SWEEP_POINTS: 11,

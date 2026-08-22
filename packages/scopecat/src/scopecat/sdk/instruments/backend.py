@@ -10,7 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.records.instrument import CommandChannelBinding
+from scopecat.records.instrument import (
+    CommandChannelBinding,
+    StateMemberTarget,
+    state_member_ref,
+)
 from scopecat.sdk.instruments.authoring import (
     DriverArgument,
     DriverOperation,
@@ -22,7 +26,7 @@ from scopecat.sdk.instruments.members import (
     AcquisitionRef,
     AcquisitionResultRef,
     OperationRef,
-    PropertyRef,
+    StateMemberRef,
 )
 from scopecat.sdk.payloads import PayloadCodecRegistry
 
@@ -45,25 +49,23 @@ class _BackendRequestModel(BaseModel):
     )
 
 
-class BackendPropertyWrite(_BackendRequestModel):
-    interface_id: InterfaceId
-    component_path: tuple[_NonEmptyId, ...] = ()
-    property_id: _NonEmptyId
+class BackendStateMemberWrite(_BackendRequestModel):
+    target: StateMemberTarget
     value: StateValue
     entity_ids: tuple[_NonEmptyId, ...] = ()
     channel_bindings: tuple[CommandChannelBinding, ...] = ()
 
     @property
-    def target(self) -> PropertyRef:
-        return PropertyRef(
-            self.interface_id,
-            self.component_path,
-            self.property_id,
-        )
+    def member(self) -> StateMemberRef:
+        return state_member_ref(self.target)
+
+
+class BackendReadRequest(_BackendRequestModel):
+    targets: tuple[StateMemberTarget, ...] = Field(min_length=1)
 
 
 class BackendApplyRequest(_BackendRequestModel):
-    assignments: tuple[BackendPropertyWrite, ...] = Field(min_length=1)
+    assignments: tuple[BackendStateMemberWrite, ...] = Field(min_length=1)
 
 
 class BackendPayload(_BackendRequestModel):
@@ -154,10 +156,8 @@ def lower_backend_apply_request(
 ) -> BackendApplyRequest:
     return BackendApplyRequest(
         assignments=tuple(
-            BackendPropertyWrite(
-                interface_id=assignment.interface_id,
-                component_path=tuple(assignment.component_path),
-                property_id=assignment.property_id,
+            BackendStateMemberWrite(
+                target=assignment.target,
                 value=assignment.value,
                 entity_ids=tuple(assignment.entity_ids),
                 channel_bindings=tuple(assignment.channel_bindings),
@@ -245,7 +245,8 @@ __all__ = [
     "BackendInvokeRequest",
     "BackendOperationArgument",
     "BackendPayload",
-    "BackendPropertyWrite",
+    "BackendReadRequest",
+    "BackendStateMemberWrite",
     "InstrumentBackend",
     "decode_driver_operation",
     "lower_backend_apply_request",

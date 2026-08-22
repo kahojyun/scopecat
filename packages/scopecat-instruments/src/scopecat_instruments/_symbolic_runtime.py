@@ -21,6 +21,7 @@ from scopecat.authoring import (
 )
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.entity import EntityRef, entity_identity
+from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.symbols import SymbolId
 from scopecat.program.products import ProductAxis, ProductRecording, ProductRef
 from scopecat.program.state import StateBinding
@@ -30,13 +31,13 @@ from scopecat.program.value_refs import (
     internal_value_ref_requires_execution,
 )
 from scopecat.sdk.instruments import (
-    InterfaceRef,
+    InstrumentCapabilityRef,
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
 )
 from scopecat.sdk.instruments.declarations import (
-    state_projection_assignments,
+    member_projection_assignments,
 )
 
 from scopecat_instruments._client_runtime import (
@@ -54,7 +55,7 @@ class SymbolicInstrumentClientBase:
         resource_id: str,
         *,
         namespace_hint: str,
-        requires: Sequence[InterfaceRef],
+        requires: Sequence[InstrumentCapabilityRef],
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
     ) -> None:
@@ -85,7 +86,7 @@ class SymbolicInstrumentClientBase:
         self,
         operation: OperationRef,
         effect_id: str | None,
-        arguments: Mapping[OperationArgumentRef, StateBinding],
+        arguments: Mapping[OperationArgumentRef, StateBinding | PayloadValue],
         /,
     ) -> None:
         occurrence_name = operation.operation_id if effect_id is None else effect_id
@@ -148,7 +149,7 @@ class SymbolicInstrumentClientBase:
         return output_factory(**products)
 
 
-class DeclaredStateSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
+class ProjectedMemberSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
     def ensure(self, state: StateT) -> None:
         self._ensure_projected_state(state)
 
@@ -164,6 +165,25 @@ class DeclaredStateSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
         projected = projection_factory(**fields) if state is None else state
         self._ensure_projected_state(projected)
 
+    def _ensure_projected_fields(
+        self,
+        state: StateT | None,
+        properties: Mapping[str, PropertyRef],
+        fields: Mapping[str, object],
+        /,
+    ) -> None:
+        if state is not None and fields:
+            raise TypeError("ensure accepts either a target or keyword fields")
+        if state is not None:
+            self._ensure_projected_state(state)
+            return
+        self._ensure(
+            cast(
+                "Mapping[PropertyRef, StateBinding]",
+                _symbolic_field_assignments(fields, properties),
+            )
+        )
+
     def _ensure_projected_state(self, state: StateT, /) -> None:
         self._ensure(self._projected_state_assignments(state))
 
@@ -178,7 +198,7 @@ class DeclaredStateSymbolicClientBase[StateT](SymbolicInstrumentClientBase):
         self,
         state: StateT,
     ) -> Mapping[PropertyRef, StateBinding]:
-        return state_projection_assignments(state)
+        return member_projection_assignments(state)
 
 
 class _SymbolicClientFactory[ClientT: SymbolicInstrumentClientBase](Protocol):
@@ -188,6 +208,7 @@ class _SymbolicClientFactory[ClientT: SymbolicInstrumentClientBase](Protocol):
         resource_id: str,
         *,
         namespace_hint: str,
+        requires: tuple[InstrumentCapabilityRef, ...],
         for_: OneEntity | None = None,
         role: ResourceRoleInput = None,
     ) -> ClientT: ...
@@ -211,6 +232,7 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
         namespace_hint: str,
         for_: EachEntity,
         client_factory: _SymbolicClientFactory[ClientT],
+        requires: tuple[InstrumentCapabilityRef, ...],
         role: ResourceRoleInput = None,
     ) -> None:
         self._recorder = recorder
@@ -223,6 +245,7 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
                     recorder,
                     f"{resource_id}.{_entity_token(entity)}",
                     namespace_hint=f"{namespace_hint}.{_entity_token(entity)}",
+                    requires=requires,
                     for_=one(entity),
                     role=role,
                 ),
@@ -263,7 +286,7 @@ class SymbolicInstrumentGroupBase[ClientT: SymbolicInstrumentClientBase]:
         return self._entities.align(value)
 
 
-class DeclaredStateSymbolicGroupBase[
+class ProjectedMemberSymbolicGroupBase[
     StateT,
     GroupStateT,
     ClientT: SymbolicInstrumentClientBase,
@@ -282,6 +305,33 @@ class DeclaredStateSymbolicGroupBase[
             raise TypeError("ensure accepts either a target or keyword fields")
         projected = projection_factory(**fields) if state is None else state
         self._ensure_projected_state(projected)
+
+    def _ensure_projected_fields(
+        self,
+        state: GroupStateT | PerEntity[StateT] | None,
+        properties: Mapping[str, PropertyRef],
+        fields: Mapping[str, object],
+        /,
+    ) -> None:
+        if state is not None and fields:
+            raise TypeError("ensure accepts either a target or keyword fields")
+        if state is not None:
+            self._ensure_projected_state(state)
+            return
+        assignments = _symbolic_field_assignments(fields, properties)
+        aligned = {
+            property_ref: self._align(value)
+            for property_ref, value in assignments.items()
+        }
+        targets: list[StateTarget] = []
+        for entity in self._entities:
+            entity_assignments = {
+                property_ref: values[entity] for property_ref, values in aligned.items()
+            }
+            client = self._state_client(entity)
+            client._state_assignments.update(entity_assignments)
+            targets.append((client._resource, entity_assignments))
+        self._recorder.ensure_many(targets)
 
     def _ensure_projected_state(
         self,
@@ -315,13 +365,13 @@ class DeclaredStateSymbolicGroupBase[
         if isinstance(state, PerEntity):
             projections = self._align(cast("PerEntity[StateT]", state))
             return tuple(
-                (entity, state_projection_assignments(projection))
+                (entity, member_projection_assignments(projection))
                 for entity, projection in projections.items()
             )
 
         assignments = cast(
             "Mapping[PropertyRef, StateBinding | PerEntity[StateBinding]]",
-            state_projection_assignments(state),
+            member_projection_assignments(state),
         )
         aligned = {
             property_ref: self._align(value)
@@ -341,11 +391,24 @@ class DeclaredStateSymbolicGroupBase[
     def _state_client(
         self,
         entity: EntityRef,
-    ) -> DeclaredStateSymbolicClientBase[StateT]:
+    ) -> ProjectedMemberSymbolicClientBase[StateT]:
         return cast(
-            "DeclaredStateSymbolicClientBase[StateT]",
+            "ProjectedMemberSymbolicClientBase[StateT]",
             self._clients[entity],
         )
+
+
+def _symbolic_field_assignments(
+    fields: Mapping[str, object],
+    properties: Mapping[str, PropertyRef],
+) -> Mapping[PropertyRef, StateBinding | PerEntity[StateBinding]]:
+    unknown = tuple(name for name in fields if name not in properties)
+    if unknown:
+        raise TypeError(f"unknown instrument state field {unknown[0]!r}")
+    return cast(
+        "Mapping[PropertyRef, StateBinding | PerEntity[StateBinding]]",
+        {properties[name]: value for name, value in fields.items()},
+    )
 
 
 def _one_entity_value(selection: OneEntity | None) -> ValueRef | None:
@@ -415,8 +478,8 @@ def _product_axis_size(
 
 
 __all__ = [
-    "DeclaredStateSymbolicClientBase",
-    "DeclaredStateSymbolicGroupBase",
+    "ProjectedMemberSymbolicClientBase",
+    "ProjectedMemberSymbolicGroupBase",
     "SymbolicInstrumentClientBase",
     "SymbolicInstrumentGroupBase",
 ]

@@ -142,7 +142,7 @@ def test_planning_rejects_unsupported_property(tmp_path: Path) -> None:
             project_root=tmp_path,
         )
 
-    assert "instrument_driver_unsupported_property" in {
+    assert "instrument_driver_unsupported_member" in {
         problem.code for problem in error.value.problems
     }
 

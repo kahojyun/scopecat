@@ -175,9 +175,19 @@ class DerivedDataset:
         """Normalize homogeneous annotated dataclass rows without a dataframe."""
 
         projection = project_analysis_rows(rows)
+        arrow_types = {
+            "bool": pa.bool_(),
+            "int64": pa.int64(),
+            "float64": pa.float64(),
+            "string": pa.string(),
+        }
+        dtypes = dict(projection.dtypes)
         table = pa.table(
             {
-                name: [row[name] for row in projection.rows]
+                name: pa.array(
+                    [row[name] for row in projection.rows],
+                    type=arrow_types[dtypes[name]],
+                )
                 for name, _ in projection.fields
             }
         )

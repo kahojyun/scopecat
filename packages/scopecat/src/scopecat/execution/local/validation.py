@@ -159,6 +159,11 @@ def _payload_schemas(
 ) -> dict[str, str]:
     schemas: dict[str, str] = {}
     for operation in operations:
+        if isinstance(operation, InvokeOperation):
+            schemas.update(
+                (payload.id, payload.schema_id) for payload in operation.payloads
+            )
+            continue
         if not isinstance(operation, ComputeOperation):
             continue
         if operation.payload_slot is None:

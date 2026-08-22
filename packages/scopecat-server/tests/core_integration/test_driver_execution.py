@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from scopecat.sdk.instruments import PropertyRef
 from scopecat_testkit.instrument_drivers import SignalInstrumentDriver, load_config
 from scopecat_testkit.server.execution import execute_bound_run
 from scopecat_testkit.workflow_fixtures import load_experiment
@@ -20,6 +21,6 @@ def test_run_accepts_instrument_driver(tmp_path: Path) -> None:
     assert [result.result_id for result in instrument.collect_requests[0].results] == [
         "signal"
     ]
-    assert instrument.applied[0].entries[0].target.interface_id == (
-        "test.set_frequency/v1"
-    )
+    target = instrument.applied[0].entries[0].target
+    assert isinstance(target, PropertyRef)
+    assert target.interface_id == ("test.set_frequency/v1")

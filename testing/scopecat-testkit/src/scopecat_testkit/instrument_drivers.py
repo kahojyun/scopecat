@@ -17,8 +17,9 @@ from scopecat.sdk.instruments import (
     DriverOutcome,
     DriverReadback,
     DriverScalar,
-    DriverState,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
     InstrumentDescription,
     PropertyRef,
@@ -29,6 +30,7 @@ from scopecat.sdk.instruments import (
     operation,
     operation_argument,
     quantity_property,
+    state_readback,
 )
 
 from scopecat_testkit.paths import CORE_FIXTURE_DIR as EXAMPLE_DIR
@@ -59,7 +61,9 @@ class SignalInstrumentDriver:
             interfaces=[
                 interface(
                     "test.set_frequency/v1",
-                    properties=[quantity_property("frequency", unit="GHz")],
+                    properties=[
+                        quantity_property("frequency", unit="GHz", restore=True)
+                    ],
                 ),
                 interface(
                     "test.set_gain/v1",
@@ -93,21 +97,24 @@ class SignalInstrumentDriver:
             ],
         )
 
-    def read_state(self) -> DriverState:
-        return DriverState(
-            values={
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
+        return state_readback(
+            request,
+            {
                 PropertyRef(interface_id, (), property_id): value
                 for (interface_id, property_id), value in self._state.items()
             },
-            metadata={"mode": "test_offline"},
+            evidence={"mode": "test_offline"},
         )
 
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         self.applied.append(request)
         for entry in request.entries:
+            if not isinstance(entry.target, PropertyRef):
+                raise ValueError("test driver does not expose device state members")
             self._state[(entry.target.interface_id, entry.target.property_id)] = (
                 entry.value
             )
@@ -116,9 +123,9 @@ class SignalInstrumentDriver:
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         self.invoked.append(request)
-        return DriverSuccess(self.read_state())
+        return DriverSuccess(None)
 
     def collect(
         self,

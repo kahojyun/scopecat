@@ -6,16 +6,14 @@ from scopecat.sdk.instruments import (
     DriverOperation,
     DriverRejected,
     DriverStatePatch,
+    DriverStateReadback,
     DriverSuccess,
+    InstrumentDriver,
+    ObjectInstrumentDriver,
+    state_capture_request,
 )
 
 from scopecat_instruments._support import LinearSweepSettings
-from scopecat_instruments.driver_handlers import (
-    DCSourceMonitorDriverAdapter,
-    NetworkSweepDriverAdapter,
-    RFOutputDriverAdapter,
-    TemperatureReadoutDriverAdapter,
-)
 from scopecat_instruments.members import (
     DC_MONITOR_CURRENT_RESULT,
     DC_MONITOR_INTEGRATION_CYCLES,
@@ -43,6 +41,10 @@ from scopecat_instruments.virtual import (
 )
 
 
+def _capture(driver: InstrumentDriver) -> DriverStateReadback:
+    return driver.read_state(state_capture_request(driver.describe()))
+
+
 def _notch_frequency(
     trace_frequencies: tuple[float, ...],
     values: tuple[complex, ...],
@@ -51,11 +53,11 @@ def _notch_frequency(
     return trace_frequencies[index]
 
 
-def test_virtual_drivers_use_generated_adapters() -> None:
-    assert issubclass(VirtualRfSource, RFOutputDriverAdapter)
-    assert issubclass(VirtualDcSource, DCSourceMonitorDriverAdapter)
-    assert issubclass(VirtualTemperatureMonitor, TemperatureReadoutDriverAdapter)
-    assert issubclass(VirtualNetworkAnalyzer, NetworkSweepDriverAdapter)
+def test_virtual_drivers_use_oo_adapter() -> None:
+    assert issubclass(VirtualRfSource, ObjectInstrumentDriver)
+    assert issubclass(VirtualDcSource, ObjectInstrumentDriver)
+    assert issubclass(VirtualTemperatureMonitor, ObjectInstrumentDriver)
+    assert issubclass(VirtualNetworkAnalyzer, ObjectInstrumentDriver)
 
 
 def test_virtual_state_survives_driver_disconnect() -> None:
@@ -76,9 +78,9 @@ def test_virtual_state_survives_driver_disconnect() -> None:
     second = VirtualDcSource("flux", world)
 
     assert isinstance(transitioned, DriverSuccess)
-    assert second.output_enabled() is True
+    assert second.read_output_enabled() is True
     assert world.flux_bias() == 0.5
-    assert second.read_state().values[DC_SOURCE_MODE] == "voltage"
+    assert _capture(second).values[DC_SOURCE_MODE] == "voltage"
 
 
 def test_virtual_rf_driver_applies_typed_sparse_patch() -> None:
@@ -96,7 +98,7 @@ def test_virtual_rf_driver_applies_typed_sparse_patch() -> None:
 
     assert isinstance(receipt, DriverSuccess)
     assert receipt.value is None
-    state = driver.read_state()
+    state = _capture(driver)
     assert state.values[RF_OUTPUT_FREQUENCY] == Quantity(6.0e9, "Hz")
     assert state.values[RF_OUTPUT_ENABLED] is False
 
@@ -127,7 +129,7 @@ def test_virtual_dc_current_case_drives_physics_and_snapshot_shape() -> None:
     assert isinstance(transitioned, DriverSuccess)
     assert transitioned.value is None
     assert isinstance(configured, DriverSuccess)
-    property_targets = driver.read_state().values
+    property_targets = _capture(driver).values
     assert property_targets[DC_SOURCE_MODE] == "current"
     assert property_targets[DC_SOURCE_OUTPUT_ENABLED] is True
     assert property_targets[DC_MONITOR_INTEGRATION_CYCLES] == 5
@@ -151,7 +153,7 @@ def test_virtual_dc_source_operations_select_mode() -> None:
         )
     )
     assert isinstance(current, DriverSuccess)
-    assert driver.source_mode() == "current"
+    assert driver.read_source_mode() == "current"
 
     voltage = driver.invoke(
         DriverOperation(
@@ -164,7 +166,7 @@ def test_virtual_dc_source_operations_select_mode() -> None:
     )
 
     assert isinstance(voltage, DriverSuccess)
-    assert driver.source_mode() == "voltage"
+    assert driver.read_source_mode() == "voltage"
 
 
 def test_virtual_dc_monitor_configuration_round_trips_through_state() -> None:
@@ -182,7 +184,7 @@ def test_virtual_dc_monitor_configuration_round_trips_through_state() -> None:
 
     assert isinstance(receipt, DriverSuccess)
     assert receipt.value is None
-    properties = driver.read_state().values
+    properties = _capture(driver).values
     assert properties[DC_MONITOR_MEASUREMENT_ENABLED] is False
     assert properties[DC_MONITOR_INTEGRATION_CYCLES] == 5
     delay = properties[DC_MONITOR_MEASUREMENT_DELAY]
@@ -241,7 +243,12 @@ def test_virtual_temperature_adapter_preserves_readback_metadata() -> None:
         "autoscan_enabled": False,
         "reading_status": 0,
     }
-    assert driver.read_state().metadata == {"mode": "virtual", "world_seed": 19}
+    state = _capture(driver)
+    assert state.observations
+    assert all(
+        observation.metadata == {"mode": "virtual", "world_seed": 19}
+        for observation in state.observations
+    )
 
 
 def test_virtual_network_noise_is_deterministic_for_seed() -> None:
@@ -276,7 +283,7 @@ def test_virtual_network_analyzer_applies_typed_sparse_patch() -> None:
 
     assert isinstance(receipt, DriverSuccess)
     assert receipt.value is None
-    state = driver.read_state()
+    state = _capture(driver)
     assert state.values[NETWORK_SWEEP_S_PARAMETER] == "S11"
     assert state.values[NETWORK_SWEEP_POINTS] == 17
     assert RF_OUTPUT_FREQUENCY not in state.values

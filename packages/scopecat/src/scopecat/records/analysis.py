@@ -73,6 +73,7 @@ type AnalysisTableCell = Annotated[
     bool | _AnalysisTableInteger | FiniteFloat | str | None,
     BeforeValidator(_reject_unsafe_table_integer),
 ]
+type AnalysisRowDType = Literal["bool", "int64", "float64", "string"]
 
 
 def _normalized_external_scalar(value: object) -> bool | int | float | str | None:
@@ -134,6 +135,7 @@ class AnalysisRowProjection:
     """One homogeneous annotated dataclass sequence projected by field policy."""
 
     fields: tuple[tuple[str, AnalysisField], ...]
+    dtypes: tuple[tuple[str, AnalysisRowDType], ...]
     rows: tuple[Mapping[str, object], ...]
 
 
@@ -265,6 +267,9 @@ def project_analysis_rows(rows: Sequence[object]) -> AnalysisRowProjection:
         raise TypeError("analysis object rows require Annotated AnalysisField fields")
     return AnalysisRowProjection(
         fields=selected_fields,
+        dtypes=tuple(
+            (name, _analysis_row_dtype(hints[name])) for name, _ in selected_fields
+        ),
         rows=tuple(
             {
                 name: _analysis_field_value(
@@ -542,6 +547,33 @@ def _analysis_field(annotation: object) -> AnalysisField | None:
             if isinstance(metadata, AnalysisField)
         ),
         None,
+    )
+
+
+def _analysis_row_dtype(annotation: object) -> AnalysisRowDType:
+    if get_origin(annotation) is not Annotated:
+        raise TypeError("analysis row fields must use Annotated")
+    declared = cast("object", get_args(annotation)[0])
+    declared_args = cast("tuple[object, ...]", get_args(declared))
+    union_members = tuple(
+        member for member in declared_args if member is not type(None)
+    )
+    if union_members:
+        if len(union_members) != 1 or len(union_members) == len(declared_args):
+            raise TypeError(
+                "analysis row fields must be scalar values or optional scalar values"
+            )
+        [declared] = union_members
+    if declared is bool:
+        return "bool"
+    if declared is int:
+        return "int64"
+    if declared is float or declared is Quantity:
+        return "float64"
+    if declared is str:
+        return "string"
+    raise TypeError(
+        "analysis row fields must be bool, int, float, str, Quantity, or optional"
     )
 
 

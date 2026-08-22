@@ -179,6 +179,10 @@ from scopecat.daemon.wire import (
     RunCancellationReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
+    RunDomainJobStatePage,
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionBatchReceipt,
+    RunDomainJobTransitionPage,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -188,7 +192,11 @@ from scopecat.daemon.wire import (
 )
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.content import ContentEntry
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import (
+    InstrumentStateCacheReadback,
+    InstrumentStateReadback,
+    InstrumentStateSnapshot,
+)
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.data import (
@@ -203,6 +211,7 @@ from scopecat.sdk.instruments.commands import (
     CollectReceipt,
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentStateCommand,
+    InstrumentStateReadCommand,
     InteractiveCollectIntent,
     InvokeCommand,
     InvokeReceipt,
@@ -429,6 +438,36 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.instruments.read_state(
             session_id,
             instrument_id,
+        )
+
+    @app.post(
+        f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
+        "{instrument_id}/state/read"
+    )
+    def read_instrument_state_members(
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentStateReadCommand,
+    ) -> InstrumentStateReadback:
+        return application.instruments.read_state_members(
+            session_id,
+            instrument_id,
+            command,
+        )
+
+    @app.post(
+        f"{_API_PREFIX}/instrument-sessions/{{session_id}}/instruments/"
+        "{instrument_id}/state/observed"
+    )
+    def read_observed_instrument_state_members(
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentStateReadCommand,
+    ) -> InstrumentStateCacheReadback:
+        return application.instruments.observed_state_members(
+            session_id,
+            instrument_id,
+            command,
         )
 
     @app.post(
@@ -1233,6 +1272,37 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: RunCoverageAdvanceCommand,
     ) -> RunCoverageState:
         return application.executor.advance_run_coverage(run_id, command)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/domain-jobs/transitions")
+    def get_run_domain_job_transitions(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=100)] = 64,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> RunDomainJobTransitionPage:
+        return application.executor.domain_job_transitions(
+            run_id,
+            limit=limit,
+            before=before,
+        )
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/domain-jobs")
+    def get_run_domain_jobs(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=100)] = 64,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> RunDomainJobStatePage:
+        return application.executor.domain_jobs(
+            run_id,
+            limit=limit,
+            before=before,
+        )
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/domain-jobs/transitions")
+    def commit_run_domain_job_transitions(
+        run_id: str,
+        command: RunDomainJobTransitionBatchCommand,
+    ) -> RunDomainJobTransitionBatchReceipt:
+        return application.executor.commit_domain_job_transitions(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/point-plan")
     def get_run_point_plan(run_id: str) -> RunPointPlanView:

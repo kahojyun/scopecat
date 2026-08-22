@@ -20,6 +20,7 @@ from scopecat_testkit.local_materialization import (
     operations_of_type,
 )
 from scopecat_testkit.materialized_effects import config_with_physical_resources
+from scopecat_testkit.payload_codecs import json_payload_codecs
 
 import scopecat as sc
 from scopecat.compiler.bound_facts import (
@@ -40,6 +41,7 @@ from scopecat.execution.local.program import (
     OutputInput,
 )
 from scopecat.kernel.content_identity import content_fingerprint
+from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
@@ -192,7 +194,7 @@ def test_bound_state_preserves_primitive_field_types(
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=_resource("source-0"),
-                interfaces=("test.configure/v1",),
+                capabilities=(InterfaceRef("test.configure/v1"),),
             ),
         ),
         state=(
@@ -274,7 +276,7 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=_resource("source-0"),
-                interfaces=("test.play_program/v1",),
+                capabilities=(InterfaceRef("test.play_program/v1"),),
             ),
         ),
         invocations=(
@@ -376,6 +378,61 @@ def test_effects_use_logical_point_and_point_local_payload_identity() -> None:
         assert repeated_consumer.payload_slot is not None
         repeated_payload_ids.append(repeated_consumer.payload_slot.id)
     assert payload_ids == repeated_payload_ids
+
+
+def test_invocation_literal_payload_is_encoded_into_the_local_operation() -> None:
+    schema_id = "tests.program/v1"
+    program = program_fixture(
+        point_domain=_point_domain(((),), Table(columns=())),
+        resource_requirements=(
+            LogicalResourceRequirement(
+                port_id=_resource("source-0"),
+                capabilities=(InterfaceRef("test.play_program/v1"),),
+            ),
+        ),
+        invocations=(
+            instrument_invocation(
+                id="play-program",
+                resource_port_id=_resource("source-0"),
+                interface="test.play_program/v1",
+                operation="play",
+                arguments={
+                    "program": verified_scalar_expr(
+                        lit(
+                            PayloadValue(
+                                schema_id=schema_id,
+                                payload={"samples": [1.0, -1.0]},
+                            )
+                        ),
+                        expected_type=Scalar(Payload(schema_id)),
+                    )
+                },
+            ),
+        ),
+    )
+    environment = build_config_environment(
+        config_with_physical_resources({"source-0": ("test.play_program/v1",)})
+    )
+    codecs = json_payload_codecs(schema_id)
+
+    with pytest.raises(CheckFailed) as missing_codec:
+        materialize_local_execution(bind_program_facts(program, environment))
+
+    [problem] = missing_codec.value.problems
+    assert problem.code == "instrument_invocation_payload_encoding_failed"
+    assert "no payload codec registered" in problem.message
+
+    plan = materialize_local_execution(
+        bind_program_facts(program, environment),
+        payload_codecs=codecs,
+    )
+
+    [invocation] = operations_of_type(plan, InvokeOperation, point_index=0)
+    [payload] = invocation.payloads
+    [argument] = invocation.arguments
+    assert argument.value.root == PayloadRef(payload_id=payload.id)
+    assert payload.schema_id == schema_id
+    assert codecs.decode(payload) == {"samples": [1.0, -1.0]}
 
 
 def test_compute_inputs_are_normalized_before_binding() -> None:

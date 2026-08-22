@@ -126,6 +126,13 @@ class MeasurementDatasetReceiptEvidence(Protocol):
     def dataset_ref(self) -> str: ...
 
 
+class DomainExecutionReceiptEvidence(Protocol):
+    """Receipt identity retained without coupling kernel errors to domain SDK."""
+
+    @property
+    def execution_key(self) -> str: ...
+
+
 class MeasurementRecordingError(StorageError):
     """A projected record write or its ledger evidence did not complete cleanly."""
 
@@ -160,8 +167,8 @@ class MeasurementRecordingError(StorageError):
         super().__init__(problems)
 
 
-class DomainRuntimeFailure(OperationFailure):
-    """Expected failure at one host-visible domain-runtime boundary."""
+class DomainExecutionFailed(OperationFailure):
+    """One domain job failed or reached an indeterminate outcome."""
 
     def __init__(
         self,
@@ -172,37 +179,16 @@ class DomainRuntimeFailure(OperationFailure):
         invocation_id: str,
         execution_key: str,
         certainty: RunCertainty,
+        receipt: DomainExecutionReceiptEvidence | None,
     ) -> None:
         if not run_id or not operation_id or not invocation_id or not execution_key:
-            msg = "domain runtime failure identity fields must be non-empty"
+            msg = "domain execution failure identity fields must be non-empty"
             raise ValueError(msg)
         self.run_id = run_id
         self.operation_id = operation_id
         self.invocation_id = invocation_id
         self.execution_key = execution_key
         self.phase: Literal["execute"] = "execute"
-        self.certainty = certainty
+        self.certainty: RunCertainty = certainty
+        self.receipt = receipt
         super().__init__(problems)
-
-
-class DomainExecutionFailed(DomainRuntimeFailure):
-    """One synchronous domain execution failed or has an unknown outcome."""
-
-    def __init__(
-        self,
-        problems: Sequence[Problem],
-        *,
-        run_id: str,
-        operation_id: str,
-        invocation_id: str,
-        execution_key: str,
-        certainty: RunCertainty,
-    ) -> None:
-        super().__init__(
-            problems,
-            run_id=run_id,
-            operation_id=operation_id,
-            invocation_id=invocation_id,
-            execution_key=execution_key,
-            certainty=certainty,
-        )

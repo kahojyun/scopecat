@@ -3,13 +3,17 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 from typing import assert_type, cast
+from unittest.mock import patch
 
 import pytest
 import scopecat as sc
 from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.config.environment import build_config_environment
-from scopecat.execution.evidence import instrument_state_evidence_ref
+from scopecat.execution.evidence import (
+    domain_execution_evidence_ref,
+    instrument_state_evidence_ref,
+)
 from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.execution.program import RunCoverageEffect, RunDomainJob
 from scopecat.inspection import CompiledProgramInspectionQuery
@@ -18,6 +22,7 @@ from scopecat.planning.compilation import compile_run_program
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.execution import InstrumentStateEvidence
+from scopecat.sdk.domain import DomainExecutionEvidence
 from scopecat_quantum import authoring as quantum
 from scopecat_quantum.measurement_computes import (
     BinaryIqProbabilityProducts,
@@ -25,6 +30,7 @@ from scopecat_quantum.measurement_computes import (
 from scopecat_testkit.instrument_host import compose_test_instruments
 from scopecat_testkit.server.in_process_lab import in_process_lab
 
+import reference_lab.compiler as reference_compiler_module
 from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT,
     ANALOG_WAVEFORM_OUTPUT_RESET,
@@ -42,13 +48,13 @@ from reference_lab.quantum_runner import (
 from reference_lab.targets.list_mode import (
     ConfiguredRoutePlacementProvider,
     ListModeDeviceSnapshot,
-    ListModeDomainRuntime,
+    ListModeDomainJobRuntime,
     ListModePlacementDecision,
     MappedListModeTarget,
     configured_list_mode_target,
     point_realization_fingerprint,
 )
-from reference_lab.virtual_lab.execution import virtual_quantum_runtime
+from reference_lab.virtual_lab.execution import virtual_quantum_job_runtime
 from reference_lab.workflows.drag_beta_calibration import (
     drag_beta_program,
     drag_readout_pulse,
@@ -200,7 +206,7 @@ def test_quantum_compiler_uses_a_one_point_initial_probe() -> None:
     provider = ReferenceLabProvider(seed=7)
     compiler = QuantumLabCompiler(target=_configured_target(config, provider))
 
-    assert compiler.initial_batch_size(1000) == 1
+    assert compiler.initial_batch_max_points(1000) == 1
 
 
 def test_parallel_qubit_set_compiles_to_one_entity_axis_result_group() -> None:
@@ -272,7 +278,7 @@ def _logical_measurement_values(
         provider=provider,
         domain_compiler=QuantumLabCompiler(
             target=_configured_target(config, provider),
-            runtime_selector=virtual_quantum_runtime,
+            job_runtime_selector=virtual_quantum_job_runtime,
         ),
         payload_codecs=reference_lab_payload_codecs(),
     )
@@ -364,7 +370,7 @@ def test_quantum_target_executes_through_reserved_bare_instruments(
         provider=provider,
         domain_compiler=QuantumLabCompiler(
             target=_configured_target(config, provider),
-            runtime_selector=virtual_quantum_runtime,
+            job_runtime_selector=virtual_quantum_job_runtime,
         ),
         payload_codecs=reference_lab_payload_codecs(),
     )
@@ -390,11 +396,23 @@ def test_quantum_target_executes_through_reserved_bare_instruments(
         if state.instrument_id == "drive-awg"
     )
     guard_offset = next(
-        state.value.root
-        for state in drive_awg.properties
-        if state.component_path == ["outputs", "ch9"] and state.property_id == "offset"
+        observation.value.root
+        for observation in drive_awg.observations
+        if observation.target.component_path == ("outputs", "ch9")
+        and observation.target.property_id == "offset"
     )
     assert guard_offset == sc.Quantity(0.007, "V")
+    domain_evidence = lab.services.runs.read_model(
+        run.id,
+        domain_execution_evidence_ref(),
+        DomainExecutionEvidence,
+    )
+    assert domain_evidence.run_id == run.id
+    assert domain_evidence.detail_complete
+    assert domain_evidence.attempt_count >= 1
+    assert domain_evidence.receipt_count == domain_evidence.attempt_count
+    assert domain_evidence.completed_count == domain_evidence.attempt_count
+    assert domain_evidence.checkpoint_count == 0
 
 
 def test_quantum_preview_inspects_only_the_selected_point_without_device_effects(
@@ -408,7 +426,7 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
         provider=provider,
         domain_compiler=QuantumLabCompiler(
             target=_configured_target(config, provider),
-            runtime_selector=virtual_quantum_runtime,
+            job_runtime_selector=virtual_quantum_job_runtime,
             placement_provider=placement_provider,
         ),
         payload_codecs=reference_lab_payload_codecs(),
@@ -477,7 +495,8 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
         link.relation == "selected_route" for link in inspection.content.program.links
     )
     [entry] = inspection.content.points
-    assert entry.target_entry_id.endswith(".point-14")
+    assert entry.target_entry_id.startswith("drag-beta-rough-calibration.content-")
+    assert entry.target_entry_id.endswith(".entry-0")
 
     selected_again = lab.prepare(invocation).preview(
         coordinates=preview.selected_point.coordinates
@@ -562,7 +581,8 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     [free_inspection] = free.domain_inspections
     assert free_inspection.point_index is None
     [free_entry] = free_inspection.content.points
-    assert free_entry.target_entry_id.endswith(".point-0")
+    assert free_entry.target_entry_id.startswith("drag-beta-rough-calibration.content-")
+    assert free_entry.target_entry_id.endswith(".entry-0")
 
     bound = bind_program(
         compile_invocation(invocation).program,
@@ -578,9 +598,7 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
         "MappedListModeTarget",
         actual_job.execution.invocation.payload,
     ).artifact
-    actual_entry = next(
-        item for item in actual.entries if item.entry_id.value.endswith("point-14")
-    )
+    actual_entry = actual.entries[actual_job.point_ordinals.index(14)]
     preview_hashes = {
         waveform.channel_id: waveform.samples_sha256 for waveform in entry.waveforms
     }
@@ -656,7 +674,9 @@ def test_reviewed_los_prepare_once_without_fragmenting_quantum_batches() -> None
     jobs = tuple(
         operation for operation in coverage if isinstance(operation, RunDomainJob)
     )
-    assert all(type(job.execution.runtime) is ListModeDomainRuntime for job in jobs)
+    assert all(
+        type(job.execution.job_runtime) is ListModeDomainJobRuntime for job in jobs
+    )
     assert [effect.instrument_id for effect in state_effects] == [
         "drive-awg",
         "readout-awg",
@@ -779,7 +799,20 @@ def test_fixed_if_lo_sweep_bounds_real_time_batches_with_host_effects() -> None:
     )
 
     plan = compile_run_program(composition.system, bound=bound)
-    coverage = tuple(plan.coverage)
+    compile_points = reference_compiler_module._compile_points
+    with (
+        patch.object(
+            reference_compiler_module,
+            "_compile_points",
+            wraps=compile_points,
+        ) as compile_points_probe,
+        patch.object(
+            quantum,
+            "bind",
+            wraps=quantum.bind,
+        ) as bind_probe,
+    ):
+        coverage = tuple(plan.coverage)
 
     state_effects = tuple(
         operation
@@ -797,6 +830,11 @@ def test_fixed_if_lo_sweep_bounds_real_time_batches_with_host_effects() -> None:
         "readout-lo",
     }
     assert [job.point_ordinals for job in jobs] == [(0,), (1,), (2,)]
+    assert compile_points_probe.call_count == 2
+    assert bind_probe.call_count == 2
+    assert all(job.execution.setup_residency_requirements for job in jobs)
+    assert len({job.execution.setup_residency_requirements for job in jobs}) == 1
+    assert all(job.execution.transition_policy == "abnormal_only" for job in jobs)
     assert plan.domain_target_requirement is not None
     assert plan.domain_target_requirement.instrument_ids == (
         "drive-awg",

@@ -18,7 +18,9 @@ from scopecat.authoring import (
     module,
     one,
 )
+from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.quantity import Quantity
 from scopecat.program.bindings import EnsureStateIntent, InvocationIntent
 from scopecat.program.expressions import LiteralScalarExpr
@@ -29,10 +31,10 @@ from scopecat.program.recording import ProgramRecordSelection
 
 from scopecat_instruments import (
     DCMonitorCurrentProducts,
-    DCMonitorGroupTarget,
-    DCMonitorTarget,
     DCMonitorVoltageProducts,
     DCSourceGroupTarget,
+    DCSourceMonitorGroupTarget,
+    DCSourceMonitorTarget,
     DCSourceTarget,
     NetworkSweepProducts,
     NetworkSweepTarget,
@@ -58,6 +60,8 @@ from scopecat_instruments import (
 from scopecat_instruments.members import (
     DC_MONITOR,
     DC_SOURCE,
+    DC_SOURCE_OUTPUT_ENABLED,
+    DC_SOURCE_VOLTAGE,
     NETWORK_SWEEP,
     RF_OUTPUT,
     TEMPERATURE_READOUT,
@@ -100,7 +104,78 @@ def test_factories_bind_typed_symbolic_clients_and_declare_resources() -> None:
         (NETWORK_SWEEP.interface_id,),
         (TEMPERATURE_READOUT.interface_id,),
     ]
+    assert [resource.selector.capabilities for resource in interface.resources] == [
+        (DC_SOURCE,),
+        (RF_OUTPUT,),
+        (NETWORK_SWEEP,),
+        (TEMPERATURE_READOUT,),
+    ]
     assert interface.resources[0].selector.entity_inputs == (qubit,)
+
+
+def test_generated_symbolic_client_preserves_exact_resource_requirements() -> None:
+    @experiment(id="test.symbolic.exact-requirements", kind="symbolic_root")
+    def authored(context: ExperimentContext) -> None:
+        source = dc_source(
+            context,
+            name="drive.source",
+            requires=(DC_SOURCE_OUTPUT_ENABLED, DC_SOURCE_VOLTAGE),
+        )
+        assert_type(source, SymbolicDCSourceClient)
+        source.ensure(output_enabled=True)
+        source.source_voltage(
+            range=Quantity(1.0, "V"),
+            level=Quantity(0.05, "V"),
+        )
+
+    invocation = authored()
+    [resource] = invocation.definition.interface.resources
+    assert resource.id == "drive.source"
+    assert resource.selector.capabilities == (
+        DC_SOURCE_OUTPUT_ENABLED,
+        DC_SOURCE_VOLTAGE,
+    )
+    assert resource.selector.interfaces == (DC_SOURCE.interface_id,)
+    compile_invocation(invocation)
+
+
+def test_generated_group_forwards_exact_requirements_to_each_resource() -> None:
+    context = ModuleContext()
+    q0 = EntityRef(id="q0", kind="logical_device")
+    q1 = EntityRef(id="q1", kind="logical_device")
+
+    sources = dc_source(
+        context,
+        for_=each(q0, q1),
+        requires=(DC_SOURCE_OUTPUT_ENABLED,),
+    )
+    sources.ensure(output_enabled=False)
+
+    interface, _, _ = context.close_experiment_parts_internal()
+    assert [resource.selector.capabilities for resource in interface.resources] == [
+        (DC_SOURCE_OUTPUT_ENABLED,),
+        (DC_SOURCE_OUTPUT_ENABLED,),
+    ]
+
+
+def test_generated_client_use_outside_exact_requirements_fails_verification() -> None:
+    @experiment(id="test.symbolic.insufficient-requirements", kind="symbolic_root")
+    def authored(context: ExperimentContext) -> None:
+        source = dc_source(
+            context,
+            requires=(DC_SOURCE_OUTPUT_ENABLED,),
+        )
+        source.source_voltage(
+            range=Quantity(1.0, "V"),
+            level=Quantity(0.05, "V"),
+        )
+
+    with pytest.raises(CheckFailed) as error:
+        compile_invocation(authored())
+
+    assert [problem.code for problem in error.value.problems] == [
+        "module_resource_port_capability_missing",
+    ]
 
 
 def test_explicit_dc_source_factories_cover_scalar_and_group() -> None:
@@ -643,12 +718,16 @@ def test_dc_monitor_exposes_independent_fixed_result_acquisitions() -> None:
     context = ModuleContext()
     source = dc_source_monitor(context)
     assert_type(source, SymbolicDCSourceMonitorClient)
-    source.ensure(DCSourceTarget(output_enabled=True))
+    source.ensure(
+        DCSourceMonitorTarget(
+            output_enabled=True,
+            measurement_enabled=True,
+        )
+    )
     source.source_voltage(
         range=Quantity(1.0, "V"),
         level=Quantity(0.05, "V"),
     )
-    source.ensure(DCMonitorTarget(measurement_enabled=True))
 
     current = source.measure_current()
     voltage = source.measure_voltage()
@@ -735,7 +814,7 @@ def test_dc_monitor_group_maps_each_fixed_acquisition_per_entity() -> None:
             )
         ),
     )
-    sources.ensure(DCMonitorGroupTarget(measurement_enabled=True))
+    sources.ensure(DCSourceMonitorGroupTarget(measurement_enabled=True))
 
     current_samples = sources.measure_current()
     voltage_samples = sources.measure_voltage()

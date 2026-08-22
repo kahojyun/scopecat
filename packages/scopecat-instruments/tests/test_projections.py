@@ -3,10 +3,12 @@ from __future__ import annotations
 from typing import assert_type
 
 import scopecat as sc
-from scopecat.sdk.instruments.declarations import state_projection_assignments
+from scopecat.sdk.instruments.declarations import member_projection_assignments
 
 from scopecat_instruments import (
     DCMonitorPatch,
+    DCSourceMonitorPatch,
+    DCSourceMonitorTarget,
     DCSourcePatch,
     DCSourceTarget,
     NetworkSweepPatch,
@@ -43,7 +45,7 @@ def test_dc_source_target_accepts_fixed_and_scanned_values() -> None:
     )
 
     assert_type(target, DCSourceTarget)
-    assert state_projection_assignments(target) == {
+    assert member_projection_assignments(target) == {
         DC_SOURCE_VOLTAGE_PROTECTION: sc.Quantity(2.0, "V"),
         DC_SOURCE_CURRENT_PROTECTION: current_protection,
         DC_SOURCE_OUTPUT_ENABLED: True,
@@ -51,10 +53,10 @@ def test_dc_source_target_accepts_fixed_and_scanned_values() -> None:
 
 
 def test_sparse_patches_omit_unspecified_properties() -> None:
-    assert state_projection_assignments(DCSourcePatch(output_enabled=False)) == {
+    assert member_projection_assignments(DCSourcePatch(output_enabled=False)) == {
         DC_SOURCE_OUTPUT_ENABLED: False
     }
-    assert state_projection_assignments(
+    assert member_projection_assignments(
         NetworkSweepPatch(
             start_frequency=sc.Quantity(4.8, "GHz"),
             points=401,
@@ -68,7 +70,7 @@ def test_sparse_patches_omit_unspecified_properties() -> None:
 
 
 def test_dc_source_and_monitor_patches_use_the_shared_declaration_codec() -> None:
-    assert state_projection_assignments(
+    assert member_projection_assignments(
         DCSourcePatch(
             voltage_protection=sc.Quantity(2.0, "V"),
             current_protection=sc.Quantity(10.0, "mA"),
@@ -77,7 +79,7 @@ def test_dc_source_and_monitor_patches_use_the_shared_declaration_codec() -> Non
         DC_SOURCE_VOLTAGE_PROTECTION: sc.Quantity(2.0, "V"),
         DC_SOURCE_CURRENT_PROTECTION: sc.Quantity(10.0, "mA"),
     }
-    assert state_projection_assignments(
+    assert member_projection_assignments(
         DCMonitorPatch(
             measurement_enabled=True,
             integration_cycles=3,
@@ -87,6 +89,28 @@ def test_dc_source_and_monitor_patches_use_the_shared_declaration_codec() -> Non
         DC_MONITOR_MEASUREMENT_ENABLED: True,
         DC_MONITOR_INTEGRATION_CYCLES: 3,
         DC_MONITOR_MEASUREMENT_DELAY: sc.Quantity(10.0, "ms"),
+    }
+
+
+def test_composite_projection_spans_constituent_interfaces() -> None:
+    target = DCSourceMonitorTarget(
+        output_enabled=True,
+        measurement_enabled=True,
+    )
+
+    assert_type(target, DCSourceMonitorTarget)
+    assert member_projection_assignments(target) == {
+        DC_SOURCE_OUTPUT_ENABLED: True,
+        DC_MONITOR_MEASUREMENT_ENABLED: True,
+    }
+    assert member_projection_assignments(
+        DCSourceMonitorPatch(
+            output_enabled=False,
+            integration_cycles=5,
+        )
+    ) == {
+        DC_SOURCE_OUTPUT_ENABLED: False,
+        DC_MONITOR_INTEGRATION_CYCLES: 5,
     }
 
 
@@ -112,7 +136,7 @@ def test_every_first_party_patch_assignment_is_writable() -> None:
     }
 
     for patch in patches:
-        assignments = state_projection_assignments(patch)
+        assignments = member_projection_assignments(patch)
         for property_ref in assignments:
             interface = interfaces[property_ref.interface_id]
             property_spec = next(

@@ -31,12 +31,11 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.instrument_members import (
     AcquisitionResultRef,
-    InterfaceRef,
+    InstrumentCapabilityRef,
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
 )
-from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.payloads import PayloadValue, unwrap_payload_values
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import (
@@ -103,6 +102,7 @@ from scopecat.program.products import (
     ProductRef,
     ProductRefs,
     ProductValueSpec,
+    inherit_product_axis_dimension_internal,
 )
 from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
@@ -139,7 +139,7 @@ from scopecat.sdk.compute import (
 )
 
 type BindingInput = StateBinding
-type InvocationInput = BindingInput | None
+type InvocationInput = BindingInput | PayloadValue | None
 
 _BUNDLE_FIELD_IMPLEMENTATION = "scopecat.bundle-field"
 
@@ -306,12 +306,16 @@ def _compute_contract_assignable(actual: DataType, expected: DataType) -> bool:
 def _measurement_compute_output_spec(
     value_type: DataType,
     *,
-    axes_from: ProductValueSpec | None = None,
+    axes_from: ProductRef | None = None,
 ) -> tuple[MeasurementDType, str | None, tuple[ProductAxis, ...]]:
     if isinstance(value_type, Array):
-        inherited_axes = {
-            axis.id: axis for axis in (axes_from.axes if axes_from is not None else ())
-        }
+        if axes_from is None:
+            inherited_axes: dict[str, ProductAxis] = {}
+        else:
+            inherited_axes = {
+                axis.id: inherit_product_axis_dimension_internal(axes_from, axis)
+                for axis in axes_from.value_spec.axes
+            }
         return (
             value_type.dtype,
             value_type.unit,
@@ -424,7 +428,11 @@ def _is_public_state_binding(value: object) -> bool:
 
 
 def _is_public_invocation_input(value: object) -> bool:
-    return value is None or _is_public_state_binding(value)
+    return (
+        value is None
+        or _is_payload_binding_input(value)
+        or _is_public_state_binding(value)
+    )
 
 
 def _require_public_state_binding(value: object) -> None:
@@ -438,12 +446,6 @@ def _require_public_state_binding(value: object) -> None:
         raise TypeError(
             "module bindings require a scalar typed value or scalar literal"
         )
-
-
-def _resource_interfaces(
-    requires: Sequence[InterfaceRef],
-) -> tuple[InterfaceId, ...]:
-    return tuple(interface.interface_id for interface in requires)
 
 
 @dataclass(frozen=True, slots=True)
@@ -791,13 +793,12 @@ class ModuleContext:
         self,
         id: str,
         *,
-        requires: Sequence[InterfaceRef] = (),
+        requires: Sequence[InstrumentCapabilityRef] = (),
         for_entities: Sequence[ValueRef] = (),
         role: ResourceRoleInput = None,
     ) -> DefinitionResource:
-        """Declare a generated client's logical resource."""
+        """Declare a logical resource and its required instrument capabilities."""
 
-        interfaces = _resource_interfaces(requires)
         selected_entities = tuple(
             cast("ValueRef", self._capture_domain_value(value))
             for value in for_entities
@@ -811,7 +812,7 @@ class ModuleContext:
             resource_port(
                 id,
                 ResourceSelector(
-                    interfaces=interfaces,
+                    capabilities=tuple(requires),
                     entity_inputs=selected_entities,
                     role=normalize_resource_role(role),
                 ),
@@ -1423,7 +1424,7 @@ class ModuleContext:
         for name, value_type in output_types.items():
             dtype, unit, axes = _measurement_compute_output_spec(
                 value_type,
-                axes_from=axes_from.value_spec if axes_from is not None else None,
+                axes_from=axes_from,
             )
             outputs[name] = self._product(
                 name if structured else id,
@@ -1544,7 +1545,7 @@ def build_ensure_state_intent(
 
 
 def _capture_binding_literal(value: object) -> object:
-    if isinstance(value, ValueRef):
+    if isinstance(value, ValueRef | PayloadValue):
         return value
     return capture_runtime_input(value)
 

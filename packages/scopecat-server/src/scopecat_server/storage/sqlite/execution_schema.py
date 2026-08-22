@@ -6,6 +6,47 @@ CREATE TABLE IF NOT EXISTS execution_coverage (
     completed_point_count INTEGER NOT NULL CHECK (completed_point_count >= 0)
 );
 
+CREATE TABLE IF NOT EXISTS execution_domain_job_transitions (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
+    logical_compute_node_id TEXT NOT NULL,
+    execution_key TEXT NOT NULL,
+    transition_kind TEXT NOT NULL CHECK (
+        transition_kind IN ('invocation', 'checkpoint', 'terminal')
+    ),
+    job_id TEXT,
+    revision INTEGER,
+    point_ordinals_json TEXT NOT NULL,
+    transition_json TEXT NOT NULL,
+    CHECK (
+        (
+            transition_kind = 'checkpoint'
+            AND job_id IS NOT NULL
+            AND revision IS NOT NULL
+            AND revision >= 1
+        ) OR (
+            transition_kind IN ('invocation', 'terminal')
+            AND job_id IS NULL
+            AND revision IS NULL
+        )
+    )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS execution_domain_job_checkpoint_identity
+ON execution_domain_job_transitions(run_id, execution_key, revision)
+WHERE transition_kind = 'checkpoint';
+
+CREATE UNIQUE INDEX IF NOT EXISTS execution_domain_job_invocation_identity
+ON execution_domain_job_transitions(run_id, execution_key)
+WHERE transition_kind = 'invocation';
+
+CREATE UNIQUE INDEX IF NOT EXISTS execution_domain_job_terminal_identity
+ON execution_domain_job_transitions(run_id, execution_key)
+WHERE transition_kind = 'terminal';
+
+CREATE INDEX IF NOT EXISTS execution_domain_job_transitions_run_sequence
+ON execution_domain_job_transitions(run_id, sequence);
+
 CREATE TABLE IF NOT EXISTS execution_point_plans (
     run_id TEXT PRIMARY KEY REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
     initialize_operation_id TEXT NOT NULL,

@@ -89,6 +89,7 @@ from scopecat.records.config import (
     config_content_hash,
 )
 from scopecat.sdk.domain.compiler import (
+    DomainBatchCandidate,
     DomainCompiler,
 )
 from scopecat.sdk.domain.execution import DomainStateAddress, PreparedDomainExecution
@@ -291,6 +292,7 @@ def _compile_system_program(
             product_use_ids=frozenset(local_product_use_ids),
             instrument_order=tuple(item.instrument_id for item in catalog.instruments),
             acquisition_cohorts=measurements.acquisition_cohorts,
+            payload_codecs=system.payload_codecs,
         )
         if local_execution_required
         else None
@@ -1047,14 +1049,40 @@ def _coverage_operations(
     local_batch_sizes = iter(_bounded_local_batch_sizes(len(point_ordinals)))
     if has_domain_calls:
         assert compiler is not None
-        next_batch_size = compiler.initial_batch_size(len(point_ordinals))
-        _validate_domain_batch_size(next_batch_size, len(point_ordinals))
+        next_batch_max_points = compiler.initial_batch_max_points(len(point_ordinals))
+        _validate_domain_batch_max_points(
+            next_batch_max_points,
+            len(point_ordinals),
+        )
     else:
-        next_batch_size = next(local_batch_sizes)
+        next_batch_max_points = next(local_batch_sizes)
     offset = 0
     while offset < len(point_ordinals):
-        coverage_batch = tuple(point_ordinals[offset : offset + next_batch_size])
-        next_domain_capacities: list[int] = []
+        candidate_batch = tuple(point_ordinals[offset : offset + next_batch_max_points])
+        batch_candidates: dict[str, DomainBatchCandidate] = {}
+        if has_domain_calls:
+            assert compiler is not None
+            for effect in effects:
+                if isinstance(effect, LogicalDomainExecution):
+                    batch_candidates[effect.id] = _prepare_domain_batch(
+                        compiler,
+                        domain_calls[effect.id],
+                        bound_points,
+                        candidate_batch,
+                        batch_ordinal=next_batch_ordinals[effect.id],
+                        inspection_requested=inspection_requested,
+                        inspection_query=inspection_query,
+                    )
+            compatible_sizes = tuple(
+                candidate.compatible_point_count
+                for candidate in batch_candidates.values()
+            )
+            if not compatible_sizes:
+                raise AssertionError("domain coverage produced no compatible prefix")
+            coverage_batch = candidate_batch[: min(compatible_sizes)]
+        else:
+            coverage_batch = candidate_batch
+        next_domain_max_points: list[int] = []
         local_effects = _materialize_local_coverage(
             bound_points,
             target=local_target,
@@ -1104,7 +1132,7 @@ def _coverage_operations(
                     assert compiler is not None
                     batch_ordinal = next_batch_ordinals[effect.id]
                     job = _compile_domain_batch(
-                        compiler,
+                        batch_candidates[effect.id],
                         domain_calls[effect.id],
                         bound_points,
                         region,
@@ -1112,7 +1140,7 @@ def _coverage_operations(
                         inspection_requested=inspection_requested,
                         inspection_query=inspection_query,
                     )
-                    next_domain_capacities.append(job.execution.next_batch_max_points)
+                    next_domain_max_points.append(job.execution.next_batch_max_points)
                     yield job
                     next_batch_ordinals[effect.id] = batch_ordinal + 1
             for ordinal in region:
@@ -1127,13 +1155,11 @@ def _coverage_operations(
         if not remaining:
             return
         if has_domain_calls:
-            if not next_domain_capacities:
-                raise AssertionError(
-                    "domain coverage produced no continuation capacity"
-                )
-            next_batch_size = min(remaining, *next_domain_capacities)
+            if not next_domain_max_points:
+                raise AssertionError("domain coverage produced no continuation maximum")
+            next_batch_max_points = min(remaining, *next_domain_max_points)
         else:
-            next_batch_size = next(local_batch_sizes)
+            next_batch_max_points = next(local_batch_sizes)
 
 
 def _materialize_local_coverage(
@@ -1225,10 +1251,47 @@ def _retarget_invariant_local_probe(
     )
 
 
-def _validate_domain_batch_size(batch_size: int, point_count: int) -> None:
-    if type(batch_size) is not int or not 1 <= batch_size <= point_count:
+def _prepare_domain_batch(
+    compiler: DomainCompiler,
+    call: DomainCallView,
+    bound_points: MaterializedBoundPoints,
+    point_ordinals: tuple[int, ...],
+    *,
+    batch_ordinal: int,
+    inspection_requested: bool,
+    inspection_query: CompiledProgramInspectionQuery | None,
+) -> DomainBatchCandidate:
+    request = make_domain_batch_request(
+        call,
+        bound_points,
+        point_ordinals,
+        batch_ordinal=batch_ordinal,
+        inspection_requested=inspection_requested,
+        inspection_query=inspection_query,
+    )
+    candidate_value = cast("object", compiler.prepare_batch(request))
+    if not isinstance(candidate_value, DomainBatchCandidate):
+        raise TypeError(
+            "domain compiler prepare_batch must return DomainBatchCandidate"
+        )
+    candidate = candidate_value
+    size = candidate.compatible_point_count
+    if type(size) is not int or not 1 <= size <= len(point_ordinals):
         raise ValueError(
-            "domain compiler initial batch size must be a positive covered point count"
+            "domain batch candidate compatible point count must be a positive "
+            "candidate prefix length"
+        )
+    return candidate
+
+
+def _validate_domain_batch_max_points(
+    batch_max_points: int,
+    point_count: int,
+) -> None:
+    if type(batch_max_points) is not int or not 1 <= batch_max_points <= point_count:
+        raise ValueError(
+            "domain compiler initial batch maximum must be a positive covered "
+            "point count"
         )
 
 
@@ -1319,7 +1382,7 @@ def _coalesce_host_state(
 
 
 def _compile_domain_batch(
-    compiler: DomainCompiler,
+    candidate: DomainBatchCandidate,
     call: DomainCallView,
     bound_points: MaterializedBoundPoints,
     point_ordinals: tuple[int, ...],
@@ -1338,11 +1401,11 @@ def _compile_domain_batch(
     )
     execution_candidate = cast(
         "object",
-        compiler.compile_batch(request),
+        candidate.compile(request),
     )
     if not isinstance(execution_candidate, PreparedDomainExecution):
         raise TypeError(
-            "domain compiler compile_batch must return PreparedDomainExecution"
+            "domain batch candidate compile must return PreparedDomainExecution"
         )
     return RunDomainJob(
         id=f"{call.id}:batch-{batch_ordinal}",

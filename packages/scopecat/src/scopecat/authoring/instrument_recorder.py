@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from typing import Protocol, cast
 
 from scopecat.authoring._module_context import DefinitionResource
+from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.resource_identity import ResourceRoleInput
 from scopecat.program.measurement_types import MeasurementDType
 from scopecat.program.products import ProductAxis, ProductRecording, ProductRef
@@ -16,7 +17,7 @@ from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import ValueRef
 from scopecat.sdk.instruments.members import (
     AcquisitionResultRef,
-    InterfaceRef,
+    InstrumentCapabilityRef,
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
@@ -37,7 +38,7 @@ class _RecorderTarget(Protocol):
         self,
         id: str,
         *,
-        requires: Sequence[InterfaceRef],
+        requires: Sequence[InstrumentCapabilityRef],
         for_entities: Sequence[ValueRef],
         role: ResourceRoleInput = None,
     ) -> DefinitionResource: ...
@@ -61,7 +62,11 @@ class _RecorderTarget(Protocol):
         *,
         resource: DefinitionResource,
         operation: OperationRef,
-        arguments: Mapping[OperationArgumentRef, StateBinding] | None = None,
+        arguments: Mapping[
+            OperationArgumentRef,
+            StateBinding | PayloadValue,
+        ]
+        | None = None,
     ) -> None: ...
 
     def _product(
@@ -119,7 +124,7 @@ class InstrumentRecorder:
         self,
         id: str,
         *,
-        requires: Sequence[InterfaceRef],
+        requires: Sequence[InstrumentCapabilityRef],
         for_entities: Sequence[ValueRef],
         role: ResourceRoleInput = None,
     ) -> InstrumentResource:
@@ -146,7 +151,11 @@ class InstrumentRecorder:
         *,
         resource: InstrumentResource,
         operation: OperationRef,
-        arguments: Mapping[OperationArgumentRef, StateBinding] | None = None,
+        arguments: Mapping[
+            OperationArgumentRef,
+            StateBinding | PayloadValue,
+        ]
+        | None = None,
     ) -> None:
         self._target._invoke(
             id,

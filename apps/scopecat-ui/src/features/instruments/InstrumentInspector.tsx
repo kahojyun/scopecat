@@ -5,9 +5,9 @@ import type {
   InstrumentCollectReceipt,
   InstrumentConfiguredDefaultsApplyReceipt,
   InstrumentInvokeReceipt,
-  InstrumentProperty,
   InstrumentSession,
   InstrumentState,
+  InstrumentStateTarget,
   InstrumentView,
 } from "../../api-contract";
 import { ApiError } from "../../api-client";
@@ -26,23 +26,25 @@ import {
   type InstrumentAcquisitionTarget,
   type InstrumentOperationArgument,
   type InstrumentOperationTarget,
-  type StagedInstrumentProperty,
+  type StagedInstrumentMember,
 } from "./instrument-api";
 import {
   AvailabilityBadge,
   configuredDefaultsReceiptMessage,
+  DeviceStateCard,
   filterDrafts,
   inlineError,
   InspectorEmpty,
-  instrumentPropertyKeys,
+  instrumentStateTargets,
+  interfaceMountPaths,
   InterfaceCard,
   mutationError,
   problems,
-  propertyKey,
+  stateMemberKey,
   receiptStyle,
   receiptTone,
   requireSession,
-  stagedInstrumentProperties,
+  stagedInstrumentMembers,
   acquisitionKey,
   operationKey,
 } from "./InstrumentInterfaceControls";
@@ -106,18 +108,7 @@ export function InstrumentInspector({
 
   const readMutation = useMutation({
     mutationFn: () => readInstrumentState(requireSession(session), instrumentId),
-    onSuccess: (snapshot) => {
-      applyCommandIdRef.current = undefined;
-      configuredDefaultsOperationIdRef.current = undefined;
-      collectCommandIdsRef.current = {};
-      invokeCommandIdsRef.current = {};
-      setState(snapshot);
-      setDrafts({});
-      setApplyResult(undefined);
-      setConfiguredDefaultsResult(undefined);
-      setCollectResults({});
-      setInvokeResults({});
-    },
+    onSuccess: setState,
   });
   const resetReadMutation = readMutation.reset;
   useEffect(() => {
@@ -133,43 +124,40 @@ export function InstrumentInspector({
     setInvokeResults({});
     resetReadMutation();
   }, [connected, instrumentId, resetReadMutation, session?.session_id, synchronizedState]);
-  const declaredPropertyKeys = useMemo(
-    () => instrumentPropertyKeys(description?.interfaces ?? []),
-    [description?.interfaces],
-  );
+  const declaredTargets = useMemo(() => instrumentStateTargets(description), [description]);
   const declaredDrafts = useMemo(
-    () => filterDrafts(drafts, declaredPropertyKeys),
-    [declaredPropertyKeys, drafts],
+    () => filterDrafts(drafts, declaredTargets),
+    [declaredTargets, drafts],
   );
-  const stagedProperties = useMemo(
-    () => stagedInstrumentProperties(declaredDrafts),
-    [declaredDrafts],
+  const stagedMembers = useMemo(
+    () => stagedInstrumentMembers(declaredDrafts, declaredTargets),
+    [declaredDrafts, declaredTargets],
   );
   const stagedCount = Object.keys(declaredDrafts).length;
   const invalidDraft = Object.values(declaredDrafts).some((draft) => draft.value === undefined);
   useEffect(() => {
-    setDrafts((current) => filterDrafts(current, declaredPropertyKeys));
-  }, [declaredPropertyKeys]);
+    setDrafts((current) => filterDrafts(current, declaredTargets));
+  }, [declaredTargets]);
   const applyMutation = useMutation({
     mutationFn: ({
-      properties,
+      members,
       commandId,
     }: {
-      properties: StagedInstrumentProperty[];
+      members: StagedInstrumentMember[];
       commandId: string;
-    }) => applyInstrumentState(requireSession(session), instrumentId, properties, commandId),
+    }) => applyInstrumentState(requireSession(session), instrumentId, members, commandId),
     retry: retryTransientInstrumentMutation,
     retryDelay: 250,
     onSuccess: (receipt) => {
       applyCommandIdRef.current = undefined;
       setApplyResult(receipt.status);
-      if (receipt.state) setState(receipt.state);
       if (receipt.status === "applied") {
         collectCommandIdsRef.current = {};
         invokeCommandIdsRef.current = {};
         setCollectResults({});
         setInvokeResults({});
         setDrafts({});
+        readMutation.mutate();
       } else if (receipt.status === "unknown") {
         onSessionLost(
           "The apply result is unknown. The daemon quarantined this session for operator review.",
@@ -189,7 +177,6 @@ export function InstrumentInspector({
     onSuccess: (receipt) => {
       configuredDefaultsOperationIdRef.current = undefined;
       setConfiguredDefaultsResult(receipt);
-      if (receipt.state) setState(receipt.state);
       if (receipt.status === "applied" || receipt.status === "unchanged") {
         applyCommandIdRef.current = undefined;
         collectCommandIdsRef.current = {};
@@ -198,6 +185,7 @@ export function InstrumentInspector({
         setDrafts({});
         setCollectResults({});
         setInvokeResults({});
+        readMutation.mutate();
       }
       void queryClient.invalidateQueries({ queryKey: ["instruments"] });
     },
@@ -270,10 +258,10 @@ export function InstrumentInspector({
       const key = operationKey(target);
       delete invokeCommandIdsRef.current[key];
       setInvokeResults((current) => ({ ...current, [key]: receipt }));
-      if (receipt.state) setState(receipt.state);
       if (receipt.status === "invoked") {
         collectCommandIdsRef.current = {};
         setCollectResults({});
+        readMutation.mutate();
       } else if (receipt.status === "unknown") {
         onSessionLost(
           "The operation result is unknown. The daemon quarantined this session for operator review.",
@@ -297,13 +285,8 @@ export function InstrumentInspector({
     },
   });
 
-  const stage = (
-    interfaceId: string,
-    componentPath: string[],
-    property: InstrumentProperty,
-    draft?: DraftValue,
-  ) => {
-    const key = propertyKey(interfaceId, componentPath, property.id);
+  const stage = (target: InstrumentStateTarget, draft?: DraftValue) => {
+    const key = stateMemberKey(target);
     applyCommandIdRef.current = undefined;
     setDrafts((current) => {
       const next = { ...current };
@@ -317,7 +300,7 @@ export function InstrumentInspector({
   const applyStaged = () => {
     applyCommandIdRef.current ??= createInstrumentCommandId("apply");
     applyMutation.mutate({
-      properties: stagedProperties,
+      members: stagedMembers,
       commandId: applyCommandIdRef.current,
     });
   };
@@ -325,6 +308,18 @@ export function InstrumentInspector({
     applyCommandIdRef.current = undefined;
     setDrafts({});
     applyMutation.reset();
+  };
+  const refreshState = () => {
+    applyCommandIdRef.current = undefined;
+    configuredDefaultsOperationIdRef.current = undefined;
+    collectCommandIdsRef.current = {};
+    invokeCommandIdsRef.current = {};
+    setDrafts({});
+    setApplyResult(undefined);
+    setConfiguredDefaultsResult(undefined);
+    setCollectResults({});
+    setInvokeResults({});
+    readMutation.mutate();
   };
   const applyConfiguredDefaults = () => {
     configuredDefaultsOperationIdRef.current ??= createInstrumentCommandId("configured-defaults");
@@ -451,7 +446,7 @@ export function InstrumentInspector({
         onConnect={onConnect}
         onClose={onClose}
         onDisconnectOwner={onDisconnectOwner}
-        onRefresh={() => readMutation.mutate()}
+        onRefresh={refreshState}
         onApplyConfiguredDefaults={applyConfiguredDefaults}
         onResolve={() => resolveMutation.mutate()}
       />
@@ -495,32 +490,46 @@ export function InstrumentInspector({
             </div>
           </div>
 
-          {(description.interfaces ?? []).length > 0 ? (
+          {(description.interfaces ?? []).length > 0 ||
+          (description.device_schemas ?? []).length > 0 ? (
             <div className="grid gap-2.5">
-              {(description.interfaces ?? []).map((instrumentInterface) => (
-                <InterfaceCard
-                  key={instrumentInterface.id}
-                  instrumentInterface={instrumentInterface}
+              {(description.interfaces ?? []).flatMap((instrumentInterface) =>
+                interfaceMountPaths(description, instrumentInterface.id).map((mountPath) => (
+                  <InterfaceCard
+                    key={`${instrumentInterface.id}:${mountPath.join("/")}`}
+                    description={description}
+                    instrumentInterface={instrumentInterface}
+                    mountPath={mountPath}
+                    connected={connected}
+                    interactionDisabled={interactionDisabled}
+                    state={state}
+                    drafts={drafts}
+                    collectResults={collectResults}
+                    invokeResults={invokeResults}
+                    collectingTarget={
+                      collectMutation.isPending ? collectMutation.variables?.target : undefined
+                    }
+                    invokingTarget={
+                      invokeMutation.isPending ? invokeMutation.variables?.target : undefined
+                    }
+                    onStage={(target, draft) => stage(target, draft)}
+                    onCollect={(target) => collectAcquisition(target)}
+                    onInvoke={(target, operationArguments) =>
+                      invokeOperation(target, operationArguments)
+                    }
+                    onOperationEdit={editOperation}
+                  />
+                )),
+              )}
+              {(description.device_schemas ?? []).map((deviceState) => (
+                <DeviceStateCard
+                  key={deviceState.id}
+                  deviceState={deviceState}
                   connected={connected}
                   interactionDisabled={interactionDisabled}
                   state={state}
                   drafts={drafts}
-                  collectResults={collectResults}
-                  invokeResults={invokeResults}
-                  collectingTarget={
-                    collectMutation.isPending ? collectMutation.variables?.target : undefined
-                  }
-                  invokingTarget={
-                    invokeMutation.isPending ? invokeMutation.variables?.target : undefined
-                  }
-                  onStage={(componentPath, property, draft) =>
-                    stage(instrumentInterface.id, componentPath, property, draft)
-                  }
-                  onCollect={(target) => collectAcquisition(target)}
-                  onInvoke={(target, operationArguments) =>
-                    invokeOperation(target, operationArguments)
-                  }
-                  onOperationEdit={editOperation}
+                  onStage={(target, draft) => stage(target, draft)}
                 />
               ))}
             </div>
@@ -555,7 +564,7 @@ export function InstrumentInspector({
                 type="button"
                 className={primaryButton}
                 onClick={applyStaged}
-                disabled={interactionDisabled || invalidDraft || stagedProperties.length === 0}
+                disabled={interactionDisabled || invalidDraft || stagedMembers.length === 0}
                 title={
                   interactionDisabled
                     ? "Wait for the current instrument interaction to finish"

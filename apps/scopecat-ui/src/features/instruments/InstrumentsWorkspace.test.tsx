@@ -67,7 +67,6 @@ beforeEach(() => {
   vi.mocked(applyInstrumentState).mockResolvedValue({
     status: "applied",
     problems: [],
-    state: instrumentState(6_000_000_000),
   });
   vi.mocked(closeInstrumentSession).mockResolvedValue();
   vi.mocked(abortInstrumentSession).mockResolvedValue();
@@ -79,7 +78,6 @@ beforeEach(() => {
   vi.mocked(invokeInstrumentOperation).mockResolvedValue({
     status: "invoked",
     problems: [],
-    state: instrumentState(7_000_000_000),
   });
   vi.mocked(probeInstrumentDriver).mockResolvedValue({
     status: "connected",
@@ -266,6 +264,7 @@ describe("instrument workspace", () => {
     vi.mocked(openInstrumentSession).mockResolvedValue(
       session({ configured_default_instrument_ids: ["drive-source"] }),
     );
+    vi.mocked(readInstrumentState).mockResolvedValueOnce(instrumentState(6_000_000_000));
     renderWorkspace();
 
     await screen.findByText("Drive source");
@@ -431,7 +430,6 @@ describe("instrument workspace", () => {
           related_locations: [],
         },
       ],
-      state: null,
     });
     renderWorkspace();
     await screen.findByText("Drive source");
@@ -532,9 +530,12 @@ describe("instrument workspace", () => {
         "drive-source",
         [
           {
-            interfaceId: "scopecat.rf_output/v1",
-            componentPath: [],
-            propertyId: "frequency",
+            target: {
+              kind: "interface",
+              interface_id: "scopecat.rf_output/v1",
+              component_path: [],
+              property_id: "frequency",
+            },
             value: { value: 6_000_000_000, unit: "Hz" },
           },
         ],
@@ -583,6 +584,67 @@ describe("instrument workspace", () => {
     ).toEqual(["Source mode", "DC output", "Voltage range", "Current range"]);
   });
 
+  it("uses physical interface mounts, implementation overrides, and device state targets", async () => {
+    const mountedInstrument = instrumentWithMountedAndDeviceState();
+    vi.mocked(getInstruments).mockResolvedValue({
+      config_entry_id: "lab-default",
+      problems: [],
+      items: [mountedInstrument],
+    });
+    vi.mocked(openInstrumentSession).mockResolvedValue(
+      session({
+        descriptions: [mountedInstrument.description!],
+        observed_state: [mountedAndDeviceInstrumentState()],
+      }),
+    );
+    renderWorkspace();
+
+    await screen.findByText("Model-specific state");
+    await connectInstrument();
+    const frequencies = screen.getAllByRole("spinbutton", { name: /CW frequency/ });
+    expect(frequencies).toHaveLength(2);
+    expect(frequencies[0]).toHaveValue(5_000_000_000);
+    expect(frequencies[0]).toBeEnabled();
+    expect(frequencies[1]).toHaveValue(6_000_000_000);
+    expect(frequencies[1]).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: /Serial number/ })).toHaveValue("SN-42");
+    expect(screen.getByRole("textbox", { name: /Serial number/ })).toBeDisabled();
+
+    fireEvent.change(frequencies[0]!, { target: { value: "5100000000" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: /Internal LO offset/ }), {
+      target: { value: "2000000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply staged" }));
+
+    await waitFor(() =>
+      expect(applyInstrumentState).toHaveBeenCalledWith(
+        expect.objectContaining({ session_id: "session-1" }),
+        "drive-source",
+        [
+          {
+            target: {
+              kind: "interface",
+              interface_id: "scopecat.rf_output/v1",
+              component_path: ["channels", "ch1"],
+              property_id: "frequency",
+            },
+            value: { value: 5_100_000_000, unit: "Hz" },
+          },
+          {
+            target: {
+              kind: "device",
+              schema_id: "example.model_state/v1",
+              component_path: [],
+              property_id: "internal_lo_offset",
+            },
+            value: { value: 2_000_000, unit: "Hz" },
+          },
+        ],
+        expect.stringMatching(/^ui-apply-/),
+      ),
+    );
+  });
+
   it("applies only explicitly staged flat properties", async () => {
     const flatInstrument = instrumentWithFlatDcState();
     vi.mocked(getInstruments).mockResolvedValue({
@@ -596,7 +658,8 @@ describe("instrument workspace", () => {
         observed_state: [flatDcInstrumentState()],
       }),
     );
-    vi.mocked(applyInstrumentState).mockResolvedValueOnce(flatDcApplyReceipt("current", 0.2));
+    vi.mocked(applyInstrumentState).mockResolvedValueOnce(flatDcApplyReceipt());
+    vi.mocked(readInstrumentState).mockResolvedValueOnce(flatDcInstrumentState("current", 0.2));
     renderWorkspace();
 
     await screen.findByText("DC source");
@@ -617,15 +680,21 @@ describe("instrument workspace", () => {
         "drive-source",
         [
           {
-            interfaceId: "scopecat.dc_source/v2",
-            componentPath: [],
-            propertyId: "source_mode",
+            target: {
+              kind: "interface",
+              interface_id: "scopecat.dc_source/v2",
+              component_path: [],
+              property_id: "source_mode",
+            },
             value: "current",
           },
           {
-            interfaceId: "scopecat.dc_source/v2",
-            componentPath: [],
-            propertyId: "current_range",
+            target: {
+              kind: "interface",
+              interface_id: "scopecat.dc_source/v2",
+              component_path: [],
+              property_id: "current_range",
+            },
             value: { value: 0.2, unit: "A" },
           },
         ],
@@ -683,6 +752,7 @@ describe("instrument workspace", () => {
     vi.mocked(openInstrumentSession).mockResolvedValue(
       session({ descriptions: [withOperations.description!] }),
     );
+    vi.mocked(readInstrumentState).mockResolvedValueOnce(instrumentState(7_000_000_000));
     renderWorkspace();
 
     await screen.findByText("Configure trigger");
@@ -762,7 +832,6 @@ describe("instrument workspace", () => {
           related_locations: [],
         },
       ],
-      state: null,
     });
     renderWorkspace();
 
@@ -1082,9 +1151,12 @@ describe("instrument workspace", () => {
       "abort_then_safe_state";
     active.config.system.instrument_registry.instruments[0]!.safe_state = [
       {
-        interface_id: "scopecat.rf_output/v1",
-        component_path: [],
-        property_id: "frequency",
+        target: {
+          kind: "interface",
+          interface_id: "scopecat.rf_output/v1",
+          component_path: [],
+          property_id: "frequency",
+        },
         value: { value: 5_000_000_000, unit: "Hz" },
       },
     ];
@@ -1140,9 +1212,12 @@ describe("instrument workspace", () => {
             failure_action: "abort_then_safe_state",
             safe_state: [
               {
-                interface_id: "scopecat.rf_output/v1",
-                component_path: [],
-                property_id: "frequency",
+                target: {
+                  kind: "interface",
+                  interface_id: "scopecat.rf_output/v1",
+                  component_path: [],
+                  property_id: "frequency",
+                },
                 value: { value: 5_000_000_000, unit: "Hz" },
               },
             ],
@@ -1200,9 +1275,12 @@ describe("instrument workspace", () => {
           spec: expect.objectContaining({
             default_state: [
               {
-                interface_id: "scopecat.rf_output/v1",
-                component_path: [],
-                property_id: "frequency",
+                target: {
+                  kind: "interface",
+                  interface_id: "scopecat.rf_output/v1",
+                  component_path: [],
+                  property_id: "frequency",
+                },
                 value: { value: 6_200_000_000, unit: "Hz" },
               },
             ],
@@ -1281,6 +1359,49 @@ describe("instrument workspace", () => {
     );
   });
 
+  it("edits structured options for a driver-managed controller", async () => {
+    renderWorkspace();
+
+    await screen.findByText("Drive source");
+    fireEvent.click(screen.getByRole("button", { name: "Add instrument" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Instrument ID"), {
+      target: { value: "controller" },
+    });
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Driver" }), {
+      target: { value: "example.controller" },
+    });
+    expect(within(dialog).getByRole("combobox", { name: "Connection" })).toHaveValue(
+      "driver_managed",
+    );
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Master Board Name" }), {
+      target: { value: "box-a" },
+    });
+    const addresses = within(dialog).getByRole("textbox", { name: "Box Addresses" });
+    fireEvent.change(addresses, { target: { value: "{" } });
+    expect(within(dialog).getByText("Enter a valid JSON object.")).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "Test connection" })).toBeDisabled();
+    fireEvent.change(addresses, { target: { value: '{"box-a":"192.0.2.50"}' } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() =>
+      expect(probeInstrumentDriver).toHaveBeenCalledWith({
+        binding: {
+          id: "controller",
+          driver_id: "example.controller",
+          connection: {
+            kind: "driver_managed",
+            options: {
+              dac_channels: ["readout"],
+              box_addresses: { "box-a": "192.0.2.50" },
+              master_board_name: "box-a",
+            },
+          },
+        },
+      }),
+    );
+  });
+
   it("shows quarantined ownership and the operator resolution action", async () => {
     vi.mocked(getInstruments).mockResolvedValue({
       config_entry_id: "lab-default",
@@ -1343,18 +1464,24 @@ function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {
               id: "frequency",
               label: "CW frequency",
               access: "read_write",
+              capture: true,
+              restore: true,
               value_type: { type: "quantity", finite: true, unit: "Hz" },
             },
             {
               id: "output_enabled",
               label: "RF output",
               access: "read_write",
+              capture: true,
+              restore: true,
               value_type: { type: "bool" },
             },
             {
               id: "temperature",
               label: "Measured temperature",
               access: "read_only",
+              capture: true,
+              restore: false,
               value_type: { type: "quantity", finite: true, unit: "K" },
             },
           ],
@@ -1400,6 +1527,8 @@ function instrumentWithFlatDcState(): InstrumentView {
         id: "voltage_range",
         label: "RF voltage limit",
         access: "read_write",
+        capture: true,
+        restore: true,
         value_type: { type: "quantity", finite: true, unit: "V" },
       },
     ],
@@ -1412,24 +1541,32 @@ function instrumentWithFlatDcState(): InstrumentView {
         id: "source_mode",
         label: "Source mode",
         access: "read_write",
+        capture: true,
+        restore: true,
         value_type: { type: "string", choices: ["voltage", "current"] },
       },
       {
         id: "output_enabled",
         label: "DC output",
         access: "read_write",
+        capture: true,
+        restore: true,
         value_type: { type: "bool" },
       },
       {
         id: "voltage_range",
         label: "Voltage range",
         access: "read_write",
+        capture: true,
+        restore: true,
         value_type: { type: "quantity", finite: true, unit: "V" },
       },
       {
         id: "current_range",
         label: "Current range",
         access: "read_write",
+        capture: true,
+        restore: true,
         value_type: { type: "quantity", finite: true, unit: "A" },
       },
     ],
@@ -1509,6 +1646,64 @@ function instrumentWithOperations(): InstrumentView {
   return view;
 }
 
+function instrumentWithMountedAndDeviceState(): InstrumentView {
+  const view = instrument();
+  view.description = {
+    ...view.description!,
+    components: [
+      {
+        id: "channels",
+        components: [{ id: "ch1" }, { id: "ch2" }],
+      },
+    ],
+    interface_mounts: [
+      { interface_id: "scopecat.rf_output/v1", component_path: ["channels", "ch1"] },
+      { interface_id: "scopecat.rf_output/v1", component_path: ["channels", "ch2"] },
+    ],
+    interface_property_implementations: [
+      {
+        property: {
+          interface_id: "scopecat.rf_output/v1",
+          component_path: ["channels", "ch2"],
+          property_id: "frequency",
+        },
+        access: "read_only",
+        capture: true,
+        restore: false,
+      },
+    ],
+    device_schemas: [
+      {
+        id: "example.model_state/v1",
+        label: "Model-specific state",
+        members: [
+          {
+            property: {
+              id: "serial_number",
+              label: "Serial number",
+              access: "read_only",
+              capture: true,
+              restore: false,
+              value_type: { type: "string" },
+            },
+          },
+          {
+            property: {
+              id: "internal_lo_offset",
+              label: "Internal LO offset",
+              access: "read_write",
+              capture: true,
+              restore: true,
+              value_type: { type: "quantity", finite: true, unit: "Hz" },
+            },
+          },
+        ],
+      },
+    ],
+  };
+  return view;
+}
+
 function session(overrides: Partial<InstrumentSession> = {}): InstrumentSession {
   return {
     session_id: "session-1",
@@ -1553,25 +1748,60 @@ function configuredDefaultsReceipt(
 function instrumentState(frequency = 5_000_000_000): InstrumentState {
   return {
     instrument_id: "drive-source",
-    properties: [
-      {
-        interface_id: "scopecat.rf_output/v1",
-        component_path: [],
-        property_id: "frequency",
-        value: { value: frequency, unit: "Hz" },
-      },
-      {
-        interface_id: "scopecat.rf_output/v1",
-        component_path: [],
-        property_id: "output_enabled",
-        value: false,
-      },
-      {
-        interface_id: "scopecat.rf_output/v1",
-        component_path: [],
-        property_id: "temperature",
-        value: { value: 0.02, unit: "K" },
-      },
+    observations: [
+      instrumentObservation("scopecat.rf_output/v1", "frequency", {
+        value: frequency,
+        unit: "Hz",
+      }),
+      instrumentObservation("scopecat.rf_output/v1", "output_enabled", false),
+      instrumentObservation("scopecat.rf_output/v1", "temperature", {
+        value: 0.02,
+        unit: "K",
+      }),
+    ],
+  };
+}
+
+function mountedAndDeviceInstrumentState(): InstrumentState {
+  return {
+    instrument_id: "drive-source",
+    observations: [
+      memberObservation(
+        {
+          kind: "interface",
+          interface_id: "scopecat.rf_output/v1",
+          component_path: ["channels", "ch1"],
+          property_id: "frequency",
+        },
+        { value: 5_000_000_000, unit: "Hz" },
+      ),
+      memberObservation(
+        {
+          kind: "interface",
+          interface_id: "scopecat.rf_output/v1",
+          component_path: ["channels", "ch2"],
+          property_id: "frequency",
+        },
+        { value: 6_000_000_000, unit: "Hz" },
+      ),
+      memberObservation(
+        {
+          kind: "device",
+          schema_id: "example.model_state/v1",
+          component_path: [],
+          property_id: "serial_number",
+        },
+        "SN-42",
+      ),
+      memberObservation(
+        {
+          kind: "device",
+          schema_id: "example.model_state/v1",
+          component_path: [],
+          property_id: "internal_lo_offset",
+        },
+        { value: 1_000_000, unit: "Hz" },
+      ),
     ],
   };
 }
@@ -1583,44 +1813,55 @@ function flatDcInstrumentState(
 ): InstrumentState {
   return {
     instrument_id: "drive-source",
-    properties: [
-      {
-        interface_id: "scopecat.dc_source/v2",
-        component_path: [],
-        property_id: "source_mode",
-        value: mode,
-      },
-      {
-        interface_id: "scopecat.dc_source/v2",
-        component_path: [],
-        property_id: "output_enabled",
-        value: false,
-      },
-      {
-        interface_id: "scopecat.dc_source/v2",
-        component_path: [],
-        property_id: "voltage_range",
-        value: { value: 5, unit: "V" },
-      },
-      {
-        interface_id: "scopecat.dc_source/v2",
-        component_path: [],
-        property_id: "current_range",
-        value: { value: currentRange, unit: "A" },
-      },
-      ...(instrumentState(frequency).properties ?? []),
+    observations: [
+      instrumentObservation("scopecat.dc_source/v2", "source_mode", mode),
+      instrumentObservation("scopecat.dc_source/v2", "output_enabled", false),
+      instrumentObservation("scopecat.dc_source/v2", "voltage_range", {
+        value: 5,
+        unit: "V",
+      }),
+      instrumentObservation("scopecat.dc_source/v2", "current_range", {
+        value: currentRange,
+        unit: "A",
+      }),
+      ...(instrumentState(frequency).observations ?? []),
     ],
   };
 }
 
-function flatDcApplyReceipt(
-  mode: "current" | "voltage",
-  currentRange: number,
-): Awaited<ReturnType<typeof applyInstrumentState>> {
+function instrumentObservation(
+  interfaceId: string,
+  propertyId: string,
+  value: NonNullable<InstrumentState["observations"]>[number]["value"],
+): NonNullable<InstrumentState["observations"]>[number] {
+  return memberObservation(
+    {
+      kind: "interface",
+      interface_id: interfaceId,
+      component_path: [],
+      property_id: propertyId,
+    },
+    value,
+  );
+}
+
+function memberObservation(
+  target: NonNullable<InstrumentState["observations"]>[number]["target"],
+  value: NonNullable<InstrumentState["observations"]>[number]["value"],
+): NonNullable<InstrumentState["observations"]>[number] {
+  return {
+    target,
+    value,
+    source: "hardware_query",
+    entity_ids: [],
+    channel_bindings: [],
+  };
+}
+
+function flatDcApplyReceipt(): Awaited<ReturnType<typeof applyInstrumentState>> {
   return {
     status: "applied",
     problems: [],
-    state: flatDcInstrumentState(mode, currentRange),
   };
 }
 
@@ -1732,6 +1973,37 @@ function driverCatalog(): Awaited<ReturnType<typeof getDriverCatalog>> {
                   type: "boolean",
                   title: "Guard Enabled",
                   default: false,
+                },
+              },
+            },
+          },
+        ],
+      },
+      {
+        driver_id: "example.controller",
+        implementation_version: "v1",
+        label: "Example controller",
+        connections: [
+          {
+            kind: "driver_managed",
+            options_schema: {
+              type: "object",
+              required: ["box_addresses", "master_board_name"],
+              properties: {
+                dac_channels: {
+                  type: "array",
+                  title: "DAC Channels",
+                  default: ["readout"],
+                  items: { type: "string" },
+                },
+                box_addresses: {
+                  type: "object",
+                  title: "Box Addresses",
+                  additionalProperties: { type: "string" },
+                },
+                master_board_name: {
+                  type: "string",
+                  title: "Master Board Name",
                 },
               },
             },

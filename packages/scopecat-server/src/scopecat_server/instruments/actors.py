@@ -4,22 +4,37 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from threading import Condition, RLock
 from typing import Literal, Self
 
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import (
+    InstrumentStateCacheEntry,
+    InstrumentStateCacheReadback,
+    InstrumentStateCacheReason,
+    InstrumentStateCacheStatus,
+    InstrumentStateReadback,
+    InstrumentStateSnapshot,
+    StateMemberIdentity,
+    StateMemberTarget,
+    state_member_identity,
+    state_member_target,
+)
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
     BackendInvokeRequest,
+    BackendReadRequest,
 )
 from scopecat.sdk.instruments.commands import (
     ApplyReceipt,
     CollectReceipt,
     InvokeReceipt,
 )
-from scopecat.sdk.instruments.contracts import InstrumentDescription
+from scopecat.sdk.instruments.contracts import (
+    InstrumentDescription,
+    operation_invalidated_state_members,
+)
 
 from .backend import (
     ConnectedInstrument,
@@ -60,6 +75,128 @@ class InstrumentOwnerKey:
 
 type InstrumentConnector = Callable[[], ConnectedInstrument]
 type InstrumentConnection = tuple[InstrumentBackendEndpoint, InstrumentHandle]
+type _DefaultCacheStatus = Literal["unobserved", "unknown"]
+type _DefaultCacheReason = Literal[
+    "not_observed",
+    "collect_outcome_unknown",
+    "explicit_invalidation",
+    "aborted",
+]
+
+
+@dataclass(slots=True)
+class _InstrumentStateCache:
+    instrument_id: str
+    generation: int = 0
+    has_baseline: bool = False
+    default_status: _DefaultCacheStatus = "unobserved"
+    default_generation: int = 0
+    default_reason: _DefaultCacheReason = "not_observed"
+    entries: dict[StateMemberIdentity, InstrumentStateCacheEntry] = field(
+        default_factory=dict
+    )
+
+    def snapshot(self) -> InstrumentStateSnapshot | None:
+        if not self.has_baseline:
+            return None
+        observations = [
+            entry.observation.model_copy(deep=True)
+            for _, entry in sorted(self.entries.items(), key=lambda item: repr(item[0]))
+            if entry.status == "observed" and entry.observation is not None
+        ]
+        return InstrumentStateSnapshot(
+            instrument_id=self.instrument_id,
+            observations=observations,
+        )
+
+    def read(
+        self,
+        targets: Iterable[StateMemberTarget],
+    ) -> InstrumentStateCacheReadback:
+        entries: list[InstrumentStateCacheEntry] = []
+        for target in targets:
+            cached = self.entries.get(state_member_identity(target))
+            entries.append(
+                InstrumentStateCacheEntry(
+                    target=target,
+                    status=self.default_status,
+                    generation=self.default_generation,
+                    reason=self.default_reason,
+                )
+                if cached is None
+                else cached.model_copy(deep=True)
+            )
+        return InstrumentStateCacheReadback(
+            instrument_id=self.instrument_id,
+            generation=self.generation,
+            entries=entries,
+        )
+
+    def replace(self, state: InstrumentStateSnapshot) -> None:
+        self.instrument_id = state.instrument_id
+        self.generation += 1
+        self.has_baseline = True
+        self.default_status = "unobserved"
+        self.default_generation = 0
+        self.default_reason = "not_observed"
+        self.entries = {
+            state_member_identity(observation.target): InstrumentStateCacheEntry(
+                target=observation.target,
+                status="observed",
+                generation=self.generation,
+                observation=observation.model_copy(deep=True),
+            )
+            for observation in state.observations
+        }
+
+    def merge(self, readback: InstrumentStateReadback) -> None:
+        self.instrument_id = readback.instrument_id
+        self.generation += 1
+        self.has_baseline = True
+        for observation in readback.observations:
+            self.entries[state_member_identity(observation.target)] = (
+                InstrumentStateCacheEntry(
+                    target=observation.target,
+                    status="observed",
+                    generation=self.generation,
+                    observation=observation.model_copy(deep=True),
+                )
+            )
+
+    def mark(
+        self,
+        targets: Iterable[StateMemberTarget],
+        *,
+        status: InstrumentStateCacheStatus,
+        reason: InstrumentStateCacheReason,
+    ) -> None:
+        selected = tuple(targets)
+        if not selected:
+            return
+        self.generation += 1
+        for target in selected:
+            self.entries[state_member_identity(target)] = InstrumentStateCacheEntry(
+                target=target,
+                status=status,
+                generation=self.generation,
+                reason=reason,
+            )
+
+    def mark_all_unknown(self, reason: _DefaultCacheReason) -> None:
+        self.generation += 1
+        self.entries = {
+            identity: InstrumentStateCacheEntry(
+                target=entry.target,
+                status="unknown",
+                generation=self.generation,
+                reason=reason,
+            )
+            for identity, entry in self.entries.items()
+        }
+        self.has_baseline = False
+        self.default_status = "unknown"
+        self.default_generation = self.generation
+        self.default_reason = reason
 
 
 class OwnedInstrument:
@@ -122,10 +259,23 @@ class OwnedInstrument:
     def assumed_state(self) -> InstrumentStateSnapshot | None:
         return self._actor.assumed_state(self)
 
-    def read_state(self) -> InstrumentStateSnapshot:
+    def state_cache(
+        self,
+        targets: Iterable[StateMemberTarget],
+    ) -> InstrumentStateCacheReadback:
+        """Return exact member knowledge without hardware I/O."""
+
+        return self._actor.state_cache(self, targets)
+
+    def read_state(self, request: BackendReadRequest) -> InstrumentStateReadback:
         """Read hardware under the actor lock without trusting it before validation."""
 
-        return self._actor.read_state(self)
+        return self._actor.read_state(self, request)
+
+    def adopt_readback(self, readback: InstrumentStateReadback) -> None:
+        """Merge a caller-validated member readback into the working cache."""
+
+        self._actor.adopt_readback(self, readback)
 
     def adopt_state(self, state: InstrumentStateSnapshot) -> None:
         """Publish a caller-validated snapshot as this owner's working baseline."""
@@ -171,7 +321,7 @@ class _InstrumentActor:
         self._endpoint: InstrumentBackendEndpoint | None = None
         self._handle: InstrumentHandle | None = None
         self._owned: OwnedInstrument | None = None
-        self._assumed_state: InstrumentStateSnapshot | None = None
+        self._state_cache: _InstrumentStateCache | None = None
         self._epoch = 0
         self._shutdown = False
 
@@ -221,14 +371,32 @@ class _InstrumentActor:
                 reused_connection=reused_connection,
             )
             self._owned = owned
+            self._state_cache = _InstrumentStateCache(instrument_id)
             return owned
 
-    def read_state(self, owned: OwnedInstrument) -> InstrumentStateSnapshot:
+    def read_state(
+        self,
+        owned: OwnedInstrument,
+        request: BackendReadRequest,
+    ) -> InstrumentStateReadback:
         with self._lock:
             endpoint, handle = self._require_owned(owned)
-            # A failed refresh must not leave a previously observed baseline usable.
-            self._assumed_state = None
-            return endpoint.read_state(handle)
+            cache = self._require_cache()
+            try:
+                readback = endpoint.read_state(handle, request)
+            except Exception:
+                cache.mark(
+                    request.targets,
+                    status="unknown",
+                    reason="state_read_failed",
+                )
+                raise
+            cache.mark(
+                request.targets,
+                status="unknown",
+                reason="state_read_unconfirmed",
+            )
+            return readback
 
     def assumed_state(
         self,
@@ -237,8 +405,17 @@ class _InstrumentActor:
         with self._lock:
             if self._owned is not owned or owned.epoch != self._epoch:
                 return None
-            state = self._assumed_state
-            return None if state is None else state.model_copy(deep=True)
+            cache = self._state_cache
+            return None if cache is None else cache.snapshot()
+
+    def state_cache(
+        self,
+        owned: OwnedInstrument,
+        targets: Iterable[StateMemberTarget],
+    ) -> InstrumentStateCacheReadback:
+        with self._lock:
+            self._require_owned(owned)
+            return self._require_cache().read(targets)
 
     def adopt_state(
         self,
@@ -247,12 +424,21 @@ class _InstrumentActor:
     ) -> None:
         with self._lock:
             self._require_owned(owned)
-            self._assumed_state = state.model_copy(deep=True)
+            self._require_cache().replace(state)
+
+    def adopt_readback(
+        self,
+        owned: OwnedInstrument,
+        readback: InstrumentStateReadback,
+    ) -> None:
+        with self._lock:
+            self._require_owned(owned)
+            self._require_cache().merge(readback)
 
     def invalidate_state(self, owned: OwnedInstrument) -> None:
         with self._lock:
             self._require_owned(owned)
-            self._assumed_state = None
+            self._require_cache().mark_all_unknown("explicit_invalidation")
 
     def apply_state(
         self,
@@ -261,11 +447,23 @@ class _InstrumentActor:
     ) -> ApplyReceipt:
         with self._lock:
             endpoint, handle = self._require_owned(owned)
-            previous = self._assumed_state
-            self._assumed_state = None
-            receipt = endpoint.apply_state(handle, request)
-            if receipt.status == "not_applied":
-                self._assumed_state = previous
+            cache = self._require_cache()
+            targets = tuple(assignment.target for assignment in request.assignments)
+            try:
+                receipt = endpoint.apply_state(handle, request)
+            except Exception:
+                cache.mark(
+                    targets,
+                    status="unknown",
+                    reason="apply_outcome_unknown",
+                )
+                raise
+            if receipt.status == "applied":
+                cache.mark(
+                    targets,
+                    status="invalidated",
+                    reason="state_applied",
+                )
             return receipt
 
     def invoke(
@@ -275,11 +473,29 @@ class _InstrumentActor:
     ) -> InvokeReceipt:
         with self._lock:
             endpoint, handle = self._require_owned(owned)
-            previous = self._assumed_state
-            self._assumed_state = None
-            receipt = endpoint.invoke(handle, request)
-            if receipt.status == "not_invoked":
-                self._assumed_state = previous
+            cache = self._require_cache()
+            invalidated = operation_invalidated_state_members(
+                owned.description,
+                interface_id=request.interface_id,
+                component_path=request.component_path,
+                operation_id=request.operation_id,
+            )
+            targets = tuple(state_member_target(target) for target in invalidated)
+            try:
+                receipt = endpoint.invoke(handle, request)
+            except Exception:
+                cache.mark(
+                    targets,
+                    status="unknown",
+                    reason="invoke_outcome_unknown",
+                )
+                raise
+            if receipt.status == "invoked":
+                cache.mark(
+                    targets,
+                    status="invalidated",
+                    reason="operation_invalidated",
+                )
             return receipt
 
     def collect(
@@ -292,23 +508,23 @@ class _InstrumentActor:
             try:
                 receipt = endpoint.collect(handle, request)
             except Exception:
-                self._assumed_state = None
+                self._require_cache().mark_all_unknown("collect_outcome_unknown")
                 raise
             if receipt.status != "collected":
-                self._assumed_state = None
+                self._require_cache().mark_all_unknown("collect_outcome_unknown")
             return receipt
 
     def abort(self, owned: OwnedInstrument) -> None:
         with self._lock:
             endpoint, handle = self._require_owned(owned)
-            self._assumed_state = None
+            self._require_cache().mark_all_unknown("aborted")
             endpoint.abort(handle)
 
     def release(self, owned: OwnedInstrument) -> None:
         with self._lock:
             self._require_owned(owned)
             self._owned = None
-            self._assumed_state = None
+            self._state_cache = None
             self._epoch += 1
 
     def fault(self, owned: OwnedInstrument) -> None:
@@ -316,7 +532,7 @@ class _InstrumentActor:
             self._require_owned(owned)
             self._owned = None
             self._epoch += 1
-            self._assumed_state = None
+            self._state_cache = None
             connection = self._detach_connection()
             if connection is not None:
                 self._disconnect(connection)
@@ -334,7 +550,7 @@ class _InstrumentActor:
                     f"owned instrument cannot be retired: {self._exclusivity_key}"
                 )
             self._shutdown = True
-            self._assumed_state = None
+            self._state_cache = None
             self._epoch += 1
             connection = self._detach_connection()
             if connection is not None:
@@ -346,7 +562,7 @@ class _InstrumentActor:
                 return
             self._shutdown = True
             if self._owned is not None:
-                self._assumed_state = None
+                self._state_cache = None
                 self._owned = None
                 self._epoch += 1
             connection = self._detach_connection()
@@ -364,6 +580,14 @@ class _InstrumentActor:
                 f"stale instrument ownership handle: {self._exclusivity_key}"
             )
         return self._endpoint, self._handle
+
+    def _require_cache(self) -> _InstrumentStateCache:
+        cache = self._state_cache
+        if cache is None:
+            raise InstrumentActorConflict(
+                f"instrument state cache is unavailable: {self._exclusivity_key}"
+            )
+        return cache
 
     def _disconnect_idle(self) -> None:
         connection = self._detach_connection()

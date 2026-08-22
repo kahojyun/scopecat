@@ -18,6 +18,9 @@ import type {
   InstrumentSessionLease,
   InstrumentSpec,
   InstrumentState,
+  InstrumentStateCache,
+  InstrumentStateReadback,
+  InstrumentStateTarget,
   InstrumentStateValue,
   InstrumentView,
 } from "../../api-contract";
@@ -27,10 +30,8 @@ import { decodeCollectReceipt, HARDWARE_RECEIPT_MEDIA_TYPE } from "./hardware-re
 
 export type { ActiveConfig, InstrumentList } from "../../api-contract";
 
-export interface StagedInstrumentProperty {
-  interfaceId: string;
-  componentPath: string[];
-  propertyId: string;
+export interface StagedInstrumentMember {
+  target: InstrumentStateTarget;
   value: InstrumentStateValue;
 }
 
@@ -111,20 +112,54 @@ export async function readInstrumentState(
   );
 }
 
+export async function readObservedInstrumentStateMembers(
+  session: InstrumentSession,
+  instrumentId: string,
+  targets: InstrumentStateTarget[],
+): Promise<InstrumentStateCache> {
+  return apiData(
+    apiClient.POST(
+      "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/observed",
+      {
+        params: {
+          path: { session_id: session.session_id, instrument_id: instrumentId },
+        },
+        body: { targets },
+      },
+    ),
+  );
+}
+
+export async function readInstrumentStateMembers(
+  session: InstrumentSession,
+  instrumentId: string,
+  targets: InstrumentStateTarget[],
+): Promise<InstrumentStateReadback> {
+  return apiData(
+    apiClient.POST(
+      "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/read",
+      {
+        params: {
+          path: { session_id: session.session_id, instrument_id: instrumentId },
+        },
+        body: { targets },
+      },
+    ),
+  );
+}
+
 export async function applyInstrumentState(
   session: InstrumentSession,
   instrumentId: string,
-  properties: StagedInstrumentProperty[],
+  members: StagedInstrumentMember[],
   commandId = createInstrumentCommandId("apply"),
 ): Promise<InstrumentApplyReceipt> {
-  const [first, ...remaining] = properties;
-  if (!first) throw new Error("Apply requires at least one staged property.");
-  const assignment = (property: StagedInstrumentProperty) => ({
+  const [first, ...remaining] = members;
+  if (!first) throw new Error("Apply requires at least one staged member.");
+  const assignment = (member: StagedInstrumentMember) => ({
     resource_id: instrumentId,
-    interface_id: property.interfaceId,
-    component_path: property.componentPath,
-    property_id: property.propertyId,
-    value: property.value,
+    target: member.target,
+    value: member.value,
   });
   return apiData(
     apiClient.POST(
@@ -327,6 +362,10 @@ export function connectionSummary(connection: InstrumentView["connection"]): str
       return "Virtual · local simulator";
     case "tcpip_socket":
       return `TCP/IP · ${connection.host}:${connection.port}`;
+    case "serial":
+      return `Serial · ${connection.port} @ ${connection.baud_rate}`;
+    case "driver_managed":
+      return "Driver managed";
   }
 }
 

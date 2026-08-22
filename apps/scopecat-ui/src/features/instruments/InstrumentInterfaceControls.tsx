@@ -3,13 +3,16 @@ import { AlertTriangle, Database, LoaderCircle, Play } from "lucide-react";
 import type {
   InstrumentCollectReceipt,
   InstrumentConfiguredDefaultsApplyReceipt,
+  InstrumentDescription,
+  InstrumentDeviceState,
   InstrumentInterface,
   InstrumentInvokeReceipt,
   InstrumentOperation,
   InstrumentProperty,
   InstrumentSession,
   InstrumentState,
-  InstrumentStateValue,
+  InstrumentStateObservation,
+  InstrumentStateTarget,
   InstrumentView,
 } from "../../api-contract";
 import { errorMessage, titleCase } from "../../lib/presentation";
@@ -19,13 +22,15 @@ import type {
   InstrumentAcquisitionTarget,
   InstrumentOperationArgument,
   InstrumentOperationTarget,
-  StagedInstrumentProperty,
+  StagedInstrumentMember,
 } from "./instrument-api";
 
 type DraftValue = InstrumentPropertyDraft;
 
 export function InterfaceCard({
+  description,
   instrumentInterface,
+  mountPath,
   connected,
   state,
   drafts,
@@ -39,7 +44,9 @@ export function InterfaceCard({
   onInvoke,
   onOperationEdit,
 }: {
+  description: InstrumentDescription;
   instrumentInterface: InstrumentInterface;
+  mountPath: string[];
   connected: boolean;
   state?: InstrumentState;
   drafts: Record<string, DraftValue>;
@@ -48,7 +55,7 @@ export function InterfaceCard({
   collectingTarget?: InstrumentAcquisitionTarget;
   invokingTarget?: InstrumentOperationTarget;
   interactionDisabled: boolean;
-  onStage: (componentPath: string[], property: InstrumentProperty, draft?: DraftValue) => void;
+  onStage: (target: InstrumentStateTarget, draft?: DraftValue) => void;
   onCollect: (target: InstrumentAcquisitionTarget) => void;
   onInvoke: (
     target: InstrumentOperationTarget,
@@ -59,7 +66,7 @@ export function InterfaceCard({
   return (
     <article
       className="overflow-hidden rounded-md border border-line bg-panel-soft"
-      data-testid={`interface-card-${instrumentInterface.id}`}
+      data-testid={`interface-card-${instrumentInterface.id}-${mountPath.join("-") || "root"}`}
     >
       <header className="flex items-start justify-between gap-3.5 border-b border-line bg-[rgb(255_255_255_/_1%)] px-[13px] py-3 max-[460px]:flex-col">
         <div>
@@ -71,13 +78,20 @@ export function InterfaceCard({
               {instrumentInterface.description}
             </p>
           )}
+          {mountPath.length > 0 && (
+            <code className="mt-1.5 block text-[0.52rem] text-text-dim">
+              {mountPath.join(" / ")}
+            </code>
+          )}
         </div>
       </header>
 
       <InterfaceEndpoint
         interfaceId={instrumentInterface.id}
-        componentPath={[]}
+        componentPath={mountPath}
         member={instrumentInterface}
+        description={description}
+        rootDepth={mountPath.length}
         connected={connected}
         state={state}
         drafts={drafts}
@@ -95,14 +109,74 @@ export function InterfaceCard({
   );
 }
 
+export function DeviceStateCard({
+  deviceState,
+  connected,
+  state,
+  drafts,
+  interactionDisabled,
+  onStage,
+}: {
+  deviceState: InstrumentDeviceState;
+  connected: boolean;
+  state?: InstrumentState;
+  drafts: Record<string, DraftValue>;
+  interactionDisabled: boolean;
+  onStage: (target: InstrumentStateTarget, draft?: DraftValue) => void;
+}) {
+  return (
+    <article
+      className="overflow-hidden rounded-md border border-line bg-panel-soft"
+      data-testid={`device-state-card-${deviceState.id}`}
+    >
+      <header className="border-b border-line bg-[rgb(255_255_255_/_1%)] px-[13px] py-3">
+        <h4 className="m-0 text-[0.77rem] font-[680]">
+          {deviceState.label ?? interfaceFallbackLabel(deviceState.id)}
+        </h4>
+        <code className="mt-1.5 block text-[0.52rem] text-text-dim">{deviceState.id}</code>
+        {deviceState.description && (
+          <p className="mt-1.5 mb-0 max-w-[760px] text-[0.6rem] leading-[1.45] text-text-dim">
+            {deviceState.description}
+          </p>
+        )}
+      </header>
+      {(deviceState.members ?? []).length > 0 && (
+        <div className={controlGrid}>
+          {(deviceState.members ?? []).map((member) => {
+            const target = deviceStateTarget(
+              deviceState.id,
+              member.component_path ?? [],
+              member.property.id,
+            );
+            return (
+              <PropertyEditor
+                key={stateMemberKey(target)}
+                property={member.property}
+                observation={stateObservation(state, target)}
+                draft={drafts[stateMemberKey(target)]}
+                editable={
+                  connected && !interactionDisabled && member.property.access !== "read_only"
+                }
+                onChange={(draft) => onStage(target, draft)}
+              />
+            );
+          })}
+        </div>
+      )}
+    </article>
+  );
+}
+
 type InterfaceMember = Pick<
   InstrumentInterface,
   "label" | "description" | "properties" | "operations" | "acquisitions" | "components"
 >;
 
 function InterfaceEndpoint({
+  description,
   interfaceId,
   componentPath,
+  rootDepth,
   member,
   connected,
   state,
@@ -117,8 +191,10 @@ function InterfaceEndpoint({
   onInvoke,
   onOperationEdit,
 }: {
+  description: InstrumentDescription;
   interfaceId: string;
   componentPath: string[];
+  rootDepth: number;
   member: InterfaceMember;
   connected: boolean;
   state?: InstrumentState;
@@ -128,7 +204,7 @@ function InterfaceEndpoint({
   collectingTarget?: InstrumentAcquisitionTarget;
   invokingTarget?: InstrumentOperationTarget;
   interactionDisabled: boolean;
-  onStage: (componentPath: string[], property: InstrumentProperty, draft?: DraftValue) => void;
+  onStage: (target: InstrumentStateTarget, draft?: DraftValue) => void;
   onCollect: (target: InstrumentAcquisitionTarget) => void;
   onInvoke: (
     target: InstrumentOperationTarget,
@@ -143,14 +219,14 @@ function InterfaceEndpoint({
   return (
     <>
       {hasLocalControls && (
-        <section className={componentPath.length > 0 ? "border-t border-line" : undefined}>
-          {componentPath.length > 0 && (
+        <section className={componentPath.length > rootDepth ? "border-t border-line" : undefined}>
+          {componentPath.length > rootDepth && (
             <header className="bg-panel-strong px-[13px] py-2.5">
               <h5 className="m-0 text-[0.67rem] text-text-soft">
                 {member.label ?? titleCase(componentPath.at(-1) ?? "")}
               </h5>
               <small className="mt-[3px] block text-[0.51rem] text-text-dim">
-                {componentPath.map(titleCase).join(" / ")}
+                {componentPath.slice(rootDepth).map(titleCase).join(" / ")}
               </small>
               {member.description && <p>{member.description}</p>}
             </header>
@@ -159,15 +235,19 @@ function InterfaceEndpoint({
           {properties.length > 0 && (
             <div className={controlGrid}>
               {properties.map((property) => {
-                const key = propertyKey(interfaceId, componentPath, property.id);
+                const target = interfaceStateTarget(interfaceId, componentPath, property.id);
+                const effectiveProperty = resolveInterfaceProperty(description, target, property);
+                const key = stateMemberKey(target);
                 return (
                   <PropertyEditor
                     key={property.id}
-                    property={property}
-                    currentValue={stateValue(state, interfaceId, componentPath, property.id)}
+                    property={effectiveProperty}
+                    observation={stateObservation(state, target)}
                     draft={drafts[key]}
-                    editable={connected && !interactionDisabled && property.access !== "read_only"}
-                    onChange={(draft) => onStage(componentPath, property, draft)}
+                    editable={
+                      connected && !interactionDisabled && effectiveProperty.access !== "read_only"
+                    }
+                    onChange={(draft) => onStage(target, draft)}
                   />
                 );
               })}
@@ -222,8 +302,10 @@ function InterfaceEndpoint({
       {(member.components ?? []).map((child) => (
         <InterfaceEndpoint
           key={child.id}
+          description={description}
           interfaceId={interfaceId}
           componentPath={[...componentPath, child.id]}
+          rootDepth={rootDepth}
           member={child}
           connected={connected}
           state={state}
@@ -541,13 +623,13 @@ function AcquisitionControl({
 
 function PropertyEditor({
   property,
-  currentValue,
+  observation,
   draft,
   editable,
   onChange,
 }: {
   property: InstrumentProperty;
-  currentValue?: InstrumentStateValue;
+  observation?: InstrumentStateObservation;
   draft?: DraftValue;
   editable: boolean;
   onChange: (draft?: DraftValue) => void;
@@ -576,13 +658,21 @@ function PropertyEditor({
       </span>
       <InstrumentPropertyInput
         property={property}
-        currentValue={currentValue}
+        currentValue={observation?.value}
         draft={draft}
         editable={editable}
         onChange={onChange}
       />
       {property.description && (
         <small className={propertyDescription}>{property.description}</small>
+      )}
+      {observation && (
+        <small className={propertyDescription}>
+          Observed from {titleCase(observation.source)}
+          {observation.observed_at
+            ? ` · ${new Date(observation.observed_at).toLocaleString()}`
+            : ""}
+        </small>
       )}
       {dirty && (
         <button type="button" className={propertyReset} onClick={() => onChange()}>
@@ -742,53 +832,64 @@ export function receiptTone(status: string): string {
   return ["applied", "unchanged", "invoked"].includes(status) ? positiveReceipt : warningReceipt;
 }
 
-export function instrumentPropertyKeys(interfaces: InstrumentInterface[]): Set<string> {
-  const keys = new Set<string>();
-  for (const instrumentInterface of interfaces) {
-    collectPropertyKeys(keys, instrumentInterface.id, [], instrumentInterface);
+export function instrumentStateTargets(
+  description: InstrumentDescription | undefined,
+): Map<string, InstrumentStateTarget> {
+  const targets = new Map<string, InstrumentStateTarget>();
+  if (!description) return targets;
+  for (const instrumentInterface of description.interfaces ?? []) {
+    for (const mountPath of interfaceMountPaths(description, instrumentInterface.id)) {
+      collectInterfaceTargets(targets, instrumentInterface.id, mountPath, instrumentInterface);
+    }
   }
-  return keys;
+  for (const deviceState of description.device_schemas ?? []) {
+    for (const member of deviceState.members ?? []) {
+      const target = deviceStateTarget(
+        deviceState.id,
+        member.component_path ?? [],
+        member.property.id,
+      );
+      targets.set(stateMemberKey(target), target);
+    }
+  }
+  return targets;
 }
 
-function collectPropertyKeys(
-  keys: Set<string>,
+function collectInterfaceTargets(
+  targets: Map<string, InstrumentStateTarget>,
   interfaceId: string,
   componentPath: string[],
   member: InterfaceMember,
 ): void {
   for (const property of member.properties ?? []) {
-    keys.add(propertyKey(interfaceId, componentPath, property.id));
+    const target = interfaceStateTarget(interfaceId, componentPath, property.id);
+    targets.set(stateMemberKey(target), target);
   }
   for (const child of member.components ?? []) {
-    collectPropertyKeys(keys, interfaceId, [...componentPath, child.id], child);
+    collectInterfaceTargets(targets, interfaceId, [...componentPath, child.id], child);
   }
 }
 
 export function filterDrafts(
   drafts: Record<string, DraftValue>,
-  declaredPropertyKeys: Set<string>,
+  declaredTargets: Map<string, InstrumentStateTarget>,
 ): Record<string, DraftValue> {
   const next: Record<string, DraftValue> = {};
   let changed = false;
   for (const [key, draft] of Object.entries(drafts)) {
-    if (declaredPropertyKeys.has(key)) next[key] = draft;
+    if (declaredTargets.has(key)) next[key] = draft;
     else changed = true;
   }
   return changed ? next : drafts;
 }
 
-function stateValue(
+export function stateObservation(
   state: InstrumentState | undefined,
-  interfaceId: string,
-  componentPath: string[],
-  propertyId: string,
-): InstrumentStateValue | undefined {
-  return (state?.properties ?? []).find(
-    (property) =>
-      property.interface_id === interfaceId &&
-      samePath(property.component_path ?? [], componentPath) &&
-      property.property_id === propertyId,
-  )?.value;
+  target: InstrumentStateTarget,
+): InstrumentStateObservation | undefined {
+  return (state?.observations ?? []).find(
+    (observation) => stateMemberKey(observation.target) === stateMemberKey(target),
+  );
 }
 
 type NumericOperationArgumentType = Extract<
@@ -822,29 +923,86 @@ function operationArgumentDraft(
   };
 }
 
-export function stagedInstrumentProperties(
+export function stagedInstrumentMembers(
   drafts: Record<string, DraftValue>,
-): StagedInstrumentProperty[] {
+  declaredTargets: Map<string, InstrumentStateTarget>,
+): StagedInstrumentMember[] {
   return Object.entries(drafts).flatMap(([key, draft]) => {
-    if (draft.value === undefined) return [];
-    const segments = key.split("\u0000");
+    const target = declaredTargets.get(key);
+    if (draft.value === undefined || !target) return [];
     return [
       {
-        interfaceId: segments[0] ?? "",
-        componentPath: segments.slice(1, -1),
-        propertyId: segments.at(-1) ?? "",
+        target,
         value: draft.value,
       },
     ];
   });
 }
 
-export function propertyKey(
+export function interfaceStateTarget(
   interfaceId: string,
   componentPath: string[],
   propertyId: string,
-): string {
-  return [interfaceId, ...componentPath, propertyId].join("\u0000");
+): InstrumentStateTarget {
+  return {
+    kind: "interface",
+    interface_id: interfaceId,
+    component_path: componentPath,
+    property_id: propertyId,
+  };
+}
+
+export function deviceStateTarget(
+  schemaId: string,
+  componentPath: string[],
+  propertyId: string,
+): InstrumentStateTarget {
+  return {
+    kind: "device",
+    schema_id: schemaId,
+    component_path: componentPath,
+    property_id: propertyId,
+  };
+}
+
+export function stateMemberKey(target: InstrumentStateTarget): string {
+  return target.kind === "interface"
+    ? [target.kind, target.interface_id, ...target.component_path, target.property_id].join(
+        "\u0000",
+      )
+    : [target.kind, target.schema_id, ...target.component_path, target.property_id].join("\u0000");
+}
+
+export function interfaceMountPaths(
+  description: InstrumentDescription,
+  interfaceId: string,
+): string[][] {
+  const mounts = (description.interface_mounts ?? [])
+    .filter((mount) => mount.interface_id === interfaceId)
+    .map((mount) => mount.component_path);
+  return mounts.length > 0 ? mounts : [[]];
+}
+
+export function resolveInterfaceProperty(
+  description: InstrumentDescription,
+  target: InstrumentStateTarget,
+  property: InstrumentProperty,
+): InstrumentProperty {
+  if (target.kind !== "interface") return property;
+  const implementation = (description.interface_property_implementations ?? []).find(
+    (candidate) =>
+      candidate.property.interface_id === target.interface_id &&
+      samePath(candidate.property.component_path ?? [], target.component_path) &&
+      candidate.property.property_id === target.property_id,
+  );
+  if (!implementation) return property;
+  return {
+    ...property,
+    access: implementation.access,
+    capture: implementation.capture,
+    restore: implementation.restore,
+    value_type: implementation.value_type ?? property.value_type,
+  };
 }
 
 export function acquisitionKey(target: InstrumentAcquisitionTarget): string {

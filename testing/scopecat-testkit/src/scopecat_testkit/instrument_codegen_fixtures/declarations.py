@@ -6,13 +6,13 @@ from typing import Annotated, Literal, Protocol
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
+    Member,
     acquisition,
     argument,
     axis,
     instrument_interface,
     instrument_result,
-    instrument_state,
-    member_field,
+    member,
     operation,
     result_field,
 )
@@ -34,30 +34,20 @@ class ScalarOperationInterface(Protocol):
     ) -> None: ...
 
 
-@instrument_state
-class CatalogProjectionState:
-    enabled: bool = member_field()
-    status: str = member_field(access="read_only")
+@instrument_interface("test.generated_catalog_projection/v1")
+class CatalogProjectionInterface(Protocol):
+    enabled: Member[bool] = member(access="read_write", restore=True)
+    status: Member[str] = member(access="read_only")
 
 
-@instrument_interface(
-    "test.generated_catalog_projection/v1",
-    state=CatalogProjectionState,
-)
-class CatalogProjectionInterface(Protocol): ...
+@instrument_interface("test.generated_shared_property_first/v1")
+class SharedPropertyFirstInterface(Protocol):
+    enabled: Member[bool] = member(access="read_write", restore=True)
 
 
-@instrument_state
-class SharedFixtureState:
-    enabled: bool = member_field()
-
-
-@instrument_interface("test.generated_shared_state_first/v1", state=SharedFixtureState)
-class SharedStateFirstInterface(Protocol): ...
-
-
-@instrument_interface("test.generated_shared_state_second/v1", state=SharedFixtureState)
-class SharedStateSecondInterface(Protocol): ...
+@instrument_interface("test.generated_shared_property_second/v1")
+class SharedPropertySecondInterface(Protocol):
+    enabled: Member[bool] = member(access="read_write", restore=True)
 
 
 @instrument_interface("test.generated_composite_peer/v1")
@@ -80,6 +70,38 @@ class CompositeMethodRightInterface(Protocol):
 class CompositeMethodPeerInterface(Protocol):
     @operation(id="peer_arm")
     def arm(self) -> None: ...
+
+
+@instrument_interface("test.generated_composite_enabled_method/v1")
+class CompositeEnabledMethodInterface(Protocol):
+    @operation()
+    def enabled(self) -> None: ...
+
+
+@instrument_result
+class CompositeSampleResults:
+    value: float = result_field(dtype="float64")
+
+
+@instrument_interface("test.generated_composite_acquisition_left/v1")
+class CompositeAcquisitionLeftInterface(Protocol):
+    @acquisition(id="left_sample")
+    def sample(self) -> CompositeSampleResults: ...
+
+
+@instrument_interface("test.generated_composite_acquisition_right/v1")
+class CompositeAcquisitionRightInterface(Protocol):
+    @acquisition(id="right_sample")
+    def sample(self) -> CompositeSampleResults: ...
+
+
+@instrument_interface("test.generated_shared_acquisition_result/v1")
+class SharedAcquisitionResultInterface(Protocol):
+    @acquisition()
+    def sample_left(self) -> CompositeSampleResults: ...
+
+    @acquisition()
+    def sample_right(self) -> CompositeSampleResults: ...
 
 
 @instrument_interface("test.generated_payload_operation/v1")
@@ -112,22 +134,10 @@ class DriverFixedAcquisitionInterface(Protocol):
     def acquire(self) -> DriverFixedResults: ...
 
 
-@instrument_state
-class DriverSourceState:
-    enabled: bool = member_field()
-    level: int = member_field()
-
-
-@instrument_interface(
-    "test.generated_driver_source/v1",
-    state=DriverSourceState,
-)
-class DriverSourceInterface(Protocol): ...
-
-
-@instrument_state
-class DriverMonitorState:
-    enabled: bool = member_field()
+@instrument_interface("test.generated_driver_source/v1")
+class DriverSourceInterface(Protocol):
+    enabled: Member[bool] = member(access="read_write", restore=True)
+    level: Member[int] = member(access="read_write", restore=True)
 
 
 @instrument_result
@@ -136,11 +146,10 @@ class DriverMonitorResults:
     right: float = result_field(id="right_value", dtype="float64")
 
 
-@instrument_interface(
-    "test.generated_driver_monitor/v1",
-    state=DriverMonitorState,
-)
+@instrument_interface("test.generated_driver_monitor/v1")
 class DriverMonitorInterface(Protocol):
+    enabled: Member[bool] = member(access="read_write", restore=True)
+
     @acquisition()
     def monitor(self) -> DriverMonitorResults: ...
 
@@ -183,23 +192,24 @@ class EffectIdCollisionInterface(Protocol):
 
 __all__ = [
     "CatalogProjectionInterface",
-    "CatalogProjectionState",
+    "CompositeAcquisitionLeftInterface",
+    "CompositeAcquisitionRightInterface",
+    "CompositeEnabledMethodInterface",
     "CompositeMethodLeftInterface",
     "CompositeMethodPeerInterface",
     "CompositeMethodRightInterface",
     "CompositePeerInterface",
+    "CompositeSampleResults",
     "DriverFixedAcquisitionInterface",
     "DriverFixedResults",
     "DriverMonitorInterface",
     "DriverMonitorResults",
-    "DriverMonitorState",
     "DriverSourceInterface",
-    "DriverSourceState",
     "EffectIdCollisionInterface",
     "LiteralOperationInterface",
     "PayloadOperationInterface",
     "ScalarOperationInterface",
-    "SharedFixtureState",
-    "SharedStateFirstInterface",
-    "SharedStateSecondInterface",
+    "SharedAcquisitionResultInterface",
+    "SharedPropertyFirstInterface",
+    "SharedPropertySecondInterface",
 ]

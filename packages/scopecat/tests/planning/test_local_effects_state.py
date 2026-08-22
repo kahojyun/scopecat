@@ -17,6 +17,7 @@ from scopecat.compiler.relations.verification import (
     ExpressionTypeBindings,
     RowType,
 )
+from scopecat.kernel.instrument_members import InterfaceRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.state import StateValue
@@ -58,7 +59,7 @@ def test_materialized_effects_binds_desired_state_for_each_point() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("drive"),
-                interfaces=("test.drive/v1",),
+                capabilities=(InterfaceRef("test.drive/v1"),),
             ),
         ),
         state=[
@@ -84,7 +85,7 @@ def test_materialized_effects_binds_desired_state_for_each_point() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("drive"),
-                interfaces=("test.drive/v1",),
+                capabilities=(InterfaceRef("test.drive/v1"),),
             ),
         ),
         state=[

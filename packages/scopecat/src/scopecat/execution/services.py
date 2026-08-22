@@ -10,8 +10,14 @@ from scopecat.adaptive_domains import DomainProposalAttempt, OperatorDomainReque
 from scopecat.execution.ports.measurement import MeasurementDatasetWriter
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.optimization import DomainProposalDecision
+from scopecat.records.execution import (
+    DomainExecutionId,
+    DomainExecutionReceipt,
+    DomainJobCheckpoint,
+)
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
+from scopecat.sdk.domain.invocation import DomainInvocationIntent
 from scopecat.sdk.instruments.execution import RunInstrumentHost
 
 
@@ -27,6 +33,39 @@ class RunCoverageWriter(Protocol):
     """Commit bounded contiguous logical-point progress."""
 
     def advance(self, *, start_index: int, point_count: int) -> None: ...
+
+    def flush(self) -> None: ...
+
+
+class RunDomainJobTransitionWriter(Protocol):
+    """Stage correlated target transitions and flush bounded durable batches."""
+
+    def invocation(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        execution_id: DomainExecutionId,
+        intent: DomainInvocationIntent,
+        write_ahead: bool,
+    ) -> None: ...
+
+    def checkpoint(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        checkpoint: DomainJobCheckpoint,
+    ) -> None: ...
+
+    def terminal(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        receipt: DomainExecutionReceipt,
+        write_ahead: bool,
+    ) -> None: ...
 
     def flush(self) -> None: ...
 
@@ -62,6 +101,7 @@ class ExecutionSession:
     commit_terminal: Callable[[TerminalRunCommit], RunSnapshot]
     measurements: MeasurementDatasetWriter
     instruments: RunInstrumentHost
+    domain_job_transitions: RunDomainJobTransitionWriter | None = None
     coverage: RunCoverageWriter | None = None
     domain_proposals: RunDomainProposalWriter | None = None
     cancellation_requested: Callable[[], bool] = _never_cancel

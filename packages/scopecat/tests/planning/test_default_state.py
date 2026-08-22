@@ -21,23 +21,23 @@ from scopecat.records.config import (
     InstrumentSpec,
     config_content_hash,
 )
-from scopecat.records.instrument import InstrumentPropertyState
+from scopecat.records.instrument import InstrumentStateSetting, state_setting
 from scopecat.sdk.instruments import (
     InstrumentConnectionContext,
     InstrumentDescription,
     InstrumentProvider,
     InstrumentProviderContext,
     InstrumentProviderDescription,
+    PropertyRef,
     interface,
     string_property,
 )
 
 
 def test_default_state_requires_unique_property_targets() -> None:
-    property_state = InstrumentPropertyState(
-        interface_id="test.set_frequency/v1",
-        property_id="frequency",
-        value=StateValue(Quantity(5.0, "GHz")),
+    property_state = state_setting(
+        PropertyRef("test.set_frequency/v1", (), "frequency"),
+        StateValue(Quantity(5.0, "GHz")),
     )
 
     with pytest.raises(ValidationError, match="property targets must be unique"):
@@ -104,10 +104,9 @@ def test_abort_then_safe_state_requires_declared_safe_state() -> None:
 def test_catalog_resolution_validates_defaults_against_advertised_interface() -> None:
     result = _resolve_catalog(
         _config_with_default_state(
-            InstrumentPropertyState(
-                interface_id="test.set_frequency/v1",
-                property_id="frequency",
-                value=StateValue(Quantity(5.0, "GHz")),
+            state_setting(
+                PropertyRef("test.set_frequency/v1", (), "frequency"),
+                StateValue(Quantity(5.0, "GHz")),
             ),
         ),
         TestSignalInstrumentProvider(),
@@ -119,10 +118,9 @@ def test_catalog_resolution_validates_defaults_against_advertised_interface() ->
 def test_catalog_validates_preserved_default_state_independently() -> None:
     result = _resolve_catalog(
         _config_with_default_state(
-            InstrumentPropertyState(
-                interface_id="test.set_frequency/v1",
-                property_id="missing",
-                value=StateValue(Quantity(5.0, "GHz")),
+            state_setting(
+                PropertyRef("test.set_frequency/v1", (), "missing"),
+                StateValue(Quantity(5.0, "GHz")),
             ),
             run_start="preserve",
         ),
@@ -130,7 +128,7 @@ def test_catalog_validates_preserved_default_state_independently() -> None:
     )
 
     [issue] = result.problems
-    assert issue.code == "instrument_driver_unsupported_property"
+    assert issue.code == "instrument_driver_unsupported_member"
     assert issue.phase == ProblemPhase.PROVIDER_PREFLIGHT
     assert issue.location == model_location(
         "config",
@@ -145,17 +143,16 @@ def test_catalog_validates_preserved_default_state_independently() -> None:
 def test_catalog_validates_safe_state_against_advertised_interface() -> None:
     result = _resolve_catalog(
         _config_with_safe_state(
-            InstrumentPropertyState(
-                interface_id="test.set_frequency/v1",
-                property_id="missing",
-                value=StateValue(Quantity(5.0, "GHz")),
+            state_setting(
+                PropertyRef("test.set_frequency/v1", (), "missing"),
+                StateValue(Quantity(5.0, "GHz")),
             )
         ),
         TestSignalInstrumentProvider(),
     )
 
     [issue] = result.problems
-    assert issue.code == "instrument_driver_unsupported_property"
+    assert issue.code == "instrument_driver_unsupported_member"
     assert issue.location == model_location(
         "config",
         "system",
@@ -169,10 +166,9 @@ def test_catalog_validates_safe_state_against_advertised_interface() -> None:
 def test_default_state_requires_an_advertised_description() -> None:
     result = _resolve_catalog(
         _config_with_default_state(
-            InstrumentPropertyState(
-                interface_id="test.set_frequency/v1",
-                property_id="frequency",
-                value=StateValue(Quantity(5.0, "GHz")),
+            state_setting(
+                PropertyRef("test.set_frequency/v1", (), "frequency"),
+                StateValue(Quantity(5.0, "GHz")),
             ),
             run_start="preserve",
         ),
@@ -187,10 +183,9 @@ def test_default_state_requires_an_advertised_description() -> None:
 def test_default_state_rejects_write_only_properties() -> None:
     result = _resolve_catalog(
         _config_with_default_state(
-            InstrumentPropertyState(
-                interface_id="test.secret/v1",
-                property_id="token",
-                value=StateValue("configured"),
+            state_setting(
+                PropertyRef("test.secret/v1", (), "token"),
+                StateValue("configured"),
             ),
             run_start="preserve",
         ),
@@ -235,7 +230,7 @@ def _resolve_catalog(
 
 
 def _config_with_default_state(
-    *properties: InstrumentPropertyState,
+    *properties: InstrumentStateSetting,
     run_start: InstrumentRunStartPolicy = "apply_default_state",
 ) -> ConfigProfileSnapshot:
     config = load_config()
@@ -263,7 +258,7 @@ def _config_with_default_state(
 
 
 def _config_with_safe_state(
-    *properties: InstrumentPropertyState,
+    *properties: InstrumentStateSetting,
 ) -> ConfigProfileSnapshot:
     config = load_config()
     [instrument] = config.instrument_registry.instruments

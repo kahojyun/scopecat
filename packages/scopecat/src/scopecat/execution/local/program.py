@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from scopecat.kernel.graph_identity import ValueId
+from scopecat.kernel.instrument_members import PropertyRef
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.resource_identity import (
@@ -22,7 +23,8 @@ from scopecat.kernel.resource_identity import (
 from scopecat.kernel.state import StateValue
 from scopecat.kernel.value_types import DataType
 from scopecat.program.value_graph import ComputeOutput
-from scopecat.records.instrument import CommandChannelBinding
+from scopecat.records.content import CommandPayload
+from scopecat.records.instrument import CommandChannelBinding, state_member_target
 from scopecat.sdk.instruments.commands import (
     CollectCommand,
     InstrumentOperationArgument,
@@ -131,9 +133,13 @@ class StateTarget:
     ) -> InstrumentStateAssignment:
         return InstrumentStateAssignment(
             resource_id=resource_id,
-            interface_id=self.interface_id,
-            component_path=list(self.component_path),
-            property_id=self.property_id,
+            target=state_member_target(
+                PropertyRef(
+                    self.interface_id,
+                    self.component_path,
+                    self.property_id,
+                )
+            ),
             value=self.value,
             entity_ids=list(self.entity_ids),
             channel_bindings=list(self.channel_bindings),
@@ -161,6 +167,7 @@ class InvokeOperation:
     operation_id: str
     arguments: tuple[InstrumentOperationArgument, ...]
     resource: ResourceProvenance
+    payloads: tuple[CommandPayload, ...] = ()
     entity_ids: tuple[str, ...] = ()
     channel_bindings: tuple[CommandChannelBinding, ...] = ()
 

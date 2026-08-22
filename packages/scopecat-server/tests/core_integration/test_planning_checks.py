@@ -26,6 +26,7 @@ from scopecat.records.config import (
 from scopecat.sdk.domain.batch import (
     DomainBatchRequest,
 )
+from scopecat.sdk.domain.compiler import DomainBatchCandidate
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat_testkit.authoring import simple_experiment
 from scopecat_testkit.domain import domain_call
@@ -103,10 +104,16 @@ class _RejectingDomainCompiler:
     def instrument_ids(self) -> tuple[str, ...]:
         return ()
 
-    def initial_batch_size(self, point_count: int) -> int:
+    def initial_batch_max_points(self, point_count: int) -> int:
         return point_count
 
-    def compile_batch(
+    def prepare_batch(self, request: DomainBatchRequest) -> DomainBatchCandidate:
+        return DomainBatchCandidate(
+            compatible_point_count=len(request.points),
+            _compile=self._compile_batch,
+        )
+
+    def _compile_batch(
         self,
         request: DomainBatchRequest,
     ) -> PreparedDomainExecution:

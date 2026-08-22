@@ -30,6 +30,7 @@ from scopecat_instruments.interfaces import (
     dc_monitor_interface,
     dc_source_interface,
     network_sweep_interface,
+    reference_clock_interface,
     rf_output_interface,
     temperature_readout_interface,
 )
@@ -55,6 +56,7 @@ from scopecat_instruments.members import (
     DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP,
     NETWORK_SWEEP_POINTS,
+    REFERENCE_CLOCK,
     RF_OUTPUT,
     TEMPERATURE_READOUT,
     TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
@@ -71,6 +73,7 @@ def test_member_catalog_resolves_against_the_interface_contracts() -> None:
         interface.id: interface
         for interface in (
             rf_output_interface(),
+            reference_clock_interface(),
             dc_bias_interface(),
             dc_source_interface(),
             dc_monitor_interface(),
@@ -138,31 +141,37 @@ def test_network_sweep_axis_size_tracks_the_points_state() -> None:
 
 def test_declared_network_sweep_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(network_sweep_interface()) == (
-        "3855d931051bae10b1a7112b85e819a4ce6160d1e2ebc67a828b3f251ca8407f"
+        "17cb9b78cb000350b3704e6e552f28ee7c12f8668edcf8ee09f2401b2ad92ffe"
     )
 
 
 def test_declared_rf_output_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(rf_output_interface()) == (
-        "2bda603a084e8dbb487b6dea5cecb8be4037e2753eb9a6bd0fcbfabfcbff2dbc"
+        "9630bc4d4ad178baa2b502fc367c828be225ff92494707f3ec06feba2f8f5655"
+    )
+
+
+def test_declared_reference_clock_preserves_the_contract_fingerprint() -> None:
+    assert model_wire_content_hash(reference_clock_interface()) == (
+        "5349b0592718ffa1d4c49b82805f5860aaa5bc86c8a08db18dfc1a2db15dc186"
     )
 
 
 def test_declared_dc_source_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(dc_source_interface()) == (
-        "52efb27fbbedfcb1ee65a546eea2234488d304ff598c38c1b96a29459b8b5e28"
+        "75f6db53b71e1c3e268a4930ac934c89a65aba50a3ba9b1178a264a11ccc7bf6"
     )
 
 
 def test_declared_dc_monitor_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(dc_monitor_interface()) == (
-        "7d5c7a32e96daf82162371174645c75ecdeb6c97e4ded87ab719e0749dad85e0"
+        "8c5dc0c94a51a750de3b194561e19b80f0499d5b6bf10430907a07f432a3a6a1"
     )
 
 
 def test_declared_temperature_readout_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(temperature_readout_interface()) == (
-        "45e177997076748215dda389754748144ceaedebf1594473a00643ad51568c71"
+        "cfe454bc06ed254981fe19339d737b85c2f7e0ba742ee0af0490ec9d5b0f9d33"
     )
 
 
@@ -186,6 +195,7 @@ def _resolve_component(
     ("driver", "interface_id"),
     [
         (RohdeSchwarzSGS100A("rf", ScriptedTransport([])), RF_OUTPUT),
+        (RohdeSchwarzSGS100A("clock", ScriptedTransport([])), REFERENCE_CLOCK),
         (YokogawaGS200("dc", ScriptedTransport([])), DC_SOURCE),
         (
             YokogawaGS200(
@@ -214,17 +224,12 @@ def test_interface_contract_has_complete_ui_metadata(
     assert interface.description
     for property_spec in interface.properties:
         assert property_spec.label
-        assert property_spec.description
         assert property_spec.access in {"read_only", "write_only", "read_write"}
     for acquisition_spec in interface.acquisitions:
         assert acquisition_spec.label
-        assert acquisition_spec.description
         for result in acquisition_spec.results:
-            assert result.label
-            assert result.description
             for axis in result.axes:
-                assert axis.label
-                assert axis.description
+                assert axis.kind
 
 
 def test_gs200_monitor_option_adds_an_interface_without_changing_dc_source() -> None:

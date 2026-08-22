@@ -7,13 +7,17 @@ from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
+from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import OperationFailure
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.content import command_payload_from_bytes
+from scopecat.records.instrument import state_member_ref, state_member_target
 from scopecat.records.measurement import MeasurementArray, MeasurementUnavailable
 from scopecat.sdk.domain import (
     DomainInstrumentExecutor,
+    DomainResidencyAddress,
+    DomainResidencyRequirement,
     DomainStateAddress,
     DomainStateRequirement,
 )
@@ -32,6 +36,7 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareCollectBinding,
     RunHardwareInvoke,
 )
+from scopecat_instruments.members import REFERENCE_CLOCK_REFERENCE_SOURCE
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from reference_lab.bench_interfaces import (
@@ -62,8 +67,7 @@ from reference_lab.bench_interfaces import (
     TRIGGER_START_PROGRAM_IDEMPOTENT,
 )
 from reference_lab.interfaces import (
-    CLOCK_REFERENCE_FREQUENCY,
-    CLOCK_REFERENCE_SOURCE,
+    CLOCK_TIMING_FREQUENCY,
 )
 from reference_lab.payloads import (
     AWG_PROGRAM_SCHEMA_ID,
@@ -84,6 +88,7 @@ from reference_lab.targets.list_mode.iq_semantics import (
 from reference_lab.targets.list_mode.model import (
     DigitizerAcquisitionWindow,
     DigitizerInputId,
+    DigitizerProgram,
     ListModeArtifact,
     ListModeEntry,
     MaterializedAwgProgram,
@@ -95,13 +100,15 @@ from reference_lab.targets.list_mode.model import (
 class InstrumentListModeRuntime:
     """Execute target programs through the admitted instrument worker.
 
-    ``prepare`` loads complete AWG, segmented-digitizer, and timing programs as a
+    ``prepare`` loads complete AWG and segmented-digitizer programs as a
     destructive setup phase. Core then reasserts host-owned offset requirements
-    before ``execute`` applies target-owned preparation, arms each device once,
-    starts the timing program, and fetches one result block per ADC input. Shots
+    before ``execute`` loads its execution-scoped timing program, applies
+    target-owned preparation, arms each device once, starts the timing program,
+    and fetches one result block per ADC input. Shots
     and list entries remain inside the realtime program rather than expanding into
-    host actions. Program identity is scoped to the domain execution so identical
-    artifacts in two invocations do not share a worker receipt.
+    host actions. Loaded AWG and digitizer content uses exact run-local residency;
+    trigger identity remains execution-scoped so an idempotent start cannot replay
+    an earlier point's receipt.
     """
 
     def prepare(
@@ -115,7 +122,7 @@ class InstrumentListModeRuntime:
 
         _execute_batch(
             instruments,
-            _load_batch(artifact, execution_id=execution_id),
+            _resident_load_batch(artifact, execution_id=execution_id),
         )
 
     def execute(
@@ -125,6 +132,10 @@ class InstrumentListModeRuntime:
         execution_id: str,
         instruments: DomainInstrumentExecutor,
     ) -> ListModeRun:
+        _execute_batch(
+            instruments,
+            _trigger_load_batch(artifact, execution_id=execution_id),
+        )
         _execute_batch(
             instruments,
             _preparation_batch(artifact, execution_id=execution_id),
@@ -214,13 +225,14 @@ def list_mode_realtime_write_footprint(
             {
                 DomainStateAddress(
                     instrument_id=action.instrument_id,
-                    interface_id=assignment.interface_id,
-                    component_path=tuple(assignment.component_path),
-                    property_id=assignment.property_id,
+                    interface_id=target.interface_id,
+                    component_path=target.component_path,
+                    property_id=target.property_id,
                 )
                 for action in batch.actions
                 if isinstance(action, RunHardwareApply)
                 for assignment in action.assignments
+                for target in (_interface_assignment_target(assignment),)
             }
         )
     )
@@ -252,6 +264,52 @@ def list_mode_setup_state_invalidations(
 
     return tuple(
         requirement.address for requirement in list_mode_state_requirements(artifact)
+    )
+
+
+def list_mode_setup_residency_requirements(
+    artifact: ListModeArtifact,
+) -> tuple[DomainResidencyRequirement, ...]:
+    """Identify the device-effective programs loaded by target setup."""
+
+    requirements = [
+        DomainResidencyRequirement(
+            address=DomainResidencyAddress(
+                instrument_id=program.instrument_id,
+                slot_id="list-mode-awg-program",
+            ),
+            content_fingerprint=_resident_program_fingerprint(
+                AWG_PROGRAM_SCHEMA_ID,
+                _awg_payload_document(program),
+            ),
+        )
+        for program in artifact.awg_programs
+    ]
+    requirements.extend(
+        DomainResidencyRequirement(
+            address=DomainResidencyAddress(
+                instrument_id=program.instrument_id,
+                slot_id="list-mode-digitizer-program",
+            ),
+            content_fingerprint=_resident_program_fingerprint(
+                DIGITIZER_PROGRAM_SCHEMA_ID,
+                _digitizer_payload_document(artifact, program),
+            ),
+        )
+        for program in artifact.digitizer_programs
+    )
+    return tuple(sorted(requirements, key=lambda item: item.address))
+
+
+def _resident_program_fingerprint(schema_id: str, document: object) -> str:
+    return stable_content_hash(
+        content_fingerprint(
+            {
+                "schema": "reference_lab.list_mode_resident_program.v1",
+                "payload_schema_id": schema_id,
+                "document": document,
+            }
+        )
     )
 
 
@@ -297,12 +355,12 @@ def _preparation_batch(
             _assignment(awg_program.instrument_id, AWG_RUN_MODE, "once"),
             _assignment(
                 awg_program.instrument_id,
-                CLOCK_REFERENCE_SOURCE,
+                REFERENCE_CLOCK_REFERENCE_SOURCE,
                 clock.source,
             ),
             _assignment(
                 awg_program.instrument_id,
-                CLOCK_REFERENCE_FREQUENCY,
+                CLOCK_TIMING_FREQUENCY,
                 Quantity(clock.frequency_hz, "Hz"),
             ),
         ]
@@ -394,7 +452,7 @@ def _preparation_batch(
     )
 
 
-def _load_batch(
+def _resident_load_batch(
     artifact: ListModeArtifact,
     *,
     execution_id: str,
@@ -437,38 +495,7 @@ def _load_batch(
         payload_id = f"digitizer-program-{digitizer_program.instrument_id}"
         encoded = codecs.encode(
             DIGITIZER_PROGRAM_SCHEMA_ID,
-            {
-                "entries": [
-                    {
-                        "sample_count": program_entry.sample_count,
-                        "input_component_paths": [
-                            list(input_id.component_path)
-                            for input_id in program_entry.input_ids
-                        ],
-                        "windows": [
-                            {
-                                "component_path": list(window.input_id.component_path),
-                                "demodulator_slot_id": (
-                                    window.demodulator_slot_id.value
-                                ),
-                                "start_sample": window.start_sample,
-                                "sample_count": window.sample_count,
-                                "demodulation_frequency_hz": (
-                                    window.intent.demodulation_frequency_hz
-                                ),
-                                "semantics_id": window.intent.semantics_id,
-                                "normalization": window.intent.normalization,
-                            }
-                            for window in artifact.entries[entry_index].acquisitions
-                            if window.input_id.instrument_id
-                            == digitizer_program.instrument_id
-                        ],
-                    }
-                    for entry_index, program_entry in enumerate(
-                        digitizer_program.entries
-                    )
-                ]
-            },
+            _digitizer_payload_document(artifact, digitizer_program),
         )
         payload = command_payload_from_bytes(
             id=payload_id,
@@ -495,24 +522,23 @@ def _load_batch(
             )
         )
 
+    return RunHardwareBatch(
+        operation_id=f"{prefix}:load",
+        actions=tuple(actions),
+    )
+
+
+def _trigger_load_batch(
+    artifact: ListModeArtifact,
+    *,
+    execution_id: str,
+) -> RunHardwareBatch:
+    prefix = _execution_prefix(artifact, execution_id=execution_id)
     timing = artifact.preparation.timing
     timing_payload_id = f"trigger-program-{timing.trigger_instrument_id}"
-    trigger_entries = tuple(
-        artifact.trigger_participants(entry) for entry in artifact.entries
-    )
-    encoded = codecs.encode(
+    encoded = reference_lab_payload_codecs().encode(
         TRIGGER_PROGRAM_SCHEMA_ID,
-        {
-            "program_id": prefix,
-            "repetitions": artifact.repetitions,
-            "entries": [
-                {
-                    "awg_instrument_ids": list(entry.awg_instrument_ids),
-                    "digitizer_instrument_ids": list(entry.digitizer_instrument_ids),
-                }
-                for entry in trigger_entries
-            ],
-        },
+        _trigger_payload_document(artifact, program_id=prefix),
     )
     payload = command_payload_from_bytes(
         id=timing_payload_id,
@@ -522,26 +548,77 @@ def _load_batch(
         media_type=encoded.media_type,
         content=encoded.content,
     )
-    actions.append(
-        RunHardwareInvoke(
-            effect_id=f"{prefix}:load:{timing.trigger_instrument_id}",
-            instrument_id=timing.trigger_instrument_id,
-            resource_id=timing.trigger_instrument_id,
-            interface_id=TRIGGER_LOAD_PROGRAM.interface_id,
-            operation_id=TRIGGER_LOAD_PROGRAM.operation_id,
-            arguments=(
-                InstrumentOperationArgument(
-                    id=TRIGGER_PROGRAM.argument_id,
-                    value=StateValue(PayloadRef(payload_id=payload.id)),
-                ),
+    action = RunHardwareInvoke(
+        effect_id=f"{prefix}:load:{timing.trigger_instrument_id}",
+        instrument_id=timing.trigger_instrument_id,
+        resource_id=timing.trigger_instrument_id,
+        interface_id=TRIGGER_LOAD_PROGRAM.interface_id,
+        operation_id=TRIGGER_LOAD_PROGRAM.operation_id,
+        arguments=(
+            InstrumentOperationArgument(
+                id=TRIGGER_PROGRAM.argument_id,
+                value=StateValue(PayloadRef(payload_id=payload.id)),
             ),
-            payloads={payload.id: payload},
-        )
+        ),
+        payloads={payload.id: payload},
     )
     return RunHardwareBatch(
-        operation_id=f"{prefix}:load",
-        actions=tuple(actions),
+        operation_id=f"{prefix}:load-trigger",
+        actions=(action,),
     )
+
+
+def _digitizer_payload_document(
+    artifact: ListModeArtifact,
+    program: DigitizerProgram,
+) -> dict[str, object]:
+    return {
+        "entries": [
+            {
+                "sample_count": program_entry.sample_count,
+                "input_component_paths": [
+                    list(input_id.component_path)
+                    for input_id in program_entry.input_ids
+                ],
+                "windows": [
+                    {
+                        "component_path": list(window.input_id.component_path),
+                        "demodulator_slot_id": window.demodulator_slot_id.value,
+                        "start_sample": window.start_sample,
+                        "sample_count": window.sample_count,
+                        "demodulation_frequency_hz": (
+                            window.intent.demodulation_frequency_hz
+                        ),
+                        "semantics_id": window.intent.semantics_id,
+                        "normalization": window.intent.normalization,
+                    }
+                    for window in artifact.entries[entry_index].acquisitions
+                    if window.input_id.instrument_id == program.instrument_id
+                ],
+            }
+            for entry_index, program_entry in enumerate(program.entries)
+        ]
+    }
+
+
+def _trigger_payload_document(
+    artifact: ListModeArtifact,
+    *,
+    program_id: str,
+) -> dict[str, object]:
+    return {
+        "program_id": program_id,
+        "repetitions": artifact.repetitions,
+        "entries": [
+            {
+                "awg_instrument_ids": list(entry.awg_instrument_ids),
+                "digitizer_instrument_ids": list(entry.digitizer_instrument_ids),
+            }
+            for entry in (
+                artifact.trigger_participants(selected) for selected in artifact.entries
+            )
+        ],
+    }
 
 
 def _awg_payload_document(
@@ -746,11 +823,20 @@ def _assignment(
 ) -> InstrumentStateAssignment:
     return InstrumentStateAssignment(
         resource_id=instrument_id,
-        interface_id=target.interface_id,
-        component_path=list(component_path),
-        property_id=target.property_id,
+        target=state_member_target(
+            PropertyRef(target.interface_id, component_path, target.property_id)
+        ),
         value=StateValue(value),
     )
+
+
+def _interface_assignment_target(
+    assignment: InstrumentStateAssignment,
+) -> PropertyRef:
+    target = state_member_ref(assignment.target)
+    if not isinstance(target, PropertyRef):
+        raise ValueError("list-mode state footprint requires interface members")
+    return target
 
 
 def _execute_batch(

@@ -15,8 +15,14 @@ from scopecat.records.measurement import (
 )
 from scopecat.sdk.instruments import (
     DriverOutcome,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
-    InstrumentDescription,
+    ObjectInstrumentDriver,
+    implements,
+    instrument_driver,
+    query,
+    state_readback,
 )
 from scopecat.sdk.instruments.scpi import (
     ScpiIdentity,
@@ -30,13 +36,12 @@ from scopecat.sdk.instruments.scpi import (
 )
 
 from scopecat_instruments._support import collect_unknown
-from scopecat_instruments.driver_handlers import (
-    TemperatureReadoutDriverAdapter,
-    TemperatureReadoutDriverSnapshot,
-    TemperatureReadoutSampleDriverReadback,
+from scopecat_instruments.driver_observations import TemperatureSampleObservation
+from scopecat_instruments.interface_declarations import TemperatureReadoutInterface
+from scopecat_instruments.members import (
+    TEMPERATURE_READOUT_AUTOSCAN_ENABLED,
+    TEMPERATURE_READOUT_SCAN_CHANNEL,
 )
-from scopecat_instruments.interface_declarations import TemperatureReadoutState
-from scopecat_instruments.interfaces import temperature_readout_interface
 from scopecat_instruments.package_manifest import LAKESHORE_372_DRIVER
 
 _SETTLE_TIMEOUT_SECONDS = 10.0
@@ -53,32 +58,23 @@ class _LakeShore372Sample:
     curve_number: int
 
 
-class LakeShore372(TemperatureReadoutDriverAdapter):
+@instrument_driver(
+    LAKESHORE_372_DRIVER.id,
+    LAKESHORE_372_DRIVER.implementation_version,
+    interfaces=(TemperatureReadoutInterface,),
+    label="Lake Shore 372",
+    description="Safety-first read-only sensor driver.",
+)
+class LakeShore372(ObjectInstrumentDriver):
     """Observe scanner state and collect settled K/Ω samples without writes."""
-
-    implementation_id = LAKESHORE_372_DRIVER.id
-    implementation_version = LAKESHORE_372_DRIVER.implementation_version
 
     def __init__(self, instrument_id: str, transport: ScpiTransport) -> None:
         self.instrument_id = instrument_id
         self.transport = transport
         self._identity: ScpiIdentity | None = None
 
-    def describe(self) -> InstrumentDescription:
-        return InstrumentDescription(
-            instrument_id=self.instrument_id,
-            implementation_id=self.implementation_id,
-            implementation_version=self.implementation_version,
-            label="Lake Shore 372",
-            description=(
-                "Safety-first read-only sensor driver. Heater, input, curve, and "
-                "scanner configuration writes are intentionally unsupported."
-            ),
-            interfaces=[temperature_readout_interface()],
-        )
-
     @override
-    def read_temperature_readout_state(self) -> TemperatureReadoutDriverSnapshot:
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         scan_channel, autoscan_enabled = self._scan_state()
         metadata: dict[str, JsonValue] = {
             "manufacturer": "Lake Shore Cryotronics",
@@ -87,16 +83,17 @@ class LakeShore372(TemperatureReadoutDriverAdapter):
         }
         if self._identity is not None:
             metadata["identity"] = self._identity.raw
-        return TemperatureReadoutDriverSnapshot(
-            state=TemperatureReadoutState(
-                scan_channel=scan_channel,
-                autoscan_enabled=autoscan_enabled,
-            ),
-            metadata=metadata,
+        return state_readback(
+            request,
+            {
+                TEMPERATURE_READOUT_SCAN_CHANNEL: scan_channel,
+                TEMPERATURE_READOUT_AUTOSCAN_ENABLED: autoscan_enabled,
+            },
+            evidence=metadata,
         )
 
-    @override
-    def handle_sample(self) -> DriverOutcome[TemperatureReadoutSampleDriverReadback]:
+    @implements(TemperatureReadoutInterface.sample)
+    def sample(self) -> DriverOutcome[TemperatureSampleObservation]:
         try:
             sample = self._read_sample()
             metadata: dict[str, JsonValue] = {
@@ -108,10 +105,10 @@ class LakeShore372(TemperatureReadoutDriverAdapter):
                 "curve_number": sample.curve_number,
             }
             return DriverSuccess(
-                TemperatureReadoutSampleDriverReadback(
+                TemperatureSampleObservation(
                     temperature=sample.temperature,
                     resistance=sample.resistance,
-                    metadata=metadata,
+                    evidence=metadata,
                 ),
             )
         except _SampleQualityUnavailable as error:
@@ -120,7 +117,7 @@ class LakeShore372(TemperatureReadoutDriverAdapter):
                 **error.details,
             }
             return DriverSuccess(
-                TemperatureReadoutSampleDriverReadback(
+                TemperatureSampleObservation(
                     temperature=_unavailable_result(
                         "temperature",
                         reason=error.reason,
@@ -131,7 +128,7 @@ class LakeShore372(TemperatureReadoutDriverAdapter):
                         reason=error.reason,
                         metadata=quality_metadata,
                     ),
-                    metadata={
+                    evidence={
                         "manufacturer": "Lake Shore Cryotronics",
                         "model": "372",
                         "quality_code": error.code,
@@ -201,6 +198,10 @@ class LakeShore372(TemperatureReadoutDriverAdapter):
                 curve_number=curve_number,
             )
 
+    @query(
+        TemperatureReadoutInterface.scan_channel,
+        TemperatureReadoutInterface.autoscan_enabled,
+    )
     def _scan_state(self) -> tuple[int, bool]:
         scan_response = query_text(self.transport, "SCAN?").split(",")
         if len(scan_response) != 2:
@@ -248,9 +249,11 @@ class LakeShore372(TemperatureReadoutDriverAdapter):
         self._identity = identity
         return identity
 
+    @override
     def disconnect(self) -> None:
         self.transport.close()
 
+    @override
     def abort(self) -> None:
         """Read-only sampling has no hardware operation to abort."""
 

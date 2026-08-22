@@ -24,6 +24,7 @@ def test_domain_invocation_spec_retains_only_lab_owned_declarations() -> None:
     assert spec.target_id == "test.target"
     assert spec.artifact_id == "artifact-1"
     assert spec.execution_summary == {"instruments": ["awg-1"]}
+    assert spec.target_intent == {"mode": "list"}
     assert spec.payload is payload
 
 

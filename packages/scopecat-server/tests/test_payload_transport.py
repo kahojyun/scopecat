@@ -31,7 +31,7 @@ from scopecat.sdk.instruments import (
     DriverOperation,
     DriverOutcome,
     DriverPayload,
-    DriverState,
+    DriverStateReadback,
     InstrumentBackend,
     InstrumentConnectionContext,
     InstrumentProviderContext,
@@ -81,7 +81,7 @@ class _PayloadConsumerDriver(SignalInstrumentDriver):
     def invoke(
         self,
         request: DriverOperation,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         for argument in request.arguments.values():
             if isinstance(argument, DriverPayload):
                 assert isinstance(argument.value, bytes)
@@ -164,8 +164,7 @@ def test_opaque_payload_crosses_http_and_spawned_worker_boundary(
                 "payload_types": ["_DecodedProgram"],
                 "worker_pid": endpoint.worker_pid,
             }
-            assert receipt.state is not None
-            assert receipt.state.metadata["worker_pid"] == endpoint.worker_pid
+            assert receipt.readback is None
             assert _WORKER_MODULE not in sys.modules
             daemon.close_instrument_session(session.session_id)
     finally:

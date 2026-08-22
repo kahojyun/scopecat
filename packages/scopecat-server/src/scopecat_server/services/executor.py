@@ -35,6 +35,10 @@ from scopecat.daemon.wire import (
     RunCancellationReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
+    RunDomainJobStatePage,
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionBatchReceipt,
+    RunDomainJobTransitionPage,
     TerminalRunCommitCommand,
 )
 from scopecat.kernel.errors import NotFound
@@ -56,6 +60,7 @@ from scopecat_server.storage.sqlite.control_plane import (
 )
 from scopecat_server.storage.sqlite.execution import (
     ExecutionStateConflict,
+    SQLiteDomainJobTransitions,
     SQLiteMeasurementDatasetRepository,
     SQLiteRunCoverage,
 )
@@ -161,6 +166,57 @@ class ExecutorService:
         return RunCoverageState(
             run_id=run_id,
             completed_point_count=completed,
+        )
+
+    def domain_job_transitions(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunDomainJobTransitionPage:
+        self._control_run(run_id)
+        return SQLiteDomainJobTransitions(self._runs, run_id=run_id).read(
+            limit=limit,
+            before=before,
+        )
+
+    def domain_jobs(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunDomainJobStatePage:
+        self._control_run(run_id)
+        return SQLiteDomainJobTransitions(self._runs, run_id=run_id).read_current(
+            limit=limit,
+            before=before,
+        )
+
+    def commit_domain_job_transitions(
+        self,
+        run_id: str,
+        command: RunDomainJobTransitionBatchCommand,
+    ) -> RunDomainJobTransitionBatchReceipt:
+        transitions = SQLiteDomainJobTransitions(self._runs, run_id=run_id)
+        with self.fenced_write(run_id, token=command.lease_id) as connection:
+            run = self._control.get_run_in_transaction(connection, run_id)
+            if any(
+                ordinal >= run.admission.plan.point_limit
+                for item in command.items
+                for ordinal in item.point_ordinals
+            ):
+                raise ExecutionStateConflict(
+                    "domain job transition references a point outside the admitted run"
+                )
+            committed = transitions.commit_batch_in_transaction(
+                connection,
+                command,
+            )
+        return RunDomainJobTransitionBatchReceipt(
+            run_id=run_id,
+            items=committed,
         )
 
     def append_run_domain_decision(

@@ -23,6 +23,7 @@ from scopecat.planning.measurement_projection import (
     project_run_point_catalog,
 )
 from scopecat.planning.point_materialization import prepare_bound_points
+from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +59,7 @@ def materialize_local_execution(
     *,
     product_use_ids: AbstractSet[ProductUseId] | None = None,
     instrument_order: Sequence[str] = (),
+    payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
 ) -> LocalEffectInspection:
     """Lower a bound program for focused inspection of final effect coverage."""
 
@@ -75,6 +77,7 @@ def materialize_local_execution(
             project_measurement_catalog(bound_points),
             bound.bindings.record_uses,
         ).acquisition_cohorts,
+        payload_codecs=payload_codecs,
     )
     lowered = lower_local_execution(
         bound_points,

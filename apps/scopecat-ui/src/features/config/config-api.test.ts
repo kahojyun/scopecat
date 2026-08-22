@@ -262,7 +262,7 @@ describe("config snapshot import boundary", () => {
     expect(
       parseConfigProfileJson(
         JSON.stringify({
-          format_version: "scopecat.config_snapshot.v9",
+          format_version: "scopecat.config_snapshot.v10",
           ...config,
         }),
       ),

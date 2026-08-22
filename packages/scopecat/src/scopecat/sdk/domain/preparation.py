@@ -20,11 +20,14 @@ from scopecat.measurements.values import (
 from scopecat.sdk.domain._identities import product_use_id
 from scopecat.sdk.domain.batch import DomainBatchRequest
 from scopecat.sdk.domain.execution import (
+    DomainResidencyAddress,
+    DomainResidencyRequirement,
     DomainStateAddress,
     DomainStateRequirement,
+    DomainTransitionPolicy,
     ErasedDomainInvocation,
+    ErasedDomainJobRuntime,
     ErasedDomainRealizer,
-    ErasedDomainRuntime,
     ErasedDomainSetup,
     PreparedDomainExecution,
 )
@@ -44,7 +47,7 @@ from scopecat.sdk.domain.result_mapping import (
 )
 from scopecat.sdk.domain.runtime import (
     DomainExecutionResult,
-    DomainRuntime,
+    DomainJobRuntime,
     DomainSetup,
 )
 
@@ -106,9 +109,13 @@ class DomainPreparationBuilder:
         setup: DomainSetup[PayloadT] | None = None,
         setup_write_footprint: Sequence[DomainStateAddress] = (),
         setup_state_invalidations: Sequence[DomainStateAddress] = (),
+        setup_residency_requirements: Sequence[DomainResidencyRequirement] = (),
+        setup_residency_invalidations: Sequence[DomainResidencyAddress] = (),
         state_requirements: Sequence[DomainStateRequirement],
         realtime_write_footprint: Sequence[DomainStateAddress],
         realtime_state_invalidations: Sequence[DomainStateAddress],
+        realtime_residency_invalidations: Sequence[DomainResidencyAddress] = (),
+        transition_policy: DomainTransitionPolicy = "write_ahead",
         next_batch_max_points: int,
         inspection: CompiledArtifactInspection | None = None,
         inspection_projector: (
@@ -120,7 +127,7 @@ class DomainPreparationBuilder:
         ) = None,
         mapping: DomainResultMapping[ResultAddressT],
         invocation: DomainInvocationSpec[PayloadT],
-        runtime: DomainRuntime[PayloadT, ResultT],
+        job_runtime: DomainJobRuntime[PayloadT, ResultT],
         realize: Callable[
             [DomainExecutionResult[ResultT]],
             Iterable[DomainResultValue[ResultAddressT]],
@@ -133,9 +140,19 @@ class DomainPreparationBuilder:
         runtime authority with an unknown postcondition;
         ``realtime_state_invalidations`` withdraw knowledge about other
         physically coupled properties after the complete job.
-        ``next_batch_max_points`` reports the capacity learned from this
-        concrete artifact and may account for bytes, samples, shots, channels,
-        device entries, or another domain-owned resource budget.
+        ``setup_residency_requirements`` identify opaque connection-owned
+        content that successful setup makes resident. Matching content may
+        skip setup later in the same run; explicit residency invalidations
+        withdraw only that runtime knowledge.
+        ``transition_policy`` keeps write-ahead persistence as the default;
+        ``batched`` retains the complete ledger with bounded commit batches,
+        while ``abnormal_only`` omits ordinary synchronous successes and retains
+        only negative, interrupted, or checkpoint-bearing executions.
+        ``next_batch_max_points`` bounds the next candidate using information
+        learned from this concrete artifact. It may account for bytes, samples,
+        shots, channels, device entries, or another domain-owned resource
+        budget; ``prepare_batch`` still selects that candidate's compatible
+        prefix after its point-local inputs are available.
         """
 
         if mapping.context is not self._context:
@@ -169,6 +186,9 @@ class DomainPreparationBuilder:
 
         selected_instrument_ids = tuple(sorted(instrument_ids))
         selected_requirements = _select_state_requirements(state_requirements)
+        selected_residency = _select_residency_requirements(
+            setup_residency_requirements
+        )
         return PreparedDomainExecution(
             instrument_ids=selected_instrument_ids,
             setup_write_footprint=tuple(sorted(set(setup_write_footprint))),
@@ -186,8 +206,18 @@ class DomainPreparationBuilder:
             inspection_projector=inspection_projector,
             invocation=cast("ErasedDomainInvocation", native_invocation),
             setup=cast("ErasedDomainSetup | None", setup),
-            runtime=cast("ErasedDomainRuntime", runtime),
+            job_runtime=cast("ErasedDomainJobRuntime", job_runtime),
             realize_into=cast("ErasedDomainRealizer", close_realized_values),
+            setup_residency_requirements=tuple(
+                selected_residency[address] for address in sorted(selected_residency)
+            ),
+            setup_residency_invalidations=tuple(
+                sorted(set(setup_residency_invalidations))
+            ),
+            realtime_residency_invalidations=tuple(
+                sorted(set(realtime_residency_invalidations))
+            ),
+            transition_policy=transition_policy,
         )
 
 
@@ -212,6 +242,24 @@ def _select_state_requirements(
                 "domain state requirements conflict for "
                 f"{address.instrument_id}:{mounted_interface}."
                 f"{address.property_id}"
+            )
+    return selected
+
+
+def _select_residency_requirements(
+    requirements: Sequence[DomainResidencyRequirement],
+) -> dict[DomainResidencyAddress, DomainResidencyRequirement]:
+    selected: dict[DomainResidencyAddress, DomainResidencyRequirement] = {}
+    for requirement in requirements:
+        previous = selected.get(requirement.address)
+        if previous is None:
+            selected[requirement.address] = requirement
+            continue
+        if previous.content_fingerprint != requirement.content_fingerprint:
+            address = requirement.address
+            raise ValueError(
+                "domain residency requirements conflict for "
+                f"{address.instrument_id}:{address.slot_id}"
             )
     return selected
 

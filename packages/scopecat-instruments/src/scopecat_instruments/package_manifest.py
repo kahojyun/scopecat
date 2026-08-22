@@ -4,10 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import import_module
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, Protocol, cast
+
+from pydantic import BaseModel
+from scopecat.sdk.instruments.client_manifest import (
+    AcquisitionPublicNames,
+    CompositeMemberNameOverride,
+    CompositeMethodNameOverride,
+    CompositeSurfaceRegistration,
+    InterfaceSurfaceRegistration,
+    SurfaceRegistration,
+)
 
 from scopecat_instruments.connection_options import (
-    ConnectionOptions,
     E5080BConnectionOptions,
     Gs200ConnectionOptions,
     NoConnectionOptions,
@@ -17,11 +26,15 @@ from scopecat_instruments.interface_declarations import (
     DCMonitorInterface,
     DCSourceInterface,
     NetworkSweepInterface,
+    ReferenceClockInterface,
     ReferenceSource,
     RFOutputInterface,
     SParameter,
     TemperatureReadoutInterface,
 )
+
+if TYPE_CHECKING:
+    from scopecat.sdk.instruments import InstrumentDescription, InstrumentDriver
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,20 +51,27 @@ class PythonSymbol:
         return selected
 
 
-@dataclass(frozen=True, slots=True)
-class InterfaceSurfaceRegistration:
-    interface_type: type[object]
-    public_name_overrides: tuple[tuple[str, str], ...] = ()
+class DriverManagedFactory(Protocol):
+    """Side-effect-free description and owned physical-driver construction.
 
+    ``connect`` owns every resource it constructs. The returned driver's
+    ``disconnect`` method must release those resources; if construction fails,
+    the factory must clean up before propagating the error.
+    """
 
-@dataclass(frozen=True, slots=True)
-class CompositeSurfaceRegistration:
-    name: str
-    interface_types: tuple[type[object], ...]
-    driver_optional_flag: str | None = None
+    def describe(
+        self,
+        instrument_id: str,
+        /,
+        **options: object,
+    ) -> InstrumentDescription: ...
 
-
-type SurfaceRegistration = InterfaceSurfaceRegistration | CompositeSurfaceRegistration
+    def connect(
+        self,
+        instrument_id: str,
+        /,
+        **options: object,
+    ) -> InstrumentDriver: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,11 +79,17 @@ class DriverRegistration:
     id: str
     implementation_version: str
     implementation: PythonSymbol
-    connection_kind: Literal["tcpip_socket", "virtual"]
-    options_type: type[ConnectionOptions]
+    connection_kind: Literal[
+        "tcpip_socket",
+        "serial",
+        "virtual",
+        "driver_managed",
+    ]
+    options_type: type[BaseModel]
     label: str
     manufacturer: str | None = None
     model: str | None = None
+    probe: Literal["identify", "connect"] = "identify"
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +98,7 @@ class InstrumentPackageManifest:
     surfaces: tuple[SurfaceRegistration, ...]
     public_types: tuple[object, ...]
     drivers: tuple[DriverRegistration, ...]
+    static_exports: tuple[tuple[str, str], ...] = ()
 
 
 YOKOGAWA_GS200_DRIVER = DriverRegistration(
@@ -89,7 +116,7 @@ YOKOGAWA_GS200_DRIVER = DriverRegistration(
 )
 ROHDE_SCHWARZ_SGS100A_DRIVER = DriverRegistration(
     id="scopecat.rohde_schwarz.sgs100a",
-    implementation_version="v1",
+    implementation_version="v2",
     implementation=PythonSymbol(
         "scopecat_instruments.drivers.sgs100a",
         "RohdeSchwarzSGS100A",
@@ -128,7 +155,7 @@ KEYSIGHT_E5080B_DRIVER = DriverRegistration(
 )
 VIRTUAL_RF_SOURCE_DRIVER = DriverRegistration(
     id="scopecat.virtual.rf_source",
-    implementation_version="v1",
+    implementation_version="v2",
     implementation=PythonSymbol(
         "scopecat_instruments.virtual.drivers",
         "VirtualRfSource",
@@ -185,9 +212,19 @@ PACKAGE_MANIFEST = InstrumentPackageManifest(
     surfaces=(
         InterfaceSurfaceRegistration(
             TemperatureReadoutInterface,
-            public_name_overrides=(("sample.readback", "TemperatureReadback"),),
+            acquisition_names=(
+                AcquisitionPublicNames(
+                    TemperatureReadoutInterface.sample,
+                    readback="TemperatureReadback",
+                ),
+            ),
         ),
         InterfaceSurfaceRegistration(RFOutputInterface),
+        InterfaceSurfaceRegistration(ReferenceClockInterface),
+        CompositeSurfaceRegistration(
+            name="RFSource",
+            interface_types=(RFOutputInterface, ReferenceClockInterface),
+        ),
         InterfaceSurfaceRegistration(DCBiasInterface),
         InterfaceSurfaceRegistration(DCSourceInterface),
         InterfaceSurfaceRegistration(DCMonitorInterface),
@@ -209,6 +246,7 @@ PACKAGE_MANIFEST = InstrumentPackageManifest(
         VIRTUAL_TEMPERATURE_MONITOR_DRIVER,
         VIRTUAL_VNA_DRIVER,
     ),
+    static_exports=(("ConfiguredInstrumentProvider", "scopecat_instruments.provider"),),
 )
 
 
@@ -230,7 +268,11 @@ __all__ = [
     "VIRTUAL_VNA_DRIVER",
     "YOKOGAWA_GS200",
     "YOKOGAWA_GS200_DRIVER",
+    "AcquisitionPublicNames",
+    "CompositeMemberNameOverride",
+    "CompositeMethodNameOverride",
     "CompositeSurfaceRegistration",
+    "DriverManagedFactory",
     "DriverRegistration",
     "InstrumentPackageManifest",
     "InterfaceSurfaceRegistration",

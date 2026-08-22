@@ -1,8 +1,32 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
+from dataclasses import fields
 from pathlib import Path
+
+from scopecat_testkit.instrument_codegen_fixtures.declarations import (
+    CompositeAcquisitionLeftInterface,
+    CompositeMethodLeftInterface,
+    DriverSourceInterface,
+)
+from scopecat_testkit.instrument_codegen_fixtures.generated_members import (
+    SHARED_ACQUISITION_RESULT_SAMPLE_LEFT_VALUE_RESULT,
+    SHARED_ACQUISITION_RESULT_SAMPLE_RIGHT_VALUE_RESULT,
+)
+
+import scopecat_instruments.driver_observations as driver_observations
+from scopecat_instruments.driver_observations import (
+    DCMonitorCurrentObservation,
+    DCMonitorVoltageObservation,
+    NetworkSweepObservation,
+    TemperatureSampleObservation,
+)
+from scopecat_instruments.package_manifest import (
+    AcquisitionPublicNames,
+    CompositeSurfaceRegistration,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 GENERATOR = REPOSITORY_ROOT / "scripts" / "generate_instrument_clients.py"
@@ -10,16 +34,18 @@ FIXTURE_DECLARATIONS_MODULE = (
     "scopecat_testkit.instrument_codegen_fixtures.declarations"
 )
 FIXTURE_STATE_PROJECTION_MODULE = (
-    "scopecat_testkit.instrument_codegen_fixtures.generated_states"
+    "scopecat_testkit.instrument_codegen_fixtures.generated_projections"
 )
-PRODUCTION_STATE_PROJECTION_MODULE = "scopecat_instruments.states"
+PRODUCTION_MEMBER_PROJECTION_MODULE = "scopecat_instruments.projections"
 _RENDER_SURFACE = """
+import json
 from importlib import import_module
 from runpy import run_path
 
 import sys
 
 generator = run_path(sys.argv[1])
+AcquisitionPublicNames = generator["AcquisitionPublicNames"]
 clients_for = generator["clients_for"]
 clients_for_composite = generator["clients_for_composite"]
 render_client_module = generator["render_client_module"]
@@ -29,20 +55,47 @@ interface_types = tuple(
     getattr(declarations, name)
     for name in sys.argv[3].split(",")
 )
+acquisition_names = tuple(
+    AcquisitionPublicNames(
+        getattr(getattr(declarations, interface_name), method_name),
+        readback=readback,
+        products=products,
+    )
+    for interface_name, method_name, readback, products in json.loads(sys.argv[9])
+)
 if sys.argv[4] == "-":
-    surfaces = (clients_for(interface_types[0]),)
+    surfaces = (
+        clients_for(interface_types[0], acquisition_names=acquisition_names),
+    )
 else:
+    member_name_overrides = tuple(
+        (
+            getattr(getattr(declarations, interface_name), member_name),
+            public_name,
+        )
+        for interface_name, member_name, public_name in json.loads(sys.argv[7])
+    )
+    method_name_overrides = tuple(
+        (
+            getattr(getattr(declarations, interface_name), method_name),
+            public_name,
+        )
+        for interface_name, method_name, public_name in json.loads(sys.argv[8])
+    )
     surfaces = (
         clients_for_composite(
             sys.argv[4],
             *interface_types,
             driver_optional_flag=None if sys.argv[5] == "-" else sys.argv[5],
+            member_name_overrides=member_name_overrides,
+            method_name_overrides=method_name_overrides,
+            acquisition_names=acquisition_names,
         ),
     )
 print(
     render_client_module(
         surfaces,
-        state_projection_module=sys.argv[6],
+        member_projection_module=sys.argv[6],
     ),
     end="",
 )
@@ -58,8 +111,9 @@ def reject_runtime_compilation(*args: object, **kwargs: object) -> object:
 declarations.compile_interface = reject_runtime_compilation
 
 import scopecat_instruments.clients
+import scopecat_instruments.driver_observations
 import scopecat_instruments.members
-import scopecat_instruments.states
+import scopecat_instruments.projections
 from scopecat_instruments.interfaces import (
     dc_monitor_interface,
     dc_source_interface,
@@ -84,10 +138,13 @@ for factory in (
 
 def _render_surface(
     *interface_names: str,
-    state_projection_module: str = FIXTURE_STATE_PROJECTION_MODULE,
+    member_projection_module: str = FIXTURE_STATE_PROJECTION_MODULE,
     module: str = FIXTURE_DECLARATIONS_MODULE,
     composite_name: str | None = None,
     driver_optional_flag: str | None = None,
+    member_name_overrides: tuple[tuple[str, str, str], ...] = (),
+    method_name_overrides: tuple[tuple[str, str, str], ...] = (),
+    acquisition_names: tuple[tuple[str, str, str | None, str | None], ...] = (),
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed interpreter and repository code
         [
@@ -99,13 +156,63 @@ def _render_surface(
             ",".join(interface_names),
             "-" if composite_name is None else composite_name,
             "-" if driver_optional_flag is None else driver_optional_flag,
-            state_projection_module,
+            member_projection_module,
+            json.dumps(member_name_overrides),
+            json.dumps(method_name_overrides),
+            json.dumps(acquisition_names),
         ],
         cwd=REPOSITORY_ROOT,
         check=False,
         capture_output=True,
         text=True,
     )
+
+
+def test_codegen_parameterizes_manifest_package_and_output(
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "generated" / "lab_instruments"
+    command = [
+        "uv",
+        "run",
+        "--locked",
+        "scopecat-generate-instrument-clients",
+        "--manifest",
+        "scopecat_instruments.package_manifest:PACKAGE_MANIFEST",
+        "--package-module",
+        "generated.lab_instruments",
+        "--output-root",
+        str(output_root),
+    ]
+
+    completed = subprocess.run(  # noqa: S603 - fixed interpreter and repository code
+        command,
+        cwd=REPOSITORY_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert {path.name for path in output_root.iterdir()} == {
+        "__init__.py",
+        "clients.py",
+        "driver_observations.py",
+        "interfaces.py",
+        "members.py",
+        "projections.py",
+    }
+    assert "from generated.lab_instruments.projections import (" in (
+        output_root / "clients.py"
+    ).read_text(encoding="utf-8")
+    checked = subprocess.run(  # noqa: S603 - fixed interpreter and repository code
+        [*command, "--check"],
+        cwd=REPOSITORY_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert checked.returncode == 0, checked.stderr
 
 
 def test_generated_catalog_imports_without_runtime_declaration_compilation() -> None:
@@ -120,23 +227,77 @@ def test_generated_catalog_imports_without_runtime_declaration_compilation() -> 
     assert completed.returncode == 0, completed.stderr
 
 
-def test_codegen_imports_state_projections_from_the_configured_module() -> None:
+def test_codegen_generates_driver_observations_only_for_physical_acquisitions() -> None:
+    assert [field.name for field in fields(TemperatureSampleObservation)] == [
+        "temperature",
+        "resistance",
+        "evidence",
+    ]
+    assert [field.name for field in fields(DCMonitorCurrentObservation)] == [
+        "current",
+        "evidence",
+    ]
+    assert [field.name for field in fields(DCMonitorVoltageObservation)] == [
+        "voltage",
+        "evidence",
+    ]
+    assert [field.name for field in fields(NetworkSweepObservation)] == [
+        "frequency",
+        "s_parameter",
+        "evidence",
+    ]
+    assert "DCBiasReadbackObservation" not in driver_observations.__all__
+
+
+def test_composite_registration_uses_oo_declaration_objects_for_public_names() -> None:
+    registration = CompositeSurfaceRegistration(
+        name="SourceMethod",
+        interface_types=(
+            DriverSourceInterface,
+            CompositeMethodLeftInterface,
+            CompositeAcquisitionLeftInterface,
+        ),
+        member_name_overrides=((DriverSourceInterface.enabled, "source_enabled"),),
+        method_name_overrides=((CompositeMethodLeftInterface.fire, "fire_source"),),
+        acquisition_names=(
+            AcquisitionPublicNames(
+                CompositeAcquisitionLeftInterface.sample,
+                products="SourceSampleProducts",
+            ),
+        ),
+    )
+
+    assert registration.member_name_overrides == (
+        (DriverSourceInterface.enabled, "source_enabled"),
+    )
+    assert registration.method_name_overrides == (
+        (CompositeMethodLeftInterface.fire, "fire_source"),
+    )
+    assert registration.acquisition_names == (
+        AcquisitionPublicNames(
+            CompositeAcquisitionLeftInterface.sample,
+            products="SourceSampleProducts",
+        ),
+    )
+
+
+def test_codegen_imports_member_projections_from_the_configured_module() -> None:
     completed = _render_surface(
         "CatalogProjectionInterface",
-        state_projection_module="custom.state_projections",
+        member_projection_module="custom.member_projections",
     )
 
     assert completed.returncode == 0, completed.stderr
-    assert "from custom.state_projections import (" in completed.stdout
+    assert "from custom.member_projections import (" in completed.stdout
     assert "CatalogProjectionPatch" in completed.stdout
     assert "CatalogProjectionTarget" in completed.stdout
 
 
-def test_codegen_adds_keyword_convenience_for_one_flat_state_schema() -> None:
+def test_codegen_adds_keyword_convenience_for_one_flat_property_set() -> None:
     completed = _render_surface("CatalogProjectionInterface")
 
     assert completed.returncode == 0, completed.stderr
-    compile(completed.stdout, "<generated-flat-state>", "exec")
+    compile(completed.stdout, "<generated-member-projection>", "exec")
     assert "patch: CatalogProjectionPatch," in completed.stdout
     assert "enabled: bool = ...," in completed.stdout
     assert "state: CatalogProjectionTarget," in completed.stdout
@@ -145,15 +306,16 @@ def test_codegen_adds_keyword_convenience_for_one_flat_state_schema() -> None:
         "enabled: Symbolic[bool] | PerEntity[Symbolic[bool]] = ...," in completed.stdout
     )
     assert "status: str = ...," not in completed.stdout
-    assert "def state(self) -> CatalogProjectionState:" in completed.stdout
-    assert "def refresh_state(self) -> CatalogProjectionState:" in completed.stdout
+    assert "def enabled(self) -> InstrumentMemberClient[bool]:" in completed.stdout
+    assert "def status(self) -> InstrumentMemberClient[str]:" in completed.stdout
+    assert "def state(self)" not in completed.stdout
 
 
-def test_codegen_renders_flat_dc_source_state_and_typed_transitions() -> None:
+def test_codegen_renders_flat_dc_source_members_and_typed_transitions() -> None:
     completed = _render_surface(
         "DCSourceInterface",
         module="scopecat_instruments.interface_declarations",
-        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
+        member_projection_module=PRODUCTION_MEMBER_PROJECTION_MODULE,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -165,7 +327,8 @@ def test_codegen_renders_flat_dc_source_state_and_typed_transitions() -> None:
     assert "current_protection: Quantity = ...," in live_client
     assert "output_enabled: bool = ...," in live_client
     assert "source_mode:" not in live_client
-    assert 'ClientStateField(\n            "source_mode",' in completed.stdout
+    assert "def source_mode(" in live_client
+    assert 'InstrumentMemberClient[Literal["voltage", "current"]]' in live_client
     assert "def source_voltage(" in live_client
     assert "def source_current(" in live_client
     assert live_client.count("range: Quantity,") == 2
@@ -197,22 +360,31 @@ def test_codegen_keeps_read_only_state_out_of_authoring_projections() -> None:
     completed = _render_surface(
         "TemperatureReadoutInterface",
         module="scopecat_instruments.interface_declarations",
-        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
+        member_projection_module=PRODUCTION_MEMBER_PROJECTION_MODULE,
     )
 
     assert completed.returncode == 0, completed.stderr
     assert "class TemperatureReadoutClient(InstrumentClientBase):" in completed.stdout
-    assert "def state(self) -> TemperatureReadoutState:" in completed.stdout
-    assert "def refresh_state(self) -> TemperatureReadoutState:" in completed.stdout
+    assert "def scan_channel(self) -> InstrumentMemberClient[int]:" in completed.stdout
+    assert "def autoscan_enabled(self) -> InstrumentMemberClient[bool]:" in (
+        completed.stdout
+    )
     assert "TemperatureReadoutPatch" not in completed.stdout
     assert "TemperatureReadoutTarget" not in completed.stdout
 
 
-def test_codegen_rejects_payload_operation_arguments_explicitly() -> None:
+def test_codegen_supports_payload_operation_arguments() -> None:
     completed = _render_surface("PayloadOperationInterface")
 
-    assert completed.returncode != 0
-    assert "payload operation argument upload.payload" in completed.stderr
+    assert completed.returncode == 0, completed.stderr
+    assert "from scopecat.kernel.payloads import PayloadValue" in completed.stdout
+    assert "from scopecat.records.content import CommandPayload" in completed.stdout
+    assert "payload: CommandPayload," in completed.stdout
+    assert "payload: Symbolic[PayloadValue]," in completed.stdout
+    assert (
+        "payload: Symbolic[PayloadValue] | PerEntity[Symbolic[PayloadValue]],"
+        in completed.stdout
+    )
 
 
 def test_codegen_reserves_symbolic_effect_id_parameter() -> None:
@@ -226,13 +398,13 @@ def test_codegen_imports_literal_for_resolved_declared_annotations() -> None:
     completed = _render_surface("LiteralOperationInterface")
 
     assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-literal-operation>", "exec")
     assert "from typing import Literal" in completed.stdout
     assert 'mode: Literal["left", "right"],' in completed.stdout
     assert 'mode: Symbolic[Literal["left", "right"]],' in completed.stdout
-    assert (
-        'mode: Symbolic[Literal["left", "right"]] | '
-        'PerEntity[Symbolic[Literal["left", "right"]]],'
-    ) in completed.stdout
+    assert '| PerEntity[Symbolic[Literal["left", "right"]]],' in completed.stdout
+    assert "_mode_by_entity: PerEntity[" in completed.stdout
+    assert "] = self._align(" in completed.stdout
 
 
 def test_codegen_types_products_by_native_point_value() -> None:
@@ -260,25 +432,65 @@ def test_codegen_types_products_by_native_point_value() -> None:
     assert "RecordRef" not in array.stdout
 
 
+def test_codegen_reuses_one_result_carrier_across_acquisitions() -> None:
+    completed = _render_surface("SharedAcquisitionResultInterface")
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-shared-acquisition-result>", "exec")
+    assert completed.stdout.count("class CompositeSampleReadback:") == 1
+    assert completed.stdout.count("class CompositeSampleProducts(ProductBundle):") == 1
+    assert completed.stdout.count("-> CompositeSampleReadback:") == 2
+    assert completed.stdout.count("-> CompositeSampleProducts:") == 2
+
+
+def test_codegen_scopes_ambiguous_result_constants_by_acquisition() -> None:
+    assert (
+        SHARED_ACQUISITION_RESULT_SAMPLE_LEFT_VALUE_RESULT.acquisition_id
+        == "sample_left"
+    )
+    assert (
+        SHARED_ACQUISITION_RESULT_SAMPLE_RIGHT_VALUE_RESULT.acquisition_id
+        == "sample_right"
+    )
+
+
+def test_codegen_names_single_acquisition_carriers_by_declaration() -> None:
+    completed = _render_surface(
+        "NativeScalarInterface",
+        acquisition_names=(
+            (
+                "NativeScalarInterface",
+                "sample",
+                "ScalarSampleReadback",
+                "ScalarSampleProducts",
+            ),
+        ),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-named-acquisition>", "exec")
+    assert "class ScalarSampleReadback:" in completed.stdout
+    assert "class ScalarSampleProducts(ProductBundle):" in completed.stdout
+    assert "def sample(self) -> ScalarSampleReadback:" in completed.stdout
+    assert ") -> ScalarSampleProducts:" in completed.stdout
+
+
 def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     completed = _render_surface(
         "DCSourceInterface",
         "DCMonitorInterface",
         module="scopecat_instruments.interface_declarations",
-        state_projection_module=PRODUCTION_STATE_PROJECTION_MODULE,
+        member_projection_module=PRODUCTION_MEMBER_PROJECTION_MODULE,
         composite_name="DCSourceMonitor",
         driver_optional_flag="monitor",
     )
 
     assert completed.returncode == 0, completed.stderr
     compile(completed.stdout, "<generated-dc-source-monitor>", "exec")
-    assert "type _DCSourceMonitorPatch = DCSourcePatch | DCMonitorPatch" in (
-        completed.stdout
-    )
-    assert "DCSourcePatch" in completed.stdout
-    assert "DCSourceTarget" in completed.stdout
-    assert "DCSourceGroupTarget" in completed.stdout
-    assert "DCMonitorPatch" in completed.stdout
+    assert "type _DCSourceMonitorPatch" not in completed.stdout
+    assert "DCSourceMonitorPatch" in completed.stdout
+    assert "DCSourceMonitorTarget" in completed.stdout
+    assert "DCSourceMonitorGroupTarget" in completed.stdout
     assert "class DCMonitorCurrentReadback:" in completed.stdout
     assert "    current: MeasurementAcquisitionValue" in completed.stdout
     assert "class DCMonitorCurrentRecords:" not in completed.stdout
@@ -292,15 +504,18 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     assert "DCMonitorCurrentResults" not in completed.stdout
     assert "DCMonitorVoltageResults" not in completed.stdout
     assert "class DCSourceMonitorClient(" in completed.stdout
-    assert "class DCSourceMonitorState:" in completed.stdout
-    assert "    dc_source: DCSourceState" in completed.stdout
-    assert "    dc_monitor: DCMonitorState" in completed.stdout
-    assert "def state(self) -> DCSourceMonitorState:" in completed.stdout
+    assert "class DCSourceMonitorState:" not in completed.stdout
+    assert "def apply(" in completed.stdout
+    assert "measurement_enabled: bool = ..." in completed.stdout
+    assert "self._apply_projected(" in completed.stdout
+    assert "def source_mode(" in completed.stdout
+    assert "def measurement_enabled(" in completed.stdout
     assert (
         "class SymbolicDCSourceMonitorClient("
-        "\n    DeclaredStateSymbolicClientBase[_DCSourceMonitorTarget]"
+        "\n    ProjectedMemberSymbolicClientBase[DCSourceMonitorTarget]"
     ) in completed.stdout
     assert "class SymbolicDCSourceMonitorGroup(" in completed.stdout
+    assert "self._ensure_projected(" in completed.stdout
     assert '_DC_SOURCE_REF = InterfaceRef("scopecat.dc_source/v3")' in (
         completed.stdout
     )
@@ -312,6 +527,8 @@ def test_codegen_composes_the_production_dc_source_monitor_family() -> None:
     assert "def measure_current(" in completed.stdout
     assert "def measure_voltage(" in completed.stdout
     assert "dc_source_monitor: InstrumentFamily[" in completed.stdout
+    assert "requires: tuple[InstrumentCapabilityRef, ...] = (" in completed.stdout
+    assert "requires=requires," in completed.stdout
     assert "requires=(_DC_SOURCE_REF, _DC_MONITOR_REF)," in completed.stdout
     assert "compile_interface" not in completed.stdout
 
@@ -343,7 +560,156 @@ def test_codegen_rejects_composite_method_collisions() -> None:
     )
 
     assert completed.returncode != 0
-    assert "generated composite method collisions" in completed.stderr
+    assert "composite MethodCollisionComposite client name collisions" in (
+        completed.stderr
+    )
     assert "fire:" in completed.stderr
     assert "CompositeMethodLeftInterface" in completed.stderr
     assert "CompositeMethodRightInterface" in completed.stderr
+    assert "method_name_overrides" in completed.stderr
+
+
+def test_codegen_aliases_colliding_operations_across_all_client_time_models() -> None:
+    completed = _render_surface(
+        "CompositeMethodLeftInterface",
+        "CompositeMethodRightInterface",
+        composite_name="MethodComposite",
+        method_name_overrides=(
+            ("CompositeMethodLeftInterface", "fire", "fire_left"),
+            ("CompositeMethodRightInterface", "fire", "fire_right"),
+        ),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-aliased-operation-composite>", "exec")
+    assert completed.stdout.count("    def fire_left(") == 3
+    assert completed.stdout.count("    def fire_right(") == 3
+    assert completed.stdout.count("self._clients[entity].fire_left(") == 1
+    assert completed.stdout.count("self._clients[entity].fire_right(") == 1
+    assert (
+        '_COMPOSITE_METHOD_LEFT_REF.operation(\n    "left_fire"\n)' in completed.stdout
+    )
+    assert (
+        '_COMPOSITE_METHOD_RIGHT_REF.operation(\n    "right_fire"\n)'
+        in completed.stdout
+    )
+
+
+def test_codegen_reuses_shared_carriers_in_a_composite() -> None:
+    completed = _render_surface(
+        "CompositeAcquisitionLeftInterface",
+        "CompositeAcquisitionRightInterface",
+        composite_name="AcquisitionComposite",
+        method_name_overrides=(
+            ("CompositeAcquisitionLeftInterface", "sample", "sample_left"),
+            ("CompositeAcquisitionRightInterface", "sample", "sample_right"),
+        ),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-shared-acquisition-composite>", "exec")
+    assert completed.stdout.count("class CompositeSampleReadback:") == 1
+    assert completed.stdout.count("class CompositeSampleProducts(ProductBundle):") == 1
+    assert completed.stdout.count("    def sample_left(") == 3
+    assert completed.stdout.count("    def sample_right(") == 3
+
+
+def test_codegen_names_colliding_acquisition_carriers_by_declaration() -> None:
+    completed = _render_surface(
+        "CompositeAcquisitionLeftInterface",
+        "CompositeAcquisitionRightInterface",
+        composite_name="AcquisitionComposite",
+        method_name_overrides=(
+            ("CompositeAcquisitionLeftInterface", "sample", "sample_left"),
+            ("CompositeAcquisitionRightInterface", "sample", "sample_right"),
+        ),
+        acquisition_names=(
+            (
+                "CompositeAcquisitionLeftInterface",
+                "sample",
+                "LeftSampleReadback",
+                "LeftSampleProducts",
+            ),
+            (
+                "CompositeAcquisitionRightInterface",
+                "sample",
+                "RightSampleReadback",
+                "RightSampleProducts",
+            ),
+        ),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-aliased-acquisition-composite>", "exec")
+    assert completed.stdout.count("    def sample_left(") == 3
+    assert completed.stdout.count("    def sample_right(") == 3
+    assert "client.sample_left(id=id)" in completed.stdout
+    assert "client.sample_right(id=id)" in completed.stdout
+    assert "class LeftSampleReadback:" in completed.stdout
+    assert "class LeftSampleProducts(ProductBundle):" in completed.stdout
+    assert "class RightSampleReadback:" in completed.stdout
+    assert "class RightSampleProducts(ProductBundle):" in completed.stdout
+    assert (
+        '_COMPOSITE_ACQUISITION_LEFT_REF.acquisition("left_sample")' in completed.stdout
+    )
+    assert (
+        '_COMPOSITE_ACQUISITION_RIGHT_REF.acquisition("right_sample")'
+        in completed.stdout
+    )
+
+
+def test_codegen_rejects_member_and_method_names_that_share_a_client_slot() -> None:
+    completed = _render_surface(
+        "DriverSourceInterface",
+        "CompositeEnabledMethodInterface",
+        composite_name="SourceEnabledComposite",
+    )
+
+    assert completed.returncode != 0
+    assert "composite SourceEnabledComposite client name collisions" in (
+        completed.stderr
+    )
+    assert "property enabled" in completed.stderr
+    assert "operation enabled" in completed.stderr
+    assert "member_name_overrides or method_name_overrides" in completed.stderr
+
+
+def test_codegen_requires_explicit_names_for_composite_member_collisions() -> None:
+    completed = _render_surface(
+        "DriverSourceInterface",
+        "DriverMonitorInterface",
+        composite_name="MonitorComposite",
+    )
+
+    assert completed.returncode != 0
+    assert "composite MonitorComposite member name collision 'enabled'" in (
+        completed.stderr
+    )
+    assert "member_name_overrides" in completed.stderr
+
+
+def test_codegen_aliases_colliding_composite_members_across_the_client_view() -> None:
+    completed = _render_surface(
+        "DriverSourceInterface",
+        "DriverMonitorInterface",
+        composite_name="MonitorComposite",
+        driver_optional_flag="monitor",
+        member_name_overrides=(
+            ("DriverSourceInterface", "enabled", "source_enabled"),
+            ("DriverMonitorInterface", "enabled", "monitor_enabled"),
+        ),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    compile(completed.stdout, "<generated-aliased-composite>", "exec")
+    assert "MonitorCompositePatch" in completed.stdout
+    assert "source_enabled: bool = ..." in completed.stdout
+    assert "monitor_enabled: bool = ..." in completed.stdout
+    assert "def source_enabled(self) -> InstrumentMemberClient[bool]:" in (
+        completed.stdout
+    )
+    assert "def monitor_enabled(self) -> InstrumentMemberClient[bool]:" in (
+        completed.stdout
+    )
+    assert '"source_enabled",' in completed.stdout
+    assert '"monitor_enabled",' in completed.stdout

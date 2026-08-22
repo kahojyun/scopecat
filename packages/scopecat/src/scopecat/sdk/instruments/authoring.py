@@ -8,13 +8,13 @@ from dataclasses import dataclass, field
 from pydantic import JsonValue
 
 from scopecat.kernel.quantity import Quantity
-from scopecat.records.instrument import CommandChannelBinding
+from scopecat.records.instrument import CommandChannelBinding, ObservationSource
 from scopecat.records.measurement import MeasurementAcquisitionValue
 from scopecat.sdk.instruments.members import (
     AcquisitionRef,
     AcquisitionResultRef,
     OperationRef,
-    PropertyRef,
+    StateMemberRef,
 )
 from scopecat.sdk.problems import Problem
 
@@ -22,50 +22,108 @@ type DriverScalar = bool | int | float | str | Quantity
 
 
 @dataclass(frozen=True, slots=True)
-class DriverStateEntry:
-    """One physical state slot addressed by ``target.component_path``.
+class DriverStateAssignment:
+    """One requested physical member value.
 
     Entity ids and channel bindings preserve demand and route provenance. They
     do not select a second state slot or replace physical component dispatch.
     """
 
-    target: PropertyRef
+    target: StateMemberRef
     value: DriverScalar
     entity_ids: tuple[str, ...] = ()
     channel_bindings: tuple[CommandChannelBinding, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class DriverState:
-    values: Mapping[PropertyRef, DriverScalar] = field(
-        default_factory=lambda: dict[PropertyRef, DriverScalar]()
-    )
-    scoped_values: tuple[DriverStateEntry, ...] = ()
+class DriverStateObservation:
+    """One independently queried or otherwise confirmed member value."""
+
+    target: StateMemberRef
+    value: DriverScalar
+    source: ObservationSource = "hardware_query"
+    coherence_id: str | None = None
+    entity_ids: tuple[str, ...] = ()
+    channel_bindings: tuple[CommandChannelBinding, ...] = ()
     metadata: dict[str, JsonValue] = field(default_factory=dict)
 
+
+@dataclass(frozen=True, slots=True)
+class DriverStateReadRequest:
+    targets: frozenset[StateMemberRef]
+
+
+@dataclass(frozen=True, slots=True)
+class DriverStateReadback:
+    observations: tuple[DriverStateObservation, ...]
+
     @property
-    def entries(self) -> tuple[DriverStateEntry, ...]:
-        return (
-            *(
-                DriverStateEntry(target=target, value=value)
-                for target, value in self.values.items()
-            ),
-            *self.scoped_values,
+    def values(self) -> dict[StateMemberRef, DriverScalar]:
+        return {
+            observation.target: observation.value for observation in self.observations
+        }
+
+    def with_observation_metadata(
+        self,
+        metadata: Mapping[str, JsonValue],
+        /,
+    ) -> DriverStateReadback:
+        """Merge common evidence into each member observation."""
+
+        return DriverStateReadback(
+            observations=tuple(
+                DriverStateObservation(
+                    target=observation.target,
+                    value=observation.value,
+                    source=observation.source,
+                    coherence_id=observation.coherence_id,
+                    entity_ids=observation.entity_ids,
+                    channel_bindings=observation.channel_bindings,
+                    metadata={**observation.metadata, **metadata},
+                )
+                for observation in self.observations
+            )
         )
+
+
+def state_readback[MemberT: StateMemberRef](
+    request: DriverStateReadRequest,
+    values: Mapping[MemberT, DriverScalar],
+    /,
+    *,
+    evidence: dict[str, JsonValue] | None = None,
+    source: ObservationSource = "hardware_query",
+    coherence_id: str | None = None,
+) -> DriverStateReadback:
+    """Build exact member observations with optional common evidence metadata."""
+
+    return DriverStateReadback(
+        observations=tuple(
+            DriverStateObservation(
+                target=target,
+                value=value,
+                source=source,
+                coherence_id=coherence_id,
+                metadata={} if evidence is None else dict(evidence),
+            )
+            for target, value in values.items()
+            if target in request.targets
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
 class DriverStatePatch:
-    values: Mapping[PropertyRef, DriverScalar] = field(
-        default_factory=lambda: dict[PropertyRef, DriverScalar]()
+    values: Mapping[StateMemberRef, DriverScalar] = field(
+        default_factory=lambda: dict[StateMemberRef, DriverScalar]()
     )
-    scoped_values: tuple[DriverStateEntry, ...] = ()
+    scoped_values: tuple[DriverStateAssignment, ...] = ()
 
     @property
-    def entries(self) -> tuple[DriverStateEntry, ...]:
+    def entries(self) -> tuple[DriverStateAssignment, ...]:
         return (
             *(
-                DriverStateEntry(target=target, value=value)
+                DriverStateAssignment(target=target, value=value)
                 for target, value in self.values.items()
             ),
             *self.scoped_values,
@@ -170,9 +228,12 @@ __all__ = [
     "DriverReadback",
     "DriverRejected",
     "DriverScalar",
-    "DriverState",
-    "DriverStateEntry",
+    "DriverStateAssignment",
+    "DriverStateObservation",
     "DriverStatePatch",
+    "DriverStateReadRequest",
+    "DriverStateReadback",
     "DriverSuccess",
     "DriverUnknown",
+    "state_readback",
 ]

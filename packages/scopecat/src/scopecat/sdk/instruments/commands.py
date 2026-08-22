@@ -24,10 +24,14 @@ from scopecat.records.instrument import (
     InstrumentReadback as _InstrumentReadback,
 )
 from scopecat.records.instrument import (
-    InstrumentStateSnapshot as _InstrumentStateSnapshot,
+    InstrumentStateReadback as _InstrumentStateReadback,
 )
 from scopecat.records.instrument import (
-    property_target_identity as _property_target_identity,
+    InstrumentStateSnapshot as _InstrumentStateSnapshot,
+)
+from scopecat.records.instrument import StateMemberTarget as _StateMemberTarget
+from scopecat.records.instrument import (
+    state_member_identity as _state_member_identity,
 )
 from scopecat.records.instrument import (
     validate_entity_target as _validate_entity_target,
@@ -43,9 +47,7 @@ class InstrumentStateAssignment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     resource_id: str
-    interface_id: InterfaceId
-    component_path: list[_NonEmptyId] = Field(default_factory=list)
-    property_id: _NonEmptyId
+    target: _StateMemberTarget
     value: StateValue
     entity_ids: list[_NonEmptyId] = Field(default_factory=list)
     channel_bindings: list[_CommandChannelBinding] = Field(default_factory=list)
@@ -53,6 +55,21 @@ class InstrumentStateAssignment(BaseModel):
     @model_validator(mode="after")
     def validate_target(self) -> InstrumentStateAssignment:
         _validate_entity_target(self.entity_ids, self.channel_bindings)
+        return self
+
+
+class InstrumentStateReadCommand(BaseModel):
+    """Explicit member selection for one live hardware observation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    targets: list[_StateMemberTarget] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_unique_targets(self) -> InstrumentStateReadCommand:
+        identities = [_state_member_identity(target) for target in self.targets]
+        if len(identities) != len(set(identities)):
+            raise ValueError("instrument state read targets must be unique")
         return self
 
 
@@ -66,12 +83,7 @@ class InstrumentStateCommand(BaseModel):
     @model_validator(mode="after")
     def validate_structure(self) -> InstrumentStateCommand:
         identities = [
-            _property_target_identity(
-                assignment.interface_id,
-                assignment.component_path,
-                assignment.property_id,
-            )
-            for assignment in self.assignments
+            _state_member_identity(assignment.target) for assignment in self.assignments
         ]
         if len(identities) != len(set(identities)):
             raise ValueError("instrument state command property targets must be unique")
@@ -90,7 +102,7 @@ class ApplyReceipt(BaseModel):
 
     status: Literal["applied", "not_applied", "unknown"] = "applied"
     problems: tuple[Problem, ...] = ()
-    state: _InstrumentStateSnapshot | None = None
+    readback: _InstrumentStateReadback | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -309,7 +321,7 @@ class InvokeReceipt(BaseModel):
 
     status: Literal["invoked", "not_invoked", "unknown"] = "invoked"
     problems: tuple[Problem, ...] = ()
-    state: _InstrumentStateSnapshot | None = None
+    readback: _InstrumentStateReadback | None = None
     metadata: JsonMetadata = Field(default_factory=dict)
 
     @model_validator(mode="after")

@@ -6,13 +6,14 @@ from typing import Annotated, Literal, Protocol
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
+    Member,
     acquisition,
     argument,
     axis,
     instrument_interface,
     instrument_result,
-    instrument_state,
-    member_field,
+    member,
+    observation,
     operation,
     result_field,
 )
@@ -21,112 +22,57 @@ type ReferenceSource = Literal["internal", "external"]
 type SParameter = Literal["S11", "S21", "S12", "S22"]
 
 
-@instrument_state
-class DCBiasState:
-    """A settled DC voltage target suitable for coherent channel batches."""
-
-    target_voltage: Quantity = member_field(
-        unit="V",
-        label="Target voltage",
-        description="Requested final voltage for this routed channel.",
+@instrument_interface(
+    "scopecat.dc_bias/v1",
+    label="DC bias ramp",
+    description="Settled voltage transitions applied as one coherent batch.",
+)
+class DCBiasInterface(Protocol):
+    target_voltage: Member[Quantity] = member(
+        access="read_write", restore=True, unit="V", label="Target voltage"
     )
-    ramp_duration: Quantity = member_field(
+    ramp_duration: Member[Quantity] = member(
+        access="read_write",
+        restore=True,
         unit="s",
         minimum=0.0,
         label="Ramp duration",
-        description="Minimum duration for the transition to the target voltage.",
     )
-    settle_tolerance: Quantity = member_field(
+    settle_tolerance: Member[Quantity] = member(
+        access="read_write",
+        restore=True,
         unit="V",
         minimum=0.0,
         label="Settle tolerance",
-        description="Maximum readback error accepted before the batch completes.",
     )
-    actual_voltage: Quantity = member_field(
-        unit="V",
-        access="read_only",
-        label="Actual voltage",
-        description="Voltage read back after the most recent transition.",
+    actual_voltage: Member[Quantity] = member(
+        access="read_only", unit="V", label="Actual voltage"
     )
-    settled: bool = member_field(
-        access="read_only",
-        label="Settled",
-        description="Whether readback is within the requested tolerance.",
-    )
+    settled: Member[bool] = member(access="read_only", label="Settled")
 
-
-@instrument_result
-class DCBiasReadbackResults:
-    """Per-channel result after a coherent bias transition."""
-
-    actual_voltage: float = result_field(
-        dtype="float64",
-        unit="V",
-        label="Actual voltage",
-        description="Voltage read back from this routed channel.",
-    )
-    settled: bool = result_field(
-        dtype="bool",
-        label="Settled",
-        description="Whether the readback is within the requested tolerance.",
-    )
-
-
-@instrument_interface(
-    "scopecat.dc_bias/v1",
-    state=DCBiasState,
-    label="DC bias ramp",
-    description=(
-        "Settled voltage transitions that a multi-channel device may apply as one "
-        "coherent batch."
-    ),
-)
-class DCBiasInterface(Protocol):
-    @acquisition(
-        label="Read back bias",
-        description="Read the settled voltage status for one routed channel.",
-    )
-    def readback(self) -> DCBiasReadbackResults: ...
-
-
-@instrument_state
-class DCSourceState:
-    """Complete DC-source state, including the hardware-selected source mode."""
-
-    voltage_protection: Quantity = member_field(
-        unit="V",
-        label="Voltage protection",
-        description="Absolute voltage limiter level.",
-    )
-    current_protection: Quantity = member_field(
-        unit="A",
-        label="Current protection",
-        description="Absolute current limiter level.",
-    )
-    output_enabled: bool = member_field(
-        label="DC output",
-        description="Whether the source output is enabled.",
-    )
-    source_mode: Literal["voltage", "current"] = member_field(
-        access="read_only",
-        label="Source mode",
-        description="Whether the instrument is currently sourcing voltage or current.",
-    )
+    readback = observation(actual_voltage, settled, label="Read back bias")
 
 
 @instrument_interface(
     "scopecat.dc_source/v3",
-    state=DCSourceState,
     label="DC source",
-    description=(
-        "DC voltage/current source transitions, protection, and output control."
-    ),
+    description="DC source transitions, protection, and output control.",
 )
 class DCSourceInterface(Protocol):
-    @operation(
-        label="Source voltage",
-        description="Select voltage-source mode and set its range and level.",
+    voltage_protection: Member[Quantity] = member(
+        access="read_write", restore=True, unit="V", label="Voltage protection"
     )
+    current_protection: Member[Quantity] = member(
+        access="read_write", restore=True, unit="A", label="Current protection"
+    )
+    output_enabled: Member[bool] = member(
+        access="read_write", restore=True, label="DC output"
+    )
+    source_mode: Member[Literal["voltage", "current"]] = member(
+        access="read_only", label="Source mode"
+    )
+
+    @operation(label="Source voltage")
     def source_voltage(
         self,
         *,
@@ -134,10 +80,7 @@ class DCSourceInterface(Protocol):
         level: Annotated[Quantity, argument(unit="V")],
     ) -> None: ...
 
-    @operation(
-        label="Source current",
-        description="Select current-source mode and set its range and level.",
-    )
+    @operation(label="Source current")
     def source_current(
         self,
         *,
@@ -146,250 +89,146 @@ class DCSourceInterface(Protocol):
     ) -> None: ...
 
 
-@instrument_state
-class DCMonitorState:
-    measurement_enabled: bool = member_field(
-        label="Measurement",
-        description="Whether monitor measurements are enabled.",
-    )
-    integration_cycles: int = member_field(
-        minimum=1,
-        label="Integration cycles",
-        description="Power-line cycles integrated for each measurement.",
-    )
-    measurement_delay: Quantity = member_field(
-        unit="s",
-        minimum=0.0,
-        label="Measurement delay",
-        description="Delay between measurement trigger and sampling.",
-    )
-
-
 @instrument_result
 class DCMonitorCurrentResults:
-    """Current measurement produced while the source is in voltage mode."""
-
-    current: float = result_field(
-        id="monitored_current",
-        dtype="float64",
-        unit="A",
-        label="Monitored current",
-        description="One measurement while sourcing voltage.",
-    )
+    current: float = result_field(id="monitored_current", dtype="float64", unit="A")
 
 
 @instrument_result
 class DCMonitorVoltageResults:
-    """Voltage measurement produced while the source is in current mode."""
-
-    voltage: float = result_field(
-        id="monitored_voltage",
-        dtype="float64",
-        unit="V",
-        label="Monitored voltage",
-        description="One measurement while sourcing current.",
-    )
+    voltage: float = result_field(id="monitored_voltage", dtype="float64", unit="V")
 
 
 @instrument_interface(
     "scopecat.dc_monitor/v4",
-    state=DCMonitorState,
     label="DC monitor",
     description="Independent current and voltage measurements for a DC source.",
 )
 class DCMonitorInterface(Protocol):
-    @acquisition(
-        label="Measure current",
-        description="Measure current while the source is operating in voltage mode.",
+    measurement_enabled: Member[bool] = member(
+        access="read_write", restore=True, label="Measurement"
     )
+    integration_cycles: Member[int] = member(
+        access="read_write", restore=True, minimum=1, label="Integration cycles"
+    )
+    measurement_delay: Member[Quantity] = member(
+        access="read_write",
+        restore=True,
+        unit="s",
+        minimum=0.0,
+        label="Measurement delay",
+    )
+
+    @acquisition(label="Measure current")
     def measure_current(self) -> DCMonitorCurrentResults: ...
 
-    @acquisition(
-        label="Measure voltage",
-        description="Measure voltage while the source is operating in current mode.",
-    )
+    @acquisition(label="Measure voltage")
     def measure_voltage(self) -> DCMonitorVoltageResults: ...
-
-
-@instrument_state
-class TemperatureReadoutState:
-    """Read-only scanner state reported by a temperature readout."""
-
-    scan_channel: int = member_field(
-        access="read_only",
-        minimum=1,
-        label="Scan channel",
-        description="Sensor input currently selected by the scanner.",
-    )
-    autoscan_enabled: bool = member_field(
-        access="read_only",
-        label="Autoscan",
-        description="Whether the input scanner is advancing automatically.",
-    )
 
 
 @instrument_result
 class TemperatureSampleResults:
-    """Successful temperature sample values."""
-
-    temperature: float = result_field(
-        dtype="float64",
-        unit="K",
-        label="Temperature",
-        description="Current scan-channel temperature.",
-    )
-    resistance: float = result_field(
-        dtype="float64",
-        unit="Ohm",
-        label="Resistance",
-        description="Current scan-channel sensor resistance.",
-    )
+    temperature: float = result_field(dtype="float64", unit="K")
+    resistance: float = result_field(dtype="float64", unit="Ohm")
 
 
 @instrument_interface(
     "scopecat.temperature_readout/v1",
-    state=TemperatureReadoutState,
     label="Temperature readout",
-    description=(
-        "Read-only scanner state and settled temperature or resistance "
-        "acquisition. Heater control belongs to a separate interface."
-    ),
+    description="Read-only scanner state and settled sensor acquisition.",
 )
 class TemperatureReadoutInterface(Protocol):
-    @acquisition(
-        label="Sample sensor",
-        description="Read a settled sample from one coherent scan channel.",
+    scan_channel: Member[int] = member(
+        access="read_only", minimum=1, label="Scan channel"
     )
+    autoscan_enabled: Member[bool] = member(access="read_only", label="Autoscan")
+
+    @acquisition(label="Sample sensor")
     def sample(self) -> TemperatureSampleResults: ...
 
 
-@instrument_state
-class RFOutputState:
-    """Concrete continuous-wave RF output state schema."""
-
-    frequency: Quantity = member_field(
-        unit="Hz",
-        label="CW frequency",
-        description="Continuous-wave carrier frequency.",
+@instrument_interface(
+    "scopecat.rf_output/v2",
+    label="RF output",
+    description="Continuous-wave RF source controls independent of vendor syntax.",
+)
+class RFOutputInterface(Protocol):
+    frequency: Member[Quantity] = member(
+        access="read_write", restore=True, unit="Hz", label="CW frequency"
     )
-    power: Quantity = member_field(
-        unit="dBm",
-        label="Output power",
-        description="Configured RF output level at the source connector.",
+    power: Member[Quantity] = member(
+        access="read_write", restore=True, unit="dBm", label="Output power"
     )
-    output_enabled: bool = member_field(
-        label="RF output",
-        description="Whether the RF output connector is enabled.",
-    )
-    reference_source: ReferenceSource = member_field(
-        label="Reference source",
-        description="Reference oscillator source; external frequency is not set.",
+    output_enabled: Member[bool] = member(
+        access="read_write", restore=True, label="RF output"
     )
 
 
 @instrument_interface(
-    "scopecat.rf_output/v1",
-    state=RFOutputState,
-    label="RF output",
-    description="Continuous-wave RF source controls independent of vendor syntax.",
+    "scopecat.reference_clock/v1",
+    label="Reference clock selection",
+    description="Selection of an internal or external instrument reference clock.",
 )
-class RFOutputInterface(Protocol): ...
-
-
-@instrument_state
-class NetworkSweepState:
-    """Concrete network-sweep state schema."""
-
-    start_frequency: Quantity = member_field(
-        unit="Hz",
-        label="Start frequency",
-        description="First stimulus frequency in the linear sweep.",
-    )
-    stop_frequency: Quantity = member_field(
-        unit="Hz",
-        label="Stop frequency",
-        description="Last stimulus frequency in the linear sweep.",
-    )
-    points: int = member_field(
-        minimum=2,
-        label="Sweep points",
-        description="Number of equally spaced frequency points.",
-    )
-    if_bandwidth: Quantity = member_field(
-        unit="Hz",
-        label="IF bandwidth",
-        description="Receiver intermediate-frequency bandwidth.",
-    )
-    source_power: Quantity = member_field(
-        unit="dBm",
-        label="Source power",
-        description="Stimulus power for the selected analyzer channel.",
-    )
-    s_parameter: SParameter = member_field(
-        label="S-parameter",
-        description="Two-port S-parameter measured by the selected trace.",
+class ReferenceClockInterface(Protocol):
+    reference_source: Member[ReferenceSource] = member(
+        access="read_write", restore=True, label="Reference source"
     )
 
 
 @instrument_result
 class NetworkSweepResults:
-    """Successful network sweep values."""
-
     frequency: list[float] = result_field(
-        role="coordinate",
-        dtype="float64",
-        unit="Hz",
-        axes=("frequency",),
-        label="Frequency",
-        description="Stimulus frequency values for the acquired trace.",
+        role="coordinate", dtype="float64", unit="Hz", axes=("frequency",)
     )
     s_parameter: list[complex] = result_field(
-        dtype="complex128",
-        unit="ratio",
-        axes=("frequency",),
-        label="Complex S-parameter",
-        description="Complex response values for the configured S-parameter.",
+        dtype="complex128", unit="ratio", axes=("frequency",)
     )
 
 
 @instrument_interface(
     "scopecat.network_sweep/v1",
-    state=NetworkSweepState,
     label="Network sweep",
     description="Linear, single-trigger complex S-parameter sweep.",
 )
 class NetworkSweepInterface(Protocol):
+    start_frequency: Member[Quantity] = member(
+        access="read_write", restore=True, unit="Hz", label="Start frequency"
+    )
+    stop_frequency: Member[Quantity] = member(
+        access="read_write", restore=True, unit="Hz", label="Stop frequency"
+    )
+    points: Member[int] = member(
+        access="read_write", restore=True, minimum=2, label="Sweep points"
+    )
+    if_bandwidth: Member[Quantity] = member(
+        access="read_write", restore=True, unit="Hz", label="IF bandwidth"
+    )
+    source_power: Member[Quantity] = member(
+        access="read_write", restore=True, unit="dBm", label="Source power"
+    )
+    s_parameter: Member[SParameter] = member(
+        access="read_write", restore=True, label="S-parameter"
+    )
+
     @acquisition(
         label="Acquire sweep",
-        description="Trigger and read the configured network sweep.",
-        axes={
-            "frequency": axis(
-                size="points",
-                kind="frequency",
-                unit="Hz",
-                label="Frequency",
-                description="Linear VNA stimulus frequency.",
-            )
-        },
+        axes={"frequency": axis(size=points, kind="frequency", unit="Hz")},
     )
     def sweep(self) -> NetworkSweepResults: ...
 
 
 __all__ = [
+    "DCBiasInterface",
     "DCMonitorCurrentResults",
     "DCMonitorInterface",
-    "DCMonitorState",
     "DCMonitorVoltageResults",
     "DCSourceInterface",
-    "DCSourceState",
     "NetworkSweepInterface",
     "NetworkSweepResults",
-    "NetworkSweepState",
     "RFOutputInterface",
-    "RFOutputState",
+    "ReferenceClockInterface",
     "ReferenceSource",
     "SParameter",
     "TemperatureReadoutInterface",
-    "TemperatureReadoutState",
     "TemperatureSampleResults",
 ]

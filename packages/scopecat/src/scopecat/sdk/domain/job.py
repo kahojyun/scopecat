@@ -18,10 +18,10 @@ from scopecat.records.measurement import MeasurementAcquisitionValue
 class DomainInvocationSpec[PayloadT]:
     """Laboratory declaration of one idempotent target invocation.
 
-    The payload is transient and target-owned. ``target_intent`` must be
-    stable-content encodable because core fingerprints it when binding the
-    invocation to an exact result mapping. Stable identity fields become
-    validated execution intent when the preparation is closed.
+    The payload is transient and target-owned. ``target_intent`` is durable
+    structured context needed to interpret or restore the selected target
+    behavior. Stable identity fields become validated execution intent when
+    the preparation is closed.
     """
 
     invocation_id: str
@@ -31,7 +31,7 @@ class DomainInvocationSpec[PayloadT]:
     artifact_id: str
     artifact_fingerprint: str
     execution_summary: Mapping[str, JsonValue]
-    target_intent: object = field(repr=False)
+    target_intent: Mapping[str, JsonValue] = field(repr=False)
     payload: PayloadT = field(repr=False)
 
 

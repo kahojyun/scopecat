@@ -165,6 +165,10 @@ from scopecat.daemon.wire import (
     RunCancellationReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
+    RunDomainJobStatePage,
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionBatchReceipt,
+    RunDomainJobTransitionPage,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -182,7 +186,11 @@ from scopecat.records.content import (
     ContentEntry,
     InlinePayloadBody,
 )
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import (
+    InstrumentStateCacheReadback,
+    InstrumentStateReadback,
+    InstrumentStateSnapshot,
+)
 from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
@@ -202,6 +210,7 @@ from scopecat.sdk.instruments.commands import (
     CollectReceipt,
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentStateCommand,
+    InstrumentStateReadCommand,
     InteractiveCollectIntent,
     InvokeCommand,
     InvokeReceipt,
@@ -890,6 +899,38 @@ class DaemonClient:
             InstrumentStateSnapshot,
         )
 
+    def read_instrument_state_members(
+        self,
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentStateReadCommand,
+    ) -> InstrumentStateReadback:
+        return self._post_model(
+            self._instrument_session_path(
+                session_id,
+                instrument_id,
+                "state/read",
+            ),
+            command,
+            InstrumentStateReadback,
+        )
+
+    def read_observed_instrument_state_members(
+        self,
+        session_id: str,
+        instrument_id: str,
+        command: InstrumentStateReadCommand,
+    ) -> InstrumentStateCacheReadback:
+        return self._post_model(
+            self._instrument_session_path(
+                session_id,
+                instrument_id,
+                "state/observed",
+            ),
+            command,
+            InstrumentStateCacheReadback,
+        )
+
     def apply_instrument_state(
         self,
         session_id: str,
@@ -1420,6 +1461,49 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/coverage/advance",
             command,
             RunCoverageState,
+        )
+
+    def get_run_domain_job_transitions(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunDomainJobTransitionPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/domain-jobs/transitions",
+            RunDomainJobTransitionPage,
+            params=params,
+        )
+
+    def get_run_domain_jobs(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunDomainJobStatePage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/domain-jobs",
+            RunDomainJobStatePage,
+            params=params,
+        )
+
+    def commit_run_domain_job_transitions(
+        self,
+        run_id: str,
+        command: RunDomainJobTransitionBatchCommand,
+    ) -> RunDomainJobTransitionBatchReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/domain-jobs/transitions",
+            command,
+            RunDomainJobTransitionBatchReceipt,
         )
 
     def get_run_point_plan(self, run_id: str) -> RunPointPlanView:

@@ -27,6 +27,7 @@ from scopecat.compiler.relations.verification import ExpressionTypeBindings
 from scopecat.execution.local.program import CollectOperation
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.instrument_members import InterfaceRef
 from scopecat.kernel.problems import model_location
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
@@ -49,7 +50,7 @@ from scopecat.program.products import EntityAxisDef
 _SOURCE_REQUIREMENTS = (
     LogicalResourceRequirement(
         port_id=logical_resource_port_id("source"),
-        interfaces=("test.scalar_signal/v1",),
+        capabilities=(InterfaceRef("test.scalar_signal/v1"),),
     ),
 )
 
@@ -314,7 +315,7 @@ def test_materialized_effects_reports_state_evaluation_and_conflict_problems() -
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
-                interfaces=("test.set_frequency/v1",),
+                capabilities=(InterfaceRef("test.set_frequency/v1"),),
             ),
         ),
         state=[

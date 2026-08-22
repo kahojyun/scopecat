@@ -5,6 +5,7 @@ from typing import override
 import pytest
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.records.config import instrument_bindings
+from scopecat.records.instrument import state_member_target
 from scopecat.sdk.instruments import (
     DriverCatalog,
     DriverPayload,
@@ -12,6 +13,7 @@ from scopecat.sdk.instruments import (
     InstrumentConnectionContext,
     InstrumentProviderContext,
     InstrumentProviderDescription,
+    InterfaceRef,
 )
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
@@ -20,7 +22,8 @@ from scopecat.sdk.instruments.backend import (
     BackendInvokeRequest,
     BackendOperationArgument,
     BackendPayload,
-    BackendPropertyWrite,
+    BackendReadRequest,
+    BackendStateMemberWrite,
 )
 from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
 from scopecat_testkit.instrument_drivers import (
@@ -36,6 +39,12 @@ from scopecat_server.instruments.backend import (
     InstrumentHandleInvalid,
     LocalInstrumentBackendEndpoint,
 )
+
+_GAIN = InterfaceRef("test.set_gain/v1").property("gain")
+
+
+def _gain_read_request() -> BackendReadRequest:
+    return BackendReadRequest(targets=(state_member_target(_GAIN),))
 
 
 class _TrackingDriver(SignalInstrumentDriver):
@@ -95,19 +104,18 @@ def test_local_backend_owns_driver_behind_opaque_handle() -> None:
         connection.handle,
         BackendApplyRequest(
             assignments=(
-                BackendPropertyWrite(
-                    interface_id="test.set_gain/v1",
-                    property_id="gain",
+                BackendStateMemberWrite(
+                    target=state_member_target(_GAIN),
                     value=number_state(2.0),
                 ),
             )
         ),
     )
-    state = endpoint.read_state(connection.handle)
+    state = endpoint.read_state(connection.handle, _gain_read_request())
     assert next(
         item.value
-        for item in state.properties
-        if item.interface_id == "test.set_gain/v1" and item.property_id == "gain"
+        for item in state.observations
+        if item.target == state_member_target(_GAIN)
     ) == number_state(2.0)
     receipt = endpoint.collect(
         connection.handle,
@@ -123,7 +131,7 @@ def test_local_backend_owns_driver_behind_opaque_handle() -> None:
     endpoint.disconnect(connection.handle)
     assert provider.drivers[0].disconnect_count == 1
     with pytest.raises(InstrumentHandleInvalid, match="stale"):
-        endpoint.read_state(connection.handle)
+        endpoint.read_state(connection.handle, _gain_read_request())
 
 
 def test_local_backend_rejects_a_catalog_for_another_provider() -> None:
@@ -151,7 +159,7 @@ def test_local_backend_rejects_foreign_handles_and_changed_contracts() -> None:
     )
 
     with pytest.raises(InstrumentHandleInvalid, match="another"):
-        other.read_state(connection.handle)
+        other.read_state(connection.handle, _gain_read_request())
     with pytest.raises(InstrumentBackendRejected) as rejected:
         endpoint.connect(
             binding=binding,

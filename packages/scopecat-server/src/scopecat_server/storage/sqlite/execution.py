@@ -8,9 +8,9 @@ from bisect import bisect_left
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import cast
+from typing import Literal, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 from pydantic_core import PydanticSerializationError
 from scopecat.adaptive_domains import ResolvedDomainFragment
 from scopecat.daemon.points import (
@@ -23,6 +23,20 @@ from scopecat.daemon.points import (
     RunDomainQueueView,
     RunPointPlanCloseCommand,
     RunPointPlanView,
+)
+from scopecat.daemon.wire import (
+    RunDomainJobStatePage,
+    RunDomainJobStateView,
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionItem,
+    RunDomainJobTransitionPage,
+    RunDomainJobTransitionView,
+)
+from scopecat.records.execution import (
+    DomainJobCheckpointTransition,
+    DomainJobInvocationTransition,
+    DomainJobTerminalTransition,
+    DomainJobTransitionRecord,
 )
 from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementRecord
 from scopecat.records.measurement_recording import (
@@ -110,6 +124,274 @@ class SQLiteRunCoverage:
             (self._run_id, end_index),
         )
         return end_index, True
+
+
+_DOMAIN_JOB_TRANSITION: TypeAdapter[DomainJobTransitionRecord] = TypeAdapter(
+    DomainJobTransitionRecord
+)
+
+
+class SQLiteDomainJobTransitions:
+    """Persist invocation, pending, and terminal transitions in execution order."""
+
+    def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
+        self._runs = runs
+        self._run_id = run_id
+
+    def read(
+        self,
+        *,
+        limit: int,
+        before: int | None = None,
+    ) -> RunDomainJobTransitionPage:
+        with self._runs.sqlite.read_transaction() as connection:
+            rows = _all(
+                connection.execute(
+                    """
+                    SELECT sequence, run_id, logical_compute_node_id,
+                           point_ordinals_json, transition_json
+                    FROM execution_domain_job_transitions
+                    WHERE run_id = ? AND (? IS NULL OR sequence < ?)
+                    ORDER BY sequence DESC
+                    LIMIT ?
+                    """,
+                    (self._run_id, before, before, limit + 1),
+                )
+            )
+        selected = rows[:limit]
+        return RunDomainJobTransitionPage(
+            run_id=self._run_id,
+            items=tuple(_domain_job_transition_view(row) for row in reversed(selected)),
+            next_cursor=(
+                _integer(selected[-1], "sequence") if len(rows) > limit else None
+            ),
+        )
+
+    def read_current(
+        self,
+        *,
+        limit: int,
+        before: int | None = None,
+    ) -> RunDomainJobStatePage:
+        with self._runs.sqlite.read_transaction() as connection:
+            return self.read_current_in_transaction(
+                connection,
+                limit=limit,
+                before=before,
+            )
+
+    def read_current_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        limit: int,
+        before: int | None = None,
+    ) -> RunDomainJobStatePage:
+        rows = _all(
+            connection.execute(
+                """
+                WITH current AS (
+                    SELECT execution_key,
+                           MAX(sequence) AS latest_sequence,
+                           COUNT(*) AS transition_count
+                    FROM execution_domain_job_transitions
+                    WHERE run_id = ?
+                    GROUP BY execution_key
+                )
+                SELECT latest.run_id, latest.point_ordinals_json,
+                       latest.transition_json, current.latest_sequence,
+                       current.transition_count,
+                       invocation.sequence AS invocation_sequence,
+                       invocation.transition_json AS invocation_json
+                FROM current
+                JOIN execution_domain_job_transitions AS latest
+                  ON latest.run_id = ?
+                 AND latest.execution_key = current.execution_key
+                 AND latest.sequence = current.latest_sequence
+                JOIN execution_domain_job_transitions AS invocation
+                  ON invocation.run_id = latest.run_id
+                 AND invocation.execution_key = latest.execution_key
+                 AND invocation.transition_kind = 'invocation'
+                WHERE (? IS NULL OR invocation.sequence < ?)
+                ORDER BY invocation.sequence DESC
+                LIMIT ?
+                """,
+                (self._run_id, self._run_id, before, before, limit + 1),
+            )
+        )
+        selected = rows[:limit]
+        return RunDomainJobStatePage(
+            run_id=self._run_id,
+            items=tuple(_domain_job_state_view(row) for row in reversed(selected)),
+            next_cursor=(
+                _integer(selected[-1], "invocation_sequence")
+                if len(rows) > limit
+                else None
+            ),
+        )
+
+    def commit_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        command: RunDomainJobTransitionItem,
+    ) -> tuple[RunDomainJobTransitionView, bool]:
+        transition = command.transition
+        if isinstance(transition, DomainJobInvocationTransition) and (
+            transition.execution_id.run_id != self._run_id
+            or transition.execution_id.logical_compute_node_id
+            != command.logical_compute_node_id
+        ):
+            raise ExecutionStateConflict(
+                "domain job invocation identity does not match its run or node"
+            )
+        if isinstance(transition, DomainJobCheckpointTransition):
+            existing = _one(
+                connection.execute(
+                    """
+                    SELECT sequence, run_id, logical_compute_node_id,
+                           point_ordinals_json, transition_json
+                    FROM execution_domain_job_transitions
+                    WHERE run_id = ? AND execution_key = ?
+                      AND transition_kind = 'checkpoint' AND revision = ?
+                    """,
+                    (
+                        self._run_id,
+                        transition.execution_key,
+                        transition.checkpoint.revision,
+                    ),
+                )
+            )
+        elif isinstance(transition, DomainJobInvocationTransition):
+            existing = _one(
+                connection.execute(
+                    """
+                    SELECT sequence, run_id, logical_compute_node_id,
+                           point_ordinals_json, transition_json
+                    FROM execution_domain_job_transitions
+                    WHERE run_id = ? AND execution_key = ?
+                      AND transition_kind = 'invocation'
+                    """,
+                    (self._run_id, transition.execution_key),
+                )
+            )
+        else:
+            existing = _one(
+                connection.execute(
+                    """
+                    SELECT sequence, run_id, logical_compute_node_id,
+                           point_ordinals_json, transition_json
+                    FROM execution_domain_job_transitions
+                    WHERE run_id = ? AND execution_key = ?
+                      AND transition_kind = 'terminal'
+                    """,
+                    (self._run_id, transition.execution_key),
+                )
+            )
+        if existing is not None:
+            view = _domain_job_transition_view(existing)
+            if (
+                view.logical_compute_node_id != command.logical_compute_node_id
+                or view.point_ordinals != command.point_ordinals
+                or view.transition != transition
+            ):
+                raise ExecutionStateConflict(
+                    "domain job transition conflicts with durable state"
+                )
+            return view, False
+
+        latest = _one(
+            connection.execute(
+                """
+                SELECT sequence, run_id, logical_compute_node_id,
+                       point_ordinals_json, transition_json
+                FROM execution_domain_job_transitions
+                WHERE run_id = ? AND execution_key = ?
+                ORDER BY sequence DESC
+                LIMIT 1
+                """,
+                (self._run_id, transition.execution_key),
+            )
+        )
+        if latest is None:
+            if not isinstance(transition, DomainJobInvocationTransition):
+                raise ExecutionStateConflict(
+                    "domain job transition requires a durable invocation"
+                )
+        else:
+            previous = _domain_job_transition_view(latest)
+            if (
+                previous.logical_compute_node_id != command.logical_compute_node_id
+                or previous.point_ordinals != command.point_ordinals
+            ):
+                raise ExecutionStateConflict(
+                    "domain job transition changed its durable identity"
+                )
+            if isinstance(previous.transition, DomainJobTerminalTransition):
+                raise ExecutionStateConflict(
+                    "domain job transition follows its terminal receipt"
+                )
+            if isinstance(transition, DomainJobInvocationTransition):
+                raise ExecutionStateConflict(
+                    "domain job invocation is not the first transition"
+                )
+            if isinstance(transition, DomainJobCheckpointTransition) and isinstance(
+                previous.transition, DomainJobCheckpointTransition
+            ):
+                previous_checkpoint = previous.transition.checkpoint
+                checkpoint = transition.checkpoint
+                if checkpoint.job_id != previous_checkpoint.job_id:
+                    raise ExecutionStateConflict(
+                        "domain job checkpoint changed its job identity"
+                    )
+                if checkpoint.revision <= previous_checkpoint.revision:
+                    raise ExecutionStateConflict(
+                        "domain job checkpoint revision is not increasing"
+                    )
+
+        job_id = None
+        revision = None
+        if isinstance(transition, DomainJobCheckpointTransition):
+            job_id = transition.checkpoint.job_id
+            revision = transition.checkpoint.revision
+
+        inserted = connection.execute(
+            """
+            INSERT INTO execution_domain_job_transitions(
+                run_id, logical_compute_node_id, execution_key, transition_kind,
+                job_id, revision, point_ordinals_json, transition_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                self._run_id,
+                command.logical_compute_node_id,
+                transition.execution_key,
+                transition.kind,
+                job_id,
+                revision,
+                json.dumps(command.point_ordinals, separators=(",", ":")),
+                _DOMAIN_JOB_TRANSITION.dump_json(transition).decode(),
+            ),
+        )
+        return (
+            RunDomainJobTransitionView(
+                sequence=cast("int", inserted.lastrowid),
+                run_id=self._run_id,
+                logical_compute_node_id=command.logical_compute_node_id,
+                point_ordinals=command.point_ordinals,
+                transition=transition,
+            ),
+            True,
+        )
+
+    def commit_batch_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        command: RunDomainJobTransitionBatchCommand,
+    ) -> tuple[RunDomainJobTransitionView, ...]:
+        return tuple(
+            self.commit_in_transaction(connection, item)[0] for item in command.items
+        )
 
 
 class SQLiteRunPointLedger:
@@ -1451,6 +1733,45 @@ def _text(row: sqlite3.Row, column: str) -> str:
 
 def _integer(row: sqlite3.Row, column: str) -> int:
     return cast("int", row[column])
+
+
+def _domain_job_transition_view(row: sqlite3.Row) -> RunDomainJobTransitionView:
+    return RunDomainJobTransitionView(
+        sequence=_integer(row, "sequence"),
+        run_id=_text(row, "run_id"),
+        logical_compute_node_id=_text(row, "logical_compute_node_id"),
+        point_ordinals=tuple(
+            cast("list[int]", json.loads(_text(row, "point_ordinals_json")))
+        ),
+        transition=_DOMAIN_JOB_TRANSITION.validate_json(_text(row, "transition_json")),
+    )
+
+
+def _domain_job_state_view(row: sqlite3.Row) -> RunDomainJobStateView:
+    invocation = _DOMAIN_JOB_TRANSITION.validate_json(_text(row, "invocation_json"))
+    if not isinstance(invocation, DomainJobInvocationTransition):
+        raise ExecutionStateError("domain job state is missing its invocation")
+    latest = _DOMAIN_JOB_TRANSITION.validate_json(_text(row, "transition_json"))
+    state = cast(
+        "Literal['invocation_unknown', 'pending', 'terminal']",
+        {
+            "invocation": "invocation_unknown",
+            "checkpoint": "pending",
+            "terminal": "terminal",
+        }[latest.kind],
+    )
+    return RunDomainJobStateView(
+        run_id=_text(row, "run_id"),
+        invocation=invocation,
+        point_ordinals=tuple(
+            cast("list[int]", json.loads(_text(row, "point_ordinals_json")))
+        ),
+        state=state,
+        invocation_sequence=_integer(row, "invocation_sequence"),
+        latest_sequence=_integer(row, "latest_sequence"),
+        transition_count=_integer(row, "transition_count"),
+        latest_transition=latest,
+    )
 
 
 def _accepted_point_start(points: tuple[AcceptedRunPointView, ...]) -> int | None:

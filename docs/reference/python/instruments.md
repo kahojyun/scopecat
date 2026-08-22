@@ -1,8 +1,8 @@
 # `scopecat_instruments`
 
 The package root is a generated lazy facade. The owning modules below document
-the same public typed live clients, symbolic experiment clients, and state
-models that users import from `scopecat_instruments`.
+the same public typed live clients, symbolic experiment clients, interface
+projections, and patches that users import from `scopecat_instruments`.
 
 ## Clients and capability constructors
 
@@ -15,9 +15,9 @@ models that users import from `scopecat_instruments`.
       show_root_full_path: false
       show_signature_annotations: true
 
-## State models
+## Interface projections and patches
 
-::: scopecat_instruments.states
+::: scopecat_instruments.projections
     options:
       filters:
         - "!^_"

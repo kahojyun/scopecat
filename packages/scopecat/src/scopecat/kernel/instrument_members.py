@@ -5,6 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from scopecat.kernel.interface_identity import InterfaceId, require_interface_id
+from scopecat.kernel.schema_identity import (
+    VersionedSchemaId,
+    require_versioned_schema_id,
+)
+
+type DeviceSchemaId = VersionedSchemaId
 
 
 def _validate_scope(
@@ -76,6 +82,24 @@ class PropertyRef:
     def __post_init__(self) -> None:
         _validate_scope(self.interface_id, self.component_path)
         _require_member_id(self.property_id, "property")
+
+
+@dataclass(frozen=True, slots=True)
+class DevicePropertyRef:
+    """One model-specific state member outside portable interfaces."""
+
+    schema_id: DeviceSchemaId
+    component_path: tuple[str, ...]
+    property_id: str
+
+    def __post_init__(self) -> None:
+        require_versioned_schema_id(self.schema_id, kind="device schema")
+        for component_id in self.component_path:
+            _require_member_id(component_id, "component")
+        _require_member_id(self.property_id, "device property")
+
+
+type StateMemberRef = PropertyRef | DevicePropertyRef
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,12 +182,21 @@ class AcquisitionResultRef:
         )
 
 
+type InstrumentCapabilityRef = (
+    InterfaceRef | PropertyRef | OperationRef | AcquisitionRef
+)
+
+
 __all__ = [
     "AcquisitionRef",
     "AcquisitionResultRef",
     "ComponentRef",
+    "DevicePropertyRef",
+    "DeviceSchemaId",
+    "InstrumentCapabilityRef",
     "InterfaceRef",
     "OperationArgumentRef",
     "OperationRef",
     "PropertyRef",
+    "StateMemberRef",
 ]

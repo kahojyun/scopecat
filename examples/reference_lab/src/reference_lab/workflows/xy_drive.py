@@ -22,17 +22,16 @@ from scopecat.authoring import (
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.quantity import Quantity
-from scopecat.sdk.instruments import InterfaceRef
+from scopecat.sdk.instruments import InstrumentCapabilityRef
+from scopecat_instruments import RFSourceTarget, rf_source
 from scopecat_instruments.members import (
-    RF_OUTPUT,
+    REFERENCE_CLOCK_REFERENCE_SOURCE,
     RF_OUTPUT_ENABLED,
     RF_OUTPUT_FREQUENCY,
     RF_OUTPUT_POWER,
-    RF_OUTPUT_REFERENCE_SOURCE,
 )
 
 from reference_lab.bench_interfaces import (
-    ANALOG_WAVEFORM_OUTPUT,
     ANALOG_WAVEFORM_OUTPUT_AMPLITUDE,
     ANALOG_WAVEFORM_OUTPUT_ENABLED,
     ANALOG_WAVEFORM_OUTPUT_OFFSET,
@@ -40,12 +39,9 @@ from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT_WAVEFORM,
     AWG_RUN_MODE,
     AWG_SAMPLE_RATE,
-    AWG_SEQUENCER,
 )
 from reference_lab.interfaces import (
-    CLOCK_REFERENCE,
-    CLOCK_REFERENCE_FREQUENCY,
-    CLOCK_REFERENCE_SOURCE,
+    CLOCK_TIMING_FREQUENCY,
 )
 from reference_lab.payloads import SAMPLED_WAVEFORM_SCHEMA_ID
 
@@ -97,27 +93,38 @@ class XYDriveGroup:
     ) -> None:
         self._context = context
         self._entities = for_
-        self._lo = self._resources(
+        self._lo = rf_source(
             context,
-            "xy_drive.lo",
-            (RF_OUTPUT,),
+            name="xy_drive.lo",
+            requires=(
+                RF_OUTPUT_FREQUENCY,
+                RF_OUTPUT_POWER,
+                RF_OUTPUT_ENABLED,
+                REFERENCE_CLOCK_REFERENCE_SOURCE,
+            ),
+            for_=self._entities,
             role="drive-lo",
         )
-        awg_interfaces = (
-            AWG_SEQUENCER,
-            ANALOG_WAVEFORM_OUTPUT,
-            CLOCK_REFERENCE,
+        awg_capabilities = (
+            AWG_SAMPLE_RATE,
+            AWG_RUN_MODE,
+            ANALOG_WAVEFORM_OUTPUT_AMPLITUDE,
+            ANALOG_WAVEFORM_OUTPUT_OFFSET,
+            ANALOG_WAVEFORM_OUTPUT_ENABLED,
+            REFERENCE_CLOCK_REFERENCE_SOURCE,
+            CLOCK_TIMING_FREQUENCY,
+            ANALOG_WAVEFORM_OUTPUT_PLAY,
         )
         self._i = self._resources(
             context,
             "xy_drive.i",
-            awg_interfaces,
+            awg_capabilities,
             role="drive-i",
         )
         self._q = self._resources(
             context,
             "xy_drive.q",
-            awg_interfaces,
+            awg_capabilities,
             role="drive-q",
         )
 
@@ -141,15 +148,17 @@ class XYDriveGroup:
         targets: list[StateTarget] = []
         for entity in self._entities:
             targets.extend(
+                self._lo[entity].state_targets(
+                    RFSourceTarget(
+                        frequency=lo_by_entity[entity],
+                        power=lo_power,
+                        output_enabled=output_enabled,
+                        reference_source=reference_source,
+                    )
+                )
+            )
+            targets.extend(
                 (
-                    self._lo[entity].state_target(
-                        {
-                            RF_OUTPUT_FREQUENCY: lo_by_entity[entity],
-                            RF_OUTPUT_POWER: lo_power,
-                            RF_OUTPUT_ENABLED: output_enabled,
-                            RF_OUTPUT_REFERENCE_SOURCE: reference_source,
-                        }
-                    ),
                     self._i[entity].state_target(
                         {
                             AWG_SAMPLE_RATE: AWG_SAMPLE_CLOCK,
@@ -159,8 +168,8 @@ class XYDriveGroup:
                             ],
                             ANALOG_WAVEFORM_OUTPUT_OFFSET: sc.Quantity(0.0, "V"),
                             ANALOG_WAVEFORM_OUTPUT_ENABLED: output_enabled,
-                            CLOCK_REFERENCE_SOURCE: reference_source,
-                            CLOCK_REFERENCE_FREQUENCY: reference_frequency,
+                            REFERENCE_CLOCK_REFERENCE_SOURCE: reference_source,
+                            CLOCK_TIMING_FREQUENCY: reference_frequency,
                         },
                     ),
                     self._q[entity].state_target(
@@ -172,8 +181,8 @@ class XYDriveGroup:
                             ],
                             ANALOG_WAVEFORM_OUTPUT_OFFSET: sc.Quantity(0.0, "V"),
                             ANALOG_WAVEFORM_OUTPUT_ENABLED: output_enabled,
-                            CLOCK_REFERENCE_SOURCE: reference_source,
-                            CLOCK_REFERENCE_FREQUENCY: reference_frequency,
+                            REFERENCE_CLOCK_REFERENCE_SOURCE: reference_source,
+                            CLOCK_TIMING_FREQUENCY: reference_frequency,
                         },
                     ),
                 )
@@ -233,13 +242,13 @@ class XYDriveGroup:
         self,
         context: ExperimentContext | ModuleContext,
         name: str,
-        interfaces: tuple[InterfaceRef, ...],
+        capabilities: tuple[InstrumentCapabilityRef, ...],
         role: str | None = None,
     ) -> PerEntity[CapabilityResource]:
         return capability_resource(
             context,
             name,
-            requires=interfaces,
+            requires=capabilities,
             for_=self._entities,
             role=role,
         )

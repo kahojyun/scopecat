@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, field
 
 import scopecat.execution.effect_result as effect_result
 from scopecat.execution.effects.boundary import EffectBoundary
 from scopecat.execution.effects.compute import ComputeEffectExecutor, PointEffectState
-from scopecat.execution.effects.domain import execute_domain_job_values
+from scopecat.execution.effects.domain import (
+    DomainResidencyCache,
+    execute_domain_job_values,
+)
 from scopecat.execution.effects.hardware import HardwareEffectExecutor
 from scopecat.execution.local.program import (
     ApplyStateOperation,
@@ -21,12 +25,20 @@ from scopecat.execution.program import (
     RunCoveredOperation,
     RunDomainJob,
 )
+from scopecat.execution.services import RunDomainJobTransitionWriter
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.records.instrument import InstrumentStateSnapshot
-from scopecat.sdk.domain.runtime import DomainExecutionCancellationRequested
+from scopecat.sdk.domain.evidence import DomainExecutionEvidence
+from scopecat.sdk.domain.execution import DomainTransitionPolicy
+from scopecat.sdk.domain.runtime import (
+    DomainExecutionCancellationRequested,
+    DomainExecutionId,
+    DomainExecutionReceipt,
+    DomainJobCheckpoint,
+)
 from scopecat.sdk.instruments.execution import (
     RunHardwareBatch,
     RunHardwareBatchReceipt,
@@ -68,6 +80,58 @@ def _never_cancel() -> bool:
     return False
 
 
+@dataclass(slots=True)
+class _DomainExecutionEvidenceBuilder:
+    attempt_count: int = 0
+    checkpoint_count: int = 0
+    receipt_count: int = 0
+    completed_count: int = 0
+    not_executed_count: int = 0
+    unknown_count: int = 0
+    detail_complete: bool = True
+    target_ids: set[str] = field(default_factory=set)
+    transition_policies: set[DomainTransitionPolicy] = field(default_factory=set)
+
+    def observe(
+        self,
+        *,
+        target_id: str,
+        transition_policy: DomainTransitionPolicy,
+        checkpoints: tuple[DomainJobCheckpoint, ...],
+        receipt: DomainExecutionReceipt | None,
+    ) -> None:
+        self.attempt_count += 1
+        self.checkpoint_count += len(checkpoints)
+        self.target_ids.add(target_id)
+        self.transition_policies.add(transition_policy)
+        if receipt is None:
+            return
+        self.receipt_count += 1
+        match receipt.status:
+            case "completed":
+                self.completed_count += 1
+            case "not_executed":
+                self.not_executed_count += 1
+            case "unknown":
+                self.unknown_count += 1
+
+    def build(self, *, run_id: str) -> DomainExecutionEvidence | None:
+        if self.attempt_count == 0:
+            return None
+        return DomainExecutionEvidence(
+            run_id=run_id,
+            detail_complete=self.detail_complete,
+            attempt_count=self.attempt_count,
+            checkpoint_count=self.checkpoint_count,
+            receipt_count=self.receipt_count,
+            completed_count=self.completed_count,
+            not_executed_count=self.not_executed_count,
+            unknown_count=self.unknown_count,
+            target_ids=tuple(sorted(self.target_ids)),
+            transition_policies=tuple(sorted(self.transition_policies)),
+        )
+
+
 class RunEffectInterpreter:
     """Execute provisioned host operations in exact program order.
 
@@ -86,6 +150,7 @@ class RunEffectInterpreter:
         recorded_value_ids: Sequence[ValueId] = (),
         payload_codecs: PayloadCodecRegistry = EMPTY_PAYLOAD_CODECS,
         cancellation_requested: Callable[[], bool] = _never_cancel,
+        domain_job_transitions: RunDomainJobTransitionWriter | None = None,
     ) -> None:
         self.run_id = run_id
         self.coordinate_ids = frozenset(coordinate_ids)
@@ -93,6 +158,7 @@ class RunEffectInterpreter:
         self.observed_state = list(instruments.observed_state)
         self.baseline_state = list(instruments.baseline_state)
         self.final_state: list[InstrumentStateSnapshot] = []
+        self._domain_execution = _DomainExecutionEvidenceBuilder()
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
         self.coverage_failure: BaseException | None = None
         self.cancelled = False
@@ -113,6 +179,13 @@ class RunEffectInterpreter:
         self._recorded_value_ids = tuple(recorded_value_ids)
         self._instruments = instruments
         self._cancellation_requested = cancellation_requested
+        self._domain_job_transitions = domain_job_transitions
+        self._recorded_domain_invocations: set[str] = set()
+        self._unrecorded_completed_domain_attempts: dict[
+            str,
+            tuple[DomainExecutionId, DomainExecutionReceipt],
+        ] = {}
+        self._domain_residency = DomainResidencyCache()
         self._domain_instruments = _CancellationAwareDomainInstruments(
             instruments,
             cancellation_requested,
@@ -171,6 +244,7 @@ class RunEffectInterpreter:
                 self._complete_coverage(
                     tuple(sorted(self._active_point_indices)),
                 )
+            self._flush_domain_job_transitions()
             try:
                 finished = self._instruments.finish(
                     operation_id="hardware.finish",
@@ -215,10 +289,7 @@ class RunEffectInterpreter:
                 continue
             if hardware:
                 self._check_cancellation()
-                if not self._hardware.execute(
-                    hardware,
-                    frame_for=self._point_state,
-                ):
+                if not self._execute_hardware_block(hardware):
                     return
                 hardware.clear()
                 self._check_cancellation()
@@ -231,10 +302,7 @@ class RunEffectInterpreter:
             self._check_cancellation()
         if hardware:
             self._check_cancellation()
-            if not self._hardware.execute(
-                hardware,
-                frame_for=self._point_state,
-            ):
+            if not self._execute_hardware_block(hardware):
                 return
             self._check_cancellation()
         remaining = tuple(
@@ -245,6 +313,27 @@ class RunEffectInterpreter:
         if remaining:
             self._commit_coverage(remaining)
             self._check_cancellation()
+
+    def _execute_hardware_block(
+        self,
+        hardware: Sequence[RunCoverageEffect],
+    ) -> bool:
+        succeeded = self._hardware.execute(
+            hardware,
+            frame_for=self._point_state,
+        )
+        if succeeded:
+            self._domain_residency.invalidate_instruments(
+                {
+                    effect.operation.instrument_id
+                    for effect in hardware
+                    if isinstance(
+                        effect.operation,
+                        InvokeOperation | CollectOperation,
+                    )
+                }
+            )
+        return succeeded
 
     def _commit_coverage_checkpoint(
         self,
@@ -307,6 +396,8 @@ class RunEffectInterpreter:
         )
 
     def _execute_domain_job(self, job: RunDomainJob) -> None:
+        if self._domain_job_transitions is None:
+            raise RuntimeError("domain job execution requires a transition ledger")
         for point_index in job.point_ordinals:
             if point_index in self._terminal_point_indices:
                 raise AssertionError("domain job follows point completion")
@@ -320,18 +411,219 @@ class RunEffectInterpreter:
                 run_id=self.run_id,
                 instruments=self._domain_instruments,
                 accept=self._hardware.values.append,
+                observe_attempt=lambda execution_id, checkpoints, receipt: (
+                    self._record_domain_attempt(
+                        job,
+                        execution_id,
+                        checkpoints,
+                        receipt,
+                    )
+                ),
+                commit_invocation=lambda execution_id: (
+                    self._commit_domain_job_invocation(job, execution_id)
+                ),
+                commit_checkpoint=lambda execution_id, checkpoint: (
+                    self._commit_domain_job_checkpoint(
+                        job,
+                        execution_id,
+                        checkpoint,
+                    )
+                ),
+                commit_terminal=lambda execution_id, receipt: (
+                    self._commit_domain_job_terminal(job, execution_id, receipt)
+                ),
+                residency=self._domain_residency,
             )
+            self._unrecorded_completed_domain_attempts.pop(job.id, None)
         except DomainExecutionCancellationRequested:
             self._check_cancellation()
             raise AssertionError(
                 "domain cancellation marker requires a live request"
             ) from None
         except BaseException as error:
+            self._record_failed_domain_realization(job)
             self.domain_failure = (job, error)
             pending = tuple(sorted(self._active_point_indices))
             if pending:
                 self._complete_coverage(pending)
             raise _CapturedDomainEffectFailure(job.id) from error
+
+    def _commit_domain_job_invocation(
+        self,
+        job: RunDomainJob,
+        execution_id: DomainExecutionId,
+    ) -> None:
+        if job.execution.transition_policy != "abnormal_only":
+            try:
+                self._record_domain_job_invocation(
+                    job,
+                    execution_id,
+                    write_ahead=job.execution.transition_policy == "write_ahead",
+                )
+            except Exception:
+                self._domain_execution.detail_complete = False
+                raise
+        if self._cancellation_requested():
+            raise DomainExecutionCancellationRequested
+
+    def _commit_domain_job_checkpoint(
+        self,
+        job: RunDomainJob,
+        execution_id: DomainExecutionId,
+        checkpoint: DomainJobCheckpoint,
+    ) -> None:
+        writer = self._domain_job_transitions
+        if writer is not None:
+            try:
+                if execution_id.execution_key not in self._recorded_domain_invocations:
+                    self._record_domain_job_invocation(
+                        job,
+                        execution_id,
+                        write_ahead=False,
+                    )
+                writer.checkpoint(
+                    logical_compute_node_id=job.id,
+                    point_ordinals=job.point_ordinals,
+                    checkpoint=checkpoint,
+                )
+            except Exception:
+                self._domain_execution.detail_complete = False
+                raise
+        if self._cancellation_requested():
+            raise DomainExecutionCancellationRequested
+
+    def _commit_domain_job_terminal(
+        self,
+        job: RunDomainJob,
+        execution_id: DomainExecutionId,
+        receipt: DomainExecutionReceipt,
+    ) -> None:
+        policy = job.execution.transition_policy
+        invocation_recorded = (
+            execution_id.execution_key in self._recorded_domain_invocations
+        )
+        if (
+            policy == "abnormal_only"
+            and receipt.status == "completed"
+            and not invocation_recorded
+        ):
+            return
+        writer = self._domain_job_transitions
+        if writer is not None:
+            try:
+                if not invocation_recorded:
+                    self._record_domain_job_invocation(
+                        job,
+                        execution_id,
+                        write_ahead=False,
+                    )
+                writer.terminal(
+                    logical_compute_node_id=job.id,
+                    point_ordinals=job.point_ordinals,
+                    receipt=receipt,
+                    write_ahead=(policy == "write_ahead" or policy == "abnormal_only"),
+                )
+            except Exception:
+                self._domain_execution.detail_complete = False
+                raise
+
+    def _flush_domain_job_transitions(self) -> None:
+        writer = self._domain_job_transitions
+        if writer is None:
+            return
+        try:
+            writer.flush()
+        except Exception as error:
+            self._domain_execution.detail_complete = False
+            self._boundary.indeterminate = True
+            self._boundary.problems.append(
+                self._boundary.problem_from_exception(
+                    "domain_job_transition_flush_unknown",
+                    "buffered domain job transitions could not be flushed",
+                    error,
+                    operation_id="domain.transitions.flush",
+                )
+            )
+
+    def _record_domain_attempt(
+        self,
+        job: RunDomainJob,
+        execution_id: DomainExecutionId,
+        checkpoints: tuple[DomainJobCheckpoint, ...],
+        receipt: DomainExecutionReceipt | None,
+    ) -> None:
+        self._domain_execution.observe(
+            target_id=job.execution.invocation.intent.target_id,
+            transition_policy=job.execution.transition_policy,
+            checkpoints=checkpoints,
+            receipt=receipt,
+        )
+        if (
+            job.execution.transition_policy == "abnormal_only"
+            and receipt is None
+            and execution_id.execution_key not in self._recorded_domain_invocations
+        ):
+            try:
+                self._record_domain_job_invocation(
+                    job,
+                    execution_id,
+                    write_ahead=True,
+                )
+            except Exception:
+                self._domain_execution.detail_complete = False
+        if (
+            job.execution.transition_policy == "abnormal_only"
+            and receipt is not None
+            and receipt.status == "completed"
+            and execution_id.execution_key not in self._recorded_domain_invocations
+        ):
+            self._unrecorded_completed_domain_attempts[job.id] = (
+                execution_id,
+                receipt,
+            )
+        if receipt is not None:
+            self._recorded_domain_invocations.discard(execution_id.execution_key)
+
+    def _record_failed_domain_realization(self, job: RunDomainJob) -> None:
+        deferred = self._unrecorded_completed_domain_attempts.pop(job.id, None)
+        if deferred is None:
+            return
+        execution_id, receipt = deferred
+        try:
+            self._record_domain_job_invocation(
+                job,
+                execution_id,
+                write_ahead=False,
+            )
+            writer = self._domain_job_transitions
+            if writer is not None:
+                writer.terminal(
+                    logical_compute_node_id=job.id,
+                    point_ordinals=job.point_ordinals,
+                    receipt=receipt,
+                    write_ahead=True,
+                )
+        except Exception:
+            self._domain_execution.detail_complete = False
+
+    def _record_domain_job_invocation(
+        self,
+        job: RunDomainJob,
+        execution_id: DomainExecutionId,
+        *,
+        write_ahead: bool,
+    ) -> None:
+        writer = self._domain_job_transitions
+        if writer is None:
+            return
+        writer.invocation(
+            logical_compute_node_id=job.id,
+            point_ordinals=job.point_ordinals,
+            execution_id=execution_id,
+            intent=job.execution.invocation.intent,
+            write_ahead=write_ahead,
+        )
+        self._recorded_domain_invocations.add(execution_id.execution_key)
 
     def _point_state(self, point_index: int) -> PointEffectState:
         if point_index in self._terminal_point_indices:
@@ -396,6 +688,7 @@ class RunEffectInterpreter:
             observed_state=tuple(self.observed_state),
             baseline_state=tuple(self.baseline_state),
             final_state=tuple(self.final_state),
+            domain_execution=self._domain_execution.build(run_id=self.run_id),
             indeterminate=self._boundary.indeterminate,
             cancelled=self.cancelled,
             domain_failure=self.domain_failure,

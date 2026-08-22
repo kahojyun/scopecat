@@ -8,6 +8,7 @@ from typing import Literal
 import pyarrow as pa
 import pytest
 from pydantic import ValidationError
+from scopecat_testkit.domain import domain_execution_identity
 from scopecat_testkit.workflow_fixtures import load_config
 
 from scopecat.analysis.datasets import DerivedDataset
@@ -53,6 +54,13 @@ from scopecat.daemon.wire import (
     InstrumentSessionOpenReceipt,
     RunCoverageAdvanceCommand,
     RunCoverageState,
+    RunDomainJobStatePage,
+    RunDomainJobStateView,
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionBatchReceipt,
+    RunDomainJobTransitionItem,
+    RunDomainJobTransitionPage,
+    RunDomainJobTransitionView,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -77,7 +85,14 @@ from scopecat.records.analysis import (
     ProjectAnalysisDecisionReference,
 )
 from scopecat.records.config import config_content_hash
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.execution import (
+    DomainExecutionReceipt,
+    DomainJobCheckpoint,
+    DomainJobCheckpointTransition,
+    DomainJobInvocationTransition,
+    DomainJobTerminalTransition,
+)
+from scopecat.records.instrument import InstrumentStateSnapshot, state_member_target
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
@@ -86,6 +101,7 @@ from scopecat.sdk.instruments import (
 )
 from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from scopecat.sdk.instruments.execution import RunHardwareApply, RunHardwareBatch
+from scopecat.sdk.instruments.members import PropertyRef
 
 
 def _request() -> RunRequest:
@@ -675,8 +691,13 @@ def test_run_hardware_commands_bind_fence_and_batch_identity() -> None:
                 assignments=(
                     InstrumentStateAssignment(
                         resource_id="source-0",
-                        interface_id="test.set_frequency/v1",
-                        property_id="frequency",
+                        target=state_member_target(
+                            PropertyRef(
+                                "test.set_frequency/v1",
+                                (),
+                                "frequency",
+                            )
+                        ),
                         value=StateValue(Quantity(5.0, "GHz")),
                     ),
                 ),
@@ -737,11 +758,128 @@ def test_run_coverage_wire_models_require_a_nonempty_prefix() -> None:
         )
 
 
+def test_domain_job_transition_wire_models_retain_provider_state() -> None:
+    intent, execution_id = domain_execution_identity(
+        run_id="run-1",
+        logical_compute_node_id="domain.batch-0",
+        invocation_id="invocation-1",
+        target_intent={"lo_frequency_hz": 5_000_000_000},
+    )
+    checkpoint = DomainJobCheckpoint(
+        execution_key=execution_id.execution_key,
+        job_id="provider-job",
+        revision=2,
+        resume_token={"cursor": "result-page-2"},
+        progress={"completed_shots": 128},
+    )
+    checkpoint_transition = DomainJobCheckpointTransition(checkpoint=checkpoint)
+    item = RunDomainJobTransitionItem(
+        logical_compute_node_id="domain.batch-0",
+        point_ordinals=(2, 3),
+        transition=checkpoint_transition,
+    )
+    command = RunDomainJobTransitionBatchCommand(
+        lease_id="lease-1",
+        items=(item,),
+    )
+    invocation_transition = DomainJobInvocationTransition(
+        execution_id=execution_id,
+        intent=intent,
+    )
+    invocation_view = RunDomainJobTransitionView(
+        sequence=1,
+        run_id="run-1",
+        logical_compute_node_id=item.logical_compute_node_id,
+        point_ordinals=item.point_ordinals,
+        transition=invocation_transition,
+    )
+    checkpoint_view = RunDomainJobTransitionView(
+        sequence=2,
+        run_id="run-1",
+        logical_compute_node_id=item.logical_compute_node_id,
+        point_ordinals=item.point_ordinals,
+        transition=checkpoint_transition,
+    )
+    terminal_view = RunDomainJobTransitionView(
+        sequence=3,
+        run_id="run-1",
+        logical_compute_node_id=item.logical_compute_node_id,
+        point_ordinals=item.point_ordinals,
+        transition=DomainJobTerminalTransition(
+            receipt=DomainExecutionReceipt(
+                execution_key=checkpoint.execution_key,
+                status="completed",
+                result_fingerprint="results-v1",
+                result_count=2,
+            )
+        ),
+    )
+    page = RunDomainJobTransitionPage(
+        run_id="run-1",
+        items=(invocation_view, checkpoint_view, terminal_view),
+    )
+    state_view = RunDomainJobStateView(
+        run_id="run-1",
+        invocation=invocation_transition,
+        point_ordinals=item.point_ordinals,
+        state="terminal",
+        invocation_sequence=invocation_view.sequence,
+        latest_sequence=terminal_view.sequence,
+        transition_count=3,
+        latest_transition=terminal_view.transition,
+    )
+    state_page = RunDomainJobStatePage(run_id="run-1", items=(state_view,))
+
+    assert (
+        RunDomainJobTransitionBatchCommand.model_validate_json(
+            command.model_dump_json()
+        )
+        == command
+    )
+    batch_receipt = RunDomainJobTransitionBatchReceipt(
+        run_id="run-1",
+        items=(checkpoint_view,),
+    )
+    assert (
+        RunDomainJobTransitionBatchReceipt.model_validate_json(
+            batch_receipt.model_dump_json()
+        )
+        == batch_receipt
+    )
+    assert (
+        RunDomainJobTransitionPage.model_validate_json(page.model_dump_json()) == page
+    )
+    assert invocation_transition.intent.target_intent == {
+        "lo_frequency_hz": 5_000_000_000
+    }
+    assert (
+        RunDomainJobStatePage.model_validate_json(state_page.model_dump_json())
+        == state_page
+    )
+    with pytest.raises(ValidationError, match="latest transition"):
+        RunDomainJobStateView.model_validate(
+            {**state_view.model_dump(), "state": "pending"}
+        )
+    reordered = RunDomainJobTransitionItem(
+        logical_compute_node_id="domain.batch-0",
+        point_ordinals=(3, 2),
+        transition=checkpoint_transition,
+    )
+    assert reordered.point_ordinals == (3, 2)
+    with pytest.raises(ValidationError, match="unique"):
+        RunDomainJobTransitionItem(
+            logical_compute_node_id="domain.batch-0",
+            point_ordinals=(3, 2, 3),
+            transition=checkpoint_transition,
+        )
+
+
 def test_run_hardware_apply_rejects_duplicate_physical_targets() -> None:
     assignment = InstrumentStateAssignment(
         resource_id="source-0",
-        interface_id="test.set_frequency/v1",
-        property_id="frequency",
+        target=state_member_target(
+            PropertyRef("test.set_frequency/v1", (), "frequency")
+        ),
         value=StateValue(Quantity(5.0, "GHz")),
         entity_ids=["q0"],
     )

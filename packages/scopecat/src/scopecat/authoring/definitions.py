@@ -42,6 +42,7 @@ from scopecat.authoring.entity_selection import PerEntity
 from scopecat.authoring.experiments import (
     Experiment,
 )
+from scopecat.authoring.member_projection import StateProjector
 from scopecat.authoring.scans import (
     Axis,
     PointRow,
@@ -51,16 +52,16 @@ from scopecat.authoring.scans import (
     ScanValueType,
     scan_axis,
 )
-from scopecat.authoring.state_projection import StateProjector
 from scopecat.kernel.entity import EntityRef, entity_axis_fingerprint, entity_identity
 from scopecat.kernel.frozen import freeze_json_mapping
 from scopecat.kernel.instrument_members import (
     AcquisitionResultRef,
-    InterfaceRef,
+    InstrumentCapabilityRef,
     OperationArgumentRef,
     OperationRef,
     PropertyRef,
 )
+from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.product_identity import parse_product_id
 from scopecat.kernel.quantity import Quantity as QuantityValue
 from scopecat.kernel.resource_identity import ResourceRoleInput
@@ -341,7 +342,7 @@ class ExperimentContext:
         self,
         id: str,
         *,
-        requires: Sequence[InterfaceRef] = (),
+        requires: Sequence[InstrumentCapabilityRef] = (),
         for_entities: Sequence[ValueRef] = (),
         role: ResourceRoleInput = None,
     ) -> DefinitionResource:
@@ -400,7 +401,11 @@ class ExperimentContext:
         *,
         resource: DefinitionResource,
         operation: OperationRef,
-        arguments: Mapping[OperationArgumentRef, StateBinding | None] | None = None,
+        arguments: Mapping[
+            OperationArgumentRef,
+            StateBinding | PayloadValue | None,
+        ]
+        | None = None,
     ) -> None:
         """Append an operation for a generated symbolic client."""
 

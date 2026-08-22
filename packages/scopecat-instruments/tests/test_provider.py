@@ -4,12 +4,14 @@ import socket
 import subprocess
 import sys
 from threading import Thread
-from typing import cast
+from typing import ClassVar, cast, final
 
 import pytest
+from pydantic import BaseModel, ConfigDict
 from scopecat.kernel.entity import EntityRef
 from scopecat.records.config import (
     ConfigProfileSnapshot,
+    DriverManagedInstrumentConnection,
     InstrumentBindingSpec,
     InstrumentConnection,
     InstrumentRegistry,
@@ -24,11 +26,17 @@ from scopecat.records.parameter import ParameterCatalog, ParameterSnapshot
 from scopecat.sdk.instruments import (
     DriverFault,
     InstrumentConnectionContext,
+    InstrumentDescription,
     InstrumentProviderContext,
     InstrumentProviderDescription,
 )
 
 from scopecat_instruments.drivers import YokogawaGS200
+from scopecat_instruments.package_manifest import (
+    YOKOGAWA_GS200_DRIVER,
+    DriverRegistration,
+    PythonSymbol,
+)
 from scopecat_instruments.provider import (
     KEYSIGHT_E5080B,
     LAKESHORE_372,
@@ -40,8 +48,40 @@ from scopecat_instruments.provider import (
     VIRTUAL_VNA,
     YOKOGAWA_GS200,
     ConfiguredInstrumentProvider,
+    compose_driver_registrations,
 )
 from scopecat_instruments.virtual import VirtualDcSource
+from scopecat_instruments.virtual.world import VirtualLabWorld
+
+
+class _ConfiguredVirtualOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    channel_count: int
+
+
+@final
+class _ConfiguredDriverManagedFactory:
+    described: ClassVar[list[tuple[str, int]]] = []
+    connected: ClassVar[list[tuple[str, int]]] = []
+
+    @staticmethod
+    def describe(
+        instrument_id: str,
+        *,
+        channel_count: int,
+    ) -> InstrumentDescription:
+        _ConfiguredDriverManagedFactory.described.append((instrument_id, channel_count))
+        return VirtualDcSource(instrument_id, VirtualLabWorld(seed=0)).describe()
+
+    @staticmethod
+    def connect(
+        instrument_id: str,
+        *,
+        channel_count: int,
+    ) -> VirtualDcSource:
+        _ConfiguredDriverManagedFactory.connected.append((instrument_id, channel_count))
+        return VirtualDcSource(instrument_id, VirtualLabWorld(seed=channel_count))
 
 
 def test_package_manifest_does_not_import_driver_implementations() -> None:
@@ -115,6 +155,137 @@ def test_driver_catalog_exposes_connection_option_schemas() -> None:
     assert virtual is not None
     assert virtual.connections[0].kind == "virtual"
     assert virtual.connections[0].options_schema["properties"] == {}
+
+
+def test_provider_composes_an_external_registration_set() -> None:
+    registrations = compose_driver_registrations((YOKOGAWA_GS200_DRIVER,))
+    provider = ConfiguredInstrumentProvider(
+        provider_id="test.lab.instruments",
+        registrations=registrations,
+    )
+
+    assert provider.provider_id == "test.lab.instruments"
+    assert provider.world is None
+    assert [item.driver_id for item in provider.driver_catalog.drivers] == [
+        YOKOGAWA_GS200
+    ]
+    with pytest.raises(ValueError, match="unique ids"):
+        compose_driver_registrations(registrations, registrations)
+
+
+def test_provider_passes_validated_options_to_virtual_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received: list[int] = []
+
+    def factory(
+        instrument_id: str,
+        world: VirtualLabWorld,
+        *,
+        channel_count: int,
+    ) -> VirtualDcSource:
+        received.append(channel_count)
+        return VirtualDcSource(instrument_id, world)
+
+    registration = DriverRegistration(
+        id="test.configured_virtual",
+        implementation_version="v1",
+        implementation=PythonSymbol("unused", "factory"),
+        connection_kind="virtual",
+        options_type=_ConfiguredVirtualOptions,
+        label="Configured virtual driver",
+    )
+    original_resolve = PythonSymbol.resolve
+
+    def resolve(symbol: PythonSymbol) -> object:
+        return factory if symbol.module == "unused" else original_resolve(symbol)
+
+    monkeypatch.setattr(PythonSymbol, "resolve", resolve)
+    provider = ConfiguredInstrumentProvider(registrations=(registration,))
+    config = _config(
+        InstrumentSpec(
+            id="configured",
+            exclusivity_key="configured",
+            driver_id=registration.id,
+            connection=VirtualInstrumentConnection(options={"channel_count": 4}),
+            run_start="preserve",
+            success_action="release",
+            failure_action="abort_and_release",
+        )
+    )
+
+    driver = provider.connect(
+        InstrumentConnectionContext(binding=instrument_bindings(config)[0])
+    )
+
+    assert isinstance(driver, VirtualDcSource)
+    assert received == [4]
+
+
+def test_provider_separates_driver_managed_description_and_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _ConfiguredDriverManagedFactory.described.clear()
+    _ConfiguredDriverManagedFactory.connected.clear()
+    registration = DriverRegistration(
+        id="test.driver_managed",
+        implementation_version="v1",
+        implementation=PythonSymbol("unused", "managed_factory"),
+        connection_kind="driver_managed",
+        options_type=_ConfiguredVirtualOptions,
+        label="Driver-managed test device",
+    )
+    original_resolve = PythonSymbol.resolve
+
+    def resolve(symbol: PythonSymbol) -> object:
+        if symbol.module == "unused":
+            return _ConfiguredDriverManagedFactory
+        return original_resolve(symbol)
+
+    monkeypatch.setattr(PythonSymbol, "resolve", resolve)
+    provider = ConfiguredInstrumentProvider(registrations=(registration,))
+    binding = InstrumentBindingSpec(
+        id="managed",
+        driver_id=registration.id,
+        connection=DriverManagedInstrumentConnection(options={"channel_count": 4}),
+    )
+
+    description = provider.describe(InstrumentProviderContext(bindings=(binding,)))
+
+    assert not description.problems
+    assert [item.instrument_id for item in description.instruments] == ["managed"]
+    assert _ConfiguredDriverManagedFactory.described == [("managed", 4)]
+    assert _ConfiguredDriverManagedFactory.connected == []
+    [connection] = provider.driver_catalog.drivers[0].connections
+    assert connection.kind == "driver_managed"
+    assert connection.options_schema["required"] == ["channel_count"]
+
+    driver = provider.connect(InstrumentConnectionContext(binding=binding))
+
+    assert _ConfiguredDriverManagedFactory.connected == [("managed", 4)]
+    driver.disconnect()
+
+
+def test_provider_rejects_non_managed_binding_for_driver_managed_factory() -> None:
+    registration = DriverRegistration(
+        id="test.driver_managed",
+        implementation_version="v1",
+        implementation=PythonSymbol("unused", "managed_factory"),
+        connection_kind="driver_managed",
+        options_type=_ConfiguredVirtualOptions,
+        label="Driver-managed test device",
+    )
+    provider = ConfiguredInstrumentProvider(registrations=(registration,))
+    binding = InstrumentBindingSpec(
+        id="managed",
+        driver_id=registration.id,
+        connection=VirtualInstrumentConnection(options={"channel_count": 4}),
+    )
+
+    description = provider.describe(InstrumentProviderContext(bindings=(binding,)))
+
+    assert not description.instruments
+    assert description.problems[0].code == "instrument_driver_configuration_invalid"
 
 
 class _IdnServer:
@@ -278,9 +449,9 @@ def test_provider_connects_gs200_with_verified_monitor_profile() -> None:
     )
 
     assert isinstance(driver, YokogawaGS200)
-    assert driver.monitor_option is True
-    assert driver.remote_sense is True
-    assert driver.guard_enabled is False
+    assert driver.read_monitor_option().value is True
+    assert driver.read_remote_sense().value is True
+    assert driver.read_guard_enabled().value is False
     assert server.commands == [
         "*IDN?",
         "*OPT?",
@@ -417,7 +588,8 @@ def test_virtual_state_survives_driver_recreation() -> None:
         "unused",
     ]
     assert isinstance(second, VirtualDcSource)
-    assert second.output_enabled() is True
+    assert second.read_output_enabled() is True
+    assert provider.world is not None
     assert provider.world.flux_bias() == 0.8
 
 

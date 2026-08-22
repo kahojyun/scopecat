@@ -15,6 +15,7 @@ import httpx2
 import pyarrow as pa
 import pytest
 from pydantic import BaseModel
+from scopecat_testkit.domain import domain_execution_identity
 from scopecat_testkit.measurement_models import signal_point_schema, signal_record
 from scopecat_testkit.planning import plan_configured_experiment
 from scopecat_testkit.signal_instruments import TestSignalInstrumentProvider
@@ -79,6 +80,10 @@ from scopecat.daemon.wire import (
     InstrumentInventoryMigrationReceipt,
     ManualConfigDraftRevisionSource,
     RunAdmission,
+    RunDomainJobStatePage,
+    RunDomainJobStateView,
+    RunDomainJobTransitionPage,
+    RunDomainJobTransitionView,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
     RunSubmission,
@@ -107,6 +112,7 @@ from scopecat.records.config import (
     instrument_bindings,
 )
 from scopecat.records.content import ContentEntry
+from scopecat.records.execution import DomainJobInvocationTransition
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import MeasurementScalar
 from scopecat.records.run import ConfigRegistryRunConfigSource, RunSnapshot
@@ -115,6 +121,74 @@ from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.instruments import InstrumentProviderContext
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
+
+
+def test_run_handle_exposes_bounded_domain_job_diagnostics() -> None:
+    intent, execution_id = domain_execution_identity(
+        run_id="run-domain-diagnostics",
+        logical_compute_node_id="domain.batch-0",
+        invocation_id="invocation-1",
+        target_intent={"program": "rb-fragment-7"},
+    )
+    invocation = DomainJobInvocationTransition(
+        execution_id=execution_id,
+        intent=intent,
+    )
+    transition = RunDomainJobTransitionView(
+        sequence=9,
+        run_id=execution_id.run_id,
+        logical_compute_node_id=execution_id.logical_compute_node_id,
+        point_ordinals=(4, 5),
+        transition=invocation,
+    )
+    state_page = RunDomainJobStatePage(
+        run_id=execution_id.run_id,
+        items=(
+            RunDomainJobStateView(
+                run_id=execution_id.run_id,
+                invocation=invocation,
+                point_ordinals=transition.point_ordinals,
+                state="invocation_unknown",
+                invocation_sequence=transition.sequence,
+                latest_sequence=transition.sequence,
+                transition_count=1,
+                latest_transition=invocation,
+            ),
+        ),
+        next_cursor=9,
+    )
+    transition_page = RunDomainJobTransitionPage(
+        run_id=execution_id.run_id,
+        items=(transition,),
+        next_cursor=9,
+    )
+    requests: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if request.url.path.endswith("/domain-jobs"):
+            return httpx2.Response(200, content=state_page.model_dump_json())
+        if request.url.path.endswith("/domain-jobs/transitions"):
+            return httpx2.Response(200, content=transition_page.model_dump_json())
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    run = RunHandle(
+        session=LabClient(_client(handler)),
+        id=execution_id.run_id,
+    )
+
+    assert run.domain_jobs(limit=7, before=12) == state_page
+    assert run.domain_job_transitions(limit=5, before=10) == transition_page
+    assert [(request.url.path, dict(request.url.params)) for request in requests] == [
+        (
+            "/api/v1/runs/run-domain-diagnostics/domain-jobs",
+            {"limit": "7", "before": "12"},
+        ),
+        (
+            "/api/v1/runs/run-domain-diagnostics/domain-jobs/transitions",
+            {"limit": "5", "before": "10"},
+        ),
+    ]
 
 
 def test_lab_runs_preserves_bounded_page_navigation() -> None:

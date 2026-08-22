@@ -13,6 +13,7 @@ from scopecat.kernel.resource_identity import ResourceRequirement
 from scopecat.planning.compilation import compile_run_program
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.program.products import RecordSelection
+from scopecat.sdk.instruments import InterfaceRef
 from scopecat_testkit.instrument_host import compose_test_instruments
 
 from reference_lab.bench_interfaces import (
@@ -35,6 +36,13 @@ def test_awg_output_monitor_uses_entityless_bench_resources() -> None:
 
     assert [port.id for port in logical.resource_ports] == ["source", "monitor"]
     source, monitor = logical.resource_ports
+    assert len(source.selector.capabilities) == 6
+    assert len(monitor.selector.capabilities) == 12
+    assert all(
+        not isinstance(capability, InterfaceRef)
+        for port in (source, monitor)
+        for capability in port.selector.capabilities
+    )
     assert source.selector.interfaces == (
         AWG_SEQUENCER.interface_id,
         ANALOG_WAVEFORM_OUTPUT.interface_id,

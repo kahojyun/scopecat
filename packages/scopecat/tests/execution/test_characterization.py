@@ -44,14 +44,20 @@ from scopecat.program.value_graph import (
     OperationId,
     operation_result_id,
 )
+from scopecat.records.instrument import (
+    InstrumentStateSnapshot,
+    state_member_identity,
+)
 from scopecat.records.measurement import MeasurementScalar
+from scopecat.sdk.domain.execution import DomainResidencyAddress
 from scopecat.sdk.instruments import (
     DriverAcquisition,
     DriverOutcome,
     DriverReadback,
     DriverRejected,
-    DriverState,
     DriverStatePatch,
+    DriverStateReadback,
+    DriverStateReadRequest,
     DriverSuccess,
     DriverUnknown,
 )
@@ -79,6 +85,18 @@ def _provenance(instrument_id: str) -> ResourceProvenance:
 
 def _state_origin(instrument_id: str) -> StateDemandOrigin:
     return StateDemandOrigin(resource=_provenance(instrument_id))
+
+
+def _state_values(
+    states: tuple[InstrumentStateSnapshot, ...],
+) -> dict[str, dict[object, StateValue]]:
+    return {
+        state.instrument_id: {
+            state_member_identity(observation.target): observation.value
+            for observation in state.observations
+        }
+        for state in states
+    }
 
 
 def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
@@ -130,9 +148,40 @@ def test_normal_completion_applies_success_state_after_point_coverage() -> None:
     [final] = result.final_state
     assert next(
         item.value
-        for item in final.properties
-        if item.interface_id == "test.set_gain/v1" and item.property_id == "gain"
+        for item in final.observations
+        if item.target.kind == "interface"
+        and item.target.interface_id == "test.set_gain/v1"
+        and item.target.property_id == "gain"
     ) == StateValue(0.0)
+
+
+def test_host_state_reconciliation_preserves_opaque_domain_residency() -> None:
+    driver = SignalInstrumentDriver(instrument_id="lo-source")
+    program = LocalEffectInspection.at_point(
+        AcceptedRunPoint(_logical_point_id("host-residency-point"), {}),
+        (_gain_operation("lo-source", 1.0),),
+        resource_order=("lo-source",),
+        resource_requirements=_requirements("lo-source"),
+    )
+    engine = RunEffectInterpreter(
+        run_id="host-residency-run",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost((driver,)),
+    )
+    lo_residency = DomainResidencyAddress("lo-source", "program")
+    controller_residency = DomainResidencyAddress("waveform-controller", "program")
+    engine._domain_residency.contents = {
+        lo_residency: "lo-program",
+        controller_residency: "waveform-program",
+    }
+
+    result = engine.run(complete_coverage_operations(program), points=program.points)
+
+    assert not result.problems
+    assert engine._domain_residency.contents == {
+        lo_residency: "lo-program",
+        controller_residency: "waveform-program",
+    }
 
 
 def test_cancellation_waits_for_hardware_batch_then_skips_success_state() -> None:
@@ -357,7 +406,7 @@ class _BlockingStateDriver(SignalInstrumentDriver):
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         self.applied.append(request)
         return DriverRejected(
             problems=(
@@ -376,7 +425,7 @@ class _NonConvergingStateDriver(SignalInstrumentDriver):
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         self.applied.append(request)
         return DriverSuccess(None)
 
@@ -386,7 +435,7 @@ class _UnknownAppliedStateDriver(SignalInstrumentDriver):
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         super().apply_state(request)
         return DriverUnknown(
             problems=(
@@ -409,9 +458,9 @@ class _FinalizationTrackingDriver(SignalInstrumentDriver):
         self.read_count = 0
 
     @override
-    def read_state(self) -> DriverState:
+    def read_state(self, request: DriverStateReadRequest) -> DriverStateReadback:
         self.read_count += 1
-        return super().read_state()
+        return super().read_state(request)
 
     @override
     def abort(self) -> None:
@@ -435,7 +484,7 @@ class _RejectOnSuccessStateDriver(_FinalizationTrackingDriver):
     def apply_state(
         self,
         request: DriverStatePatch,
-    ) -> DriverOutcome[DriverState | None]:
+    ) -> DriverOutcome[DriverStateReadback | None]:
         if not self.applied:
             return super().apply_state(request)
         self.applied.append(request)
@@ -603,7 +652,7 @@ def test_state_apply_stops_on_blocking_result_without_committing_state() -> None
     ]
     assert len(first.applied) == 1
     assert second.applied == []
-    assert result.final_state == result.baseline_state
+    assert _state_values(result.final_state) == _state_values(result.baseline_state)
 
 
 def test_state_apply_stops_when_readback_does_not_confirm_assignment() -> None:
@@ -630,7 +679,7 @@ def test_state_apply_stops_when_readback_does_not_confirm_assignment() -> None:
     ]
     assert len(first.applied) == 1
     assert second.applied == []
-    assert result.final_state == result.baseline_state
+    assert _state_values(result.final_state) == _state_values(result.baseline_state)
 
 
 def test_failed_coverage_does_not_apply_normal_completion_success_state() -> None:
@@ -759,8 +808,10 @@ def test_unknown_receipt_with_problem_does_not_advance_state() -> None:
     assert result.final_state[0] != result.baseline_state[0]
     assert next(
         item.value
-        for item in result.final_state[0].properties
-        if item.interface_id == "test.set_gain/v1" and item.property_id == "gain"
+        for item in result.final_state[0].observations
+        if item.target.kind == "interface"
+        and item.target.interface_id == "test.set_gain/v1"
+        and item.target.property_id == "gain"
     ) == StateValue(1.0)
 
 

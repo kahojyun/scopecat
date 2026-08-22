@@ -8,6 +8,8 @@ uv run python -m benchmarks run historical-project --runs 10000
 uv run python -m benchmarks run quantum-program --entities 100,1000
 uv run python -m benchmarks run scan-execution --profile waveform \
   --points 1,10,100 --qubit-counts 1,2,4
+uv run python -m benchmarks run scan-execution --profile lo-sweep \
+  --points 10,100 --runners scopecat
 ```
 
 Every case emits records beginning with `BENCHMARK_RESULT=` and the common

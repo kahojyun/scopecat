@@ -5,30 +5,23 @@ interface declarations define typed capabilities, generated live and symbolic
 clients expose them to notebooks and experiments, and drivers implement the
 capability without receiving run or dataset concepts.
 
-An interface author declares concrete state and result records, then decorates a
-Python `Protocol` or abstract base class:
+An interface author declares portable members directly on a Python `Protocol`
+or abstract base class. A distinct acquisition adds one decorated result
+dataclass:
 
 ```python
 from typing import Protocol
 
 from scopecat import Quantity
+from scopecat.sdk.instruments import Member
 from scopecat.sdk.instruments.declarations import (
     acquisition,
     axis,
     instrument_interface,
     instrument_result,
-    instrument_state,
-    member_field,
+    member,
     result_field,
 )
-
-
-@instrument_state
-class NetworkSweepState:
-    start_frequency: Quantity = member_field(unit="Hz")
-    stop_frequency: Quantity = member_field(unit="Hz")
-    points: int = member_field(minimum=2)
-    s_parameter: str = member_field()
 
 
 @instrument_result
@@ -41,22 +34,74 @@ class NetworkSweepResults:
     )
 
 
-@instrument_interface("example.network_sweep/v1", state=NetworkSweepState)
+@instrument_interface("example.network_sweep/v1")
 class NetworkSweep(Protocol):
-    @acquisition(axes={"frequency": axis(size="points", unit="Hz")})
+    start_frequency: Member[Quantity] = member(
+        access="read_write", restore=True, unit="Hz"
+    )
+    stop_frequency: Member[Quantity] = member(
+        access="read_write", restore=True, unit="Hz"
+    )
+    points: Member[int] = member(access="read_write", restore=True, minimum=2)
+    s_parameter: Member[str] = member(access="read_write", restore=True)
+
+    @acquisition(axes={"frequency": axis(size=points, unit="Hz")})
     def sweep(self) -> NetworkSweepResults: ...
 ```
 
-State fields describe complete hardware state with concrete types. Generated
-sparse patch and target carriers represent omission. Result declarations own
-roles and axes. Generation produces the wire contract, typed clients, member
-references, state projections, and driver adapters.
+Members are independently queryable and cacheable state facts. Generated sparse
+patch and target carriers represent omission. Result declarations own
+measurement roles and axes. Generation produces the wire contract, typed
+clients, member references, state projections, and measurement-valued driver
+observation carriers.
 
-A driver subclasses the generated adapter and implements typed hooks. The
-adapter handles dispatch and wire conversion; the driver owns command ordering,
-device limits, temporary setup and restoration, and response interpretation.
-An operation that disturbs persistent state lists the affected property refs in
-`invalidates`; a later `ensure` establishes a new guarantee.
+An acknowledged setting that the device cannot query is the narrow exception:
+declare it with `write_only_member(...)`. It remains an independently
+addressed sparse state command, but it cannot participate in observation,
+baseline capture, or restoration. This is more honest than claiming a richer
+read/write interface or fabricating cached readback.
+
+A driver subclasses `ObjectInstrumentDriver` and binds typed methods to member
+declarations with `@read`, `@write`, `@query`, or `@update`. The base class
+handles dispatch and wire conversion; the driver owns command ordering, device
+limits, temporary setup and restoration, and response interpretation. A true
+operation or acquisition is attached to its interface declaration with
+`@implements(...)`; acquisition methods return their generated class from
+`scopecat_instruments.driver_observations`. Class creation rejects missing,
+duplicate, or signature-incompatible behavior bindings.
+
+When the values to record are already members, declare an `observation(...)`
+on those members instead of repeating their schema in a result dataclass. The
+framework performs a fresh coherent state read and records it as acquisition
+products. Reserve `@acquisition` for a distinct measurement procedure, arrays,
+or acquisition-specific failure and evidence.
+
+Model-specific background state belongs on the concrete driver as a
+`device_member(...)`; it can be captured or restored without inventing a
+single-device portable interface. A reader may return `observed(value,
+source="configured_fixed")` or `source="derived"` to retain how that member was
+known; plain values mean a hardware query. Keep such provenance on the member
+it describes instead of duplicating it in every other observation. An operation
+that disturbs persistent state lists the affected members in `invalidates`; a
+later `ensure` establishes a new guarantee.
+
+Concrete models may narrow a portable member's numeric range or string choices
+with `member_constraint(...)`. This is an endpoint refinement, not a new
+interface declaration. Relational constraints such as “remote sense requires a
+voltage range of at least 1 V” remain explicit driver behavior because they
+depend on several independently queryable members.
+
+Configured providers distinguish physical connection from device protocol.
+`tcpip_socket` supplies a line-oriented SCPI transport; `serial` supplies a
+binary transport with explicit framing. `driver_managed` delegates construction
+to a lazy factory only when a vendor SDK or composite controller owns multiple
+physical resources: its `describe` path is side-effect-free, while `connect`
+owns probing, partial-failure cleanup, and the returned driver's disconnect
+lifecycle. Drivers use `send` when the protocol has no acknowledgement and
+exact-size `exchange` when it does. A transport registration also chooses
+identity or connection-only probing. Transport failures retire that generation:
+never retry an unconfirmed write in a driver, because the command may already
+have reached hardware.
 
 Use the package's source-adjacent guides for the exact extension workflow:
 

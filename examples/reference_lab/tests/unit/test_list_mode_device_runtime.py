@@ -50,7 +50,8 @@ def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:
     assert second_value == pytest.approx(first_value)
 
     assert instruments.batches[0].operation_id.endswith(":load")
-    assert instruments.batches[1].operation_id.endswith(":prepare")
+    assert instruments.batches[1].operation_id.endswith(":load-trigger")
+    assert instruments.batches[2].operation_id.endswith(":prepare")
     assert all(
         "target:test.calibrated-acquisition:" in batch.operation_id
         for batch in instruments.batches
@@ -59,14 +60,14 @@ def test_list_mode_worker_protocol_is_stable_per_execution_identity() -> None:
         "invoke",
         "invoke",
         "invoke",
-        "invoke",
     ]
     assert [batch.operation_id.rsplit(":", 1)[-1] for batch in instruments.batches] == [
         "load",
+        "load-trigger",
         "prepare",
         "execute",
     ]
-    assert [action.kind for action in instruments.batches[2].actions] == [
+    assert [action.kind for action in instruments.batches[3].actions] == [
         "invoke",
         "invoke",
         "invoke",
@@ -172,7 +173,7 @@ def test_list_mode_realtime_action_count_does_not_scale_with_repetitions() -> No
         )
         action_counts.append([len(batch.actions) for batch in instruments.batches])
 
-    assert action_counts == [[4, 3, 5], [4, 3, 5]]
+    assert action_counts == [[3, 1, 3, 5], [3, 1, 3, 5]]
 
 
 def test_list_mode_acquisition_lowering_selects_target_or_device_dsp() -> None:

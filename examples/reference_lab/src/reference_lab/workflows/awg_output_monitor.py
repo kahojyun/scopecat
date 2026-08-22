@@ -15,7 +15,6 @@ from scopecat.program.measurement_types import MeasurementArrayData
 from scopecat.program.products import product_axis
 
 from reference_lab.bench_interfaces import (
-    ANALOG_WAVEFORM_OUTPUT,
     ANALOG_WAVEFORM_OUTPUT_AMPLITUDE,
     ANALOG_WAVEFORM_OUTPUT_ENABLED,
     ANALOG_WAVEFORM_OUTPUT_OFFSET,
@@ -23,15 +22,12 @@ from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT_WAVEFORM,
     AWG_RUN_MODE,
     AWG_SAMPLE_RATE,
-    AWG_SEQUENCER,
     OSCILLOSCOPE_ARM,
     OSCILLOSCOPE_BANDWIDTH_LIMIT,
-    OSCILLOSCOPE_CONTROL,
     OSCILLOSCOPE_COUPLING,
     OSCILLOSCOPE_FETCH_TIME,
     OSCILLOSCOPE_FETCH_VOLTAGE,
     OSCILLOSCOPE_IMPEDANCE,
-    OSCILLOSCOPE_INPUT,
     OSCILLOSCOPE_INPUT_ENABLED,
     OSCILLOSCOPE_RECORD_LENGTH,
     OSCILLOSCOPE_SAMPLE_RATE,
@@ -96,12 +92,32 @@ def awg_output_monitor(
     source = sc.capability_resource(
         experiment,
         "source",
-        requires=(AWG_SEQUENCER, ANALOG_WAVEFORM_OUTPUT),
+        requires=(
+            AWG_SAMPLE_RATE,
+            AWG_RUN_MODE,
+            ANALOG_WAVEFORM_OUTPUT_AMPLITUDE,
+            ANALOG_WAVEFORM_OUTPUT_OFFSET,
+            ANALOG_WAVEFORM_OUTPUT_ENABLED,
+            ANALOG_WAVEFORM_OUTPUT_PLAY,
+        ),
     )
     monitor = sc.capability_resource(
         experiment,
         "monitor",
-        requires=(OSCILLOSCOPE_CONTROL, OSCILLOSCOPE_INPUT),
+        requires=(
+            OSCILLOSCOPE_SAMPLE_RATE,
+            OSCILLOSCOPE_RECORD_LENGTH,
+            OSCILLOSCOPE_TRIGGER_SOURCE,
+            OSCILLOSCOPE_TRIGGER_LEVEL,
+            OSCILLOSCOPE_ARM,
+            OSCILLOSCOPE_INPUT_ENABLED,
+            OSCILLOSCOPE_VERTICAL_SCALE,
+            OSCILLOSCOPE_VERTICAL_OFFSET,
+            OSCILLOSCOPE_COUPLING,
+            OSCILLOSCOPE_IMPEDANCE,
+            OSCILLOSCOPE_BANDWIDTH_LIMIT,
+            OSCILLOSCOPE_FETCH_TIME.acquisition,
+        ),
     )
     sc.ensure_state_targets(
         experiment,

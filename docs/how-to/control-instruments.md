@@ -41,6 +41,28 @@ triggers hardware and returns typed readback with receipt evidence. The session
 owns synchronization and the same exclusive claim used by experiment runs; it
 does not create a one-point experiment.
 
+When one inventory entry owns several implementations of the same interface,
+select the physical mount on the live reference:
+
+```python
+from scopecat_instruments import rf_output
+
+
+PUMP_2 = rf_output("pump-source", component_path=("channels", "2"))
+
+with sc.open_project(".").connect(operator="alice") as lab:
+    with lab.instruments.open(PUMP_2) as devices:
+        source = devices[PUMP_2]
+        source.apply(frequency=sc.Quantity(6, "GHz"), output_enabled=True)
+```
+
+Generated members stay relative to the selected mount; the live channel maps
+state, operations, and acquisitions onto the physical component path and checks
+that the interface is mounted there. `describe()`, `observed_state()`, and
+`refresh()` still describe or return the owning physical instrument for
+diagnostics. Configured defaults also belong to that owner and therefore cannot
+be applied through a component-scoped client.
+
 A genuinely temporary diagnostic device can use a session-only binding without
 publishing configuration or defining entity routes:
 
@@ -146,7 +168,7 @@ groups all endpoints chosen together:
       "entity_ids": ["q0"],
       "endpoints": [
         {
-          "interface_id": "scopecat.rf_output/v1",
+          "interface_id": "scopecat.rf_output/v2",
           "entity_id": "q0",
           "channel_id": "readout-q0",
           "component_path": ["outputs", "readout-q0"]
@@ -185,6 +207,14 @@ and `trigger_domains/0` express those distinct owners.
 Roles select hardware by purpose. Component paths express shared mutable state.
 Logical entity ids remain provenance and do not create copies of a physical
 state slot.
+
+An interface contains behavior that callers can rely on across compatible
+devices. A repeated physical implementation uses `interface_mounts`; one
+model's narrower access, capture, restore, or value domain stays in its
+interface-property implementation. Model-specific facts and settings that are
+useful for diagnosis, recording, or restoration but are not portable behavior
+belong to a versioned `device_schema`. They are independently readable and
+cacheable state members and do not require inventing a one-device interface.
 
 ### Use signed IF for specialized LO scans
 

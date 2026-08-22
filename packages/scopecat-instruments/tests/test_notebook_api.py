@@ -32,10 +32,13 @@ from scopecat.records.measurement import MeasurementScalar
 from scopecat.sdk.instruments import (
     CollectReceipt,
     InstrumentCollectFailure,
+    InstrumentComponentSpec,
     InstrumentConfiguredDefaultsApplyReceipt,
     InstrumentDescription,
     InterfaceRef,
+    instrument_component,
     interface,
+    interface_mount,
 )
 from scopecat.sdk.instruments.commands import InteractiveCollectIntent
 from scopecat.sdk.problems import ProblemPhase, problem
@@ -143,9 +146,17 @@ class _CollectingDaemon(DaemonClient):
 
 
 class _ConfiguredDefaultsDaemon(DaemonClient):
-    def __init__(self, *, interface_ids: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        *,
+        interface_ids: tuple[str, ...] = (),
+        interface_mounts: tuple[tuple[str, tuple[str, ...]], ...] = (),
+        components: tuple[InstrumentComponentSpec, ...] = (),
+    ) -> None:
         super().__init__("http://unused.test")
         self.interface_ids = interface_ids
+        self.interface_mounts = interface_mounts
+        self.components = components
         self.open_commands: list[InstrumentSessionOpenCommand] = []
         self.apply_calls: list[
             tuple[str, str, InstrumentConfiguredDefaultsApplyCommand]
@@ -170,7 +181,12 @@ class _ConfiguredDefaultsDaemon(DaemonClient):
                     instrument_id=instrument_id,
                     implementation_id="tests.instrument",
                     implementation_version="1",
+                    components=list(self.components),
                     interfaces=[interface(id) for id in self.interface_ids],
+                    interface_mounts=[
+                        interface_mount(interface_id, *component_path)
+                        for interface_id, component_path in self.interface_mounts
+                    ],
                 )
                 for instrument_id in command.instrument_ids
             ),
@@ -334,6 +350,52 @@ def test_typed_instrument_ref_validates_required_capabilities_when_bound() -> No
         unsupported[source]
     unsupported.close()
     unsupported_daemon.close()
+
+
+def test_typed_instrument_ref_selects_an_exact_interface_mount() -> None:
+    required = InterfaceRef("test.source/v1")
+    selected = instrument(
+        "source-a",
+        _TypedSourceClient,
+        requires=(required,),
+        component_path=("channels", "2"),
+    )
+    wrong_mount = instrument(
+        "source-a",
+        _TypedSourceClient,
+        requires=(required,),
+        component_path=("channels", "3"),
+    )
+    daemon = _ConfiguredDefaultsDaemon(
+        interface_ids=(required.interface_id,),
+        interface_mounts=(
+            (required.interface_id, ("channels", "1")),
+            (required.interface_id, ("channels", "2")),
+        ),
+        components=(
+            instrument_component(
+                "channels",
+                components=(
+                    instrument_component("1"),
+                    instrument_component("2"),
+                ),
+            ),
+        ),
+    )
+    handle = LabInstrumentOperations(daemon, operator="test").open(selected)
+
+    client = handle[selected]
+    assert client.session.component_path == ("channels", "2")
+    with pytest.raises(
+        ValueError,
+        match=r"source-a.*required interfaces.*test.source/v1",
+    ):
+        handle[wrong_mount]
+    with pytest.raises(TypeError, match="whole physical instrument"):
+        client.session.apply_configured_defaults("source-a")
+
+    handle.close()
+    daemon.close()
 
 
 def test_typed_instrument_ref_must_belong_to_the_session() -> None:

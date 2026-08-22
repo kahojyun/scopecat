@@ -28,6 +28,7 @@ from scopecat.compiler.relations.verification import (
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
 from scopecat.kernel.errors import CheckFailed
+from scopecat.kernel.instrument_members import InterfaceRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.resource_identity import logical_resource_port_id
 from scopecat.kernel.value_types import Quantity as QuantityType
@@ -101,7 +102,7 @@ def test_materialized_effects_materializes_explicit_float_points() -> None:
         resource_requirements=(
             LogicalResourceRequirement(
                 port_id=logical_resource_port_id("source"),
-                interfaces=("test.set_frequency/v1",),
+                capabilities=(InterfaceRef("test.set_frequency/v1"),),
             ),
         ),
         state=[

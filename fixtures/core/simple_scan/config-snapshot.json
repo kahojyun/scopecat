@@ -1,5 +1,5 @@
 {
-  "format_version": "scopecat.config_snapshot.v9",
+  "format_version": "scopecat.config_snapshot.v10",
   "id": "simple-scan-profile",
   "system": {
     "id": "simple-scan-system",

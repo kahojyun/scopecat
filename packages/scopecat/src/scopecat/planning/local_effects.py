@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from scopecat.compiler.bind import BoundPlan
 from scopecat.compiler.relations.context import EvalContext
@@ -24,6 +24,7 @@ from scopecat.measurements.records import EntityAcquisitionCohortPlan
 from scopecat.planning.routing import ResourcePortManifest
 from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 from scopecat.program.logical import LogicalStateAssignment
+from scopecat.sdk.payloads import PayloadCodecRegistry
 
 type EvaluatedEffectValue = CellValue | ComputeResultScalarExpr
 
@@ -94,6 +95,11 @@ class LocalTargetPlan:
     instrument_order: tuple[str, ...]
     resource_ports: Mapping[LogicalResourcePortId, ResourcePortManifest]
     acquisition_cohorts: tuple[EntityAcquisitionCohortPlan, ...] = ()
+    payload_codecs: PayloadCodecRegistry = field(
+        default_factory=PayloadCodecRegistry,
+        repr=False,
+        compare=False,
+    )
 
 
 @dataclass(frozen=True, slots=True)

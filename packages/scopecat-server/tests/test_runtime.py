@@ -92,6 +92,8 @@ from scopecat.daemon.wire import (
     RunAttachmentCommand,
     RunCancellationReceipt,
     RunCoverageAdvanceCommand,
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionItem,
     RunSubmission,
     TerminalRunCommitCommand,
 )
@@ -118,6 +120,14 @@ from scopecat.records.config import (
     config_content_hash,
 )
 from scopecat.records.content import ContentEntry
+from scopecat.records.execution import (
+    DomainExecutionId,
+    DomainExecutionReceipt,
+    DomainJobCheckpoint,
+    DomainJobCheckpointTransition,
+    DomainJobInvocationTransition,
+    DomainJobTerminalTransition,
+)
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDatasetSchema,
@@ -143,6 +153,7 @@ from scopecat.records.parameter_change import (
 from scopecat.records.run import ConfigRegistryRunConfigSource, RunSnapshot
 from scopecat.records.run_request import RunRequest
 from scopecat.runs.refs import dataset_content_ref, record_content_ref
+from scopecat_testkit.domain import domain_execution_identity
 from scopecat_testkit.server.runtime import list_test_runs
 
 import scopecat_server.services.leases as lease_supervisor_services
@@ -2693,6 +2704,216 @@ def test_run_coverage_is_contiguous_durable_and_retryable(tmp_path: Path) -> Non
         assert retry == first
         assert completed.completed_point_count == 3
         assert historical_retry == completed
+
+
+def test_domain_job_transitions_are_fenced_retryable_and_survive_restart(
+    tmp_path: Path,
+) -> None:
+    run_id: str
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(
+            _submission("domain-job-transitions", point_count=3)
+        )
+        run_id = admission.run_id
+        lease = runtime.application.executor.start_executor(
+            run_id,
+            ExecutorStartRequest(executor_id="notebook-1"),
+        )
+        executor = runtime.application.executor
+        intent, execution_id = domain_execution_identity(
+            run_id=run_id,
+            logical_compute_node_id="domain.batch-0",
+            invocation_id="invocation-1",
+            target_intent={"provider_profile": "fast-readout"},
+        )
+        first_checkpoint = DomainJobCheckpoint(
+            execution_key=execution_id.execution_key,
+            job_id="provider-job",
+            revision=1,
+            resume_token={"cursor": "poll-1"},
+            progress={"status": "submitted"},
+        )
+        first_item = RunDomainJobTransitionItem(
+            logical_compute_node_id="domain.batch-0",
+            point_ordinals=(0, 1),
+            transition=DomainJobCheckpointTransition(checkpoint=first_checkpoint),
+        )
+
+        def commit(item: RunDomainJobTransitionItem):
+            receipt = executor.commit_domain_job_transitions(
+                run_id,
+                RunDomainJobTransitionBatchCommand(
+                    lease_id=lease.lease_id,
+                    items=(item,),
+                ),
+            )
+            return receipt.items[0]
+
+        with pytest.raises(BackendConflict, match="durable run state"):
+            commit(first_item)
+        invocation_item = first_item.model_copy(
+            update={
+                "transition": DomainJobInvocationTransition(
+                    execution_id=execution_id,
+                    intent=intent,
+                )
+            }
+        )
+        with pytest.raises(BackendConflict, match="durable run state"):
+            executor.commit_domain_job_transitions(
+                run_id,
+                RunDomainJobTransitionBatchCommand(
+                    lease_id=lease.lease_id,
+                    items=(
+                        invocation_item,
+                        first_item.model_copy(update={"point_ordinals": (1,)}),
+                    ),
+                ),
+            )
+        initial_command = RunDomainJobTransitionBatchCommand(
+            lease_id=lease.lease_id,
+            items=(invocation_item, first_item),
+        )
+        initial = executor.commit_domain_job_transitions(run_id, initial_command)
+        assert (
+            executor.commit_domain_job_transitions(run_id, initial_command) == initial
+        )
+        invocation, first = initial.items
+        retry = commit(first_item)
+        second_checkpoint = first_checkpoint.model_copy(
+            update={
+                "revision": 2,
+                "resume_token": {"cursor": "poll-2"},
+                "progress": {"status": "results_ready"},
+            }
+        )
+        second = commit(
+            first_item.model_copy(
+                update={
+                    "transition": DomainJobCheckpointTransition(
+                        checkpoint=second_checkpoint
+                    )
+                }
+            )
+        )
+
+        assert retry == first
+        assert first.sequence > invocation.sequence
+        assert second.sequence > first.sequence
+        assert [
+            item.transition.kind
+            for item in executor.domain_job_transitions(run_id).items
+        ] == ["invocation", "checkpoint", "checkpoint"]
+        with pytest.raises(BackendConflict, match="durable run state"):
+            commit(
+                first_item.model_copy(
+                    update={
+                        "transition": DomainJobCheckpointTransition(
+                            checkpoint=second_checkpoint.model_copy(
+                                update={"revision": 3, "job_id": "another-job"}
+                            )
+                        )
+                    }
+                ),
+            )
+        terminal_item = first_item.model_copy(
+            update={
+                "transition": DomainJobTerminalTransition(
+                    receipt=DomainExecutionReceipt(
+                        execution_key=first_checkpoint.execution_key,
+                        status="completed",
+                        result_fingerprint="results-v1",
+                        result_count=2,
+                    )
+                )
+            }
+        )
+        terminal = commit(terminal_item)
+        terminal_retry = commit(terminal_item)
+        assert terminal_retry == terminal
+        with pytest.raises(BackendConflict, match="durable run state"):
+            commit(
+                first_item.model_copy(
+                    update={
+                        "transition": DomainJobCheckpointTransition(
+                            checkpoint=second_checkpoint.model_copy(
+                                update={"revision": 3}
+                            )
+                        )
+                    }
+                ),
+            )
+
+    with LocalDaemonRuntime(tmp_path) as restarted:
+        page = restarted.application.executor.domain_job_transitions(run_id)
+        assert [item.transition.kind for item in page.items] == [
+            "invocation",
+            "checkpoint",
+            "checkpoint",
+            "terminal",
+        ]
+        pending = page.items[-2].transition
+        assert isinstance(pending, DomainJobCheckpointTransition)
+        assert pending.checkpoint.resume_token == {"cursor": "poll-2"}
+        terminal_transition = page.items[-1].transition
+        assert isinstance(terminal_transition, DomainJobTerminalTransition)
+        assert terminal_transition.receipt.status == "completed"
+        [state] = restarted.application.executor.domain_jobs(run_id).items
+        assert state.state == "terminal"
+        assert state.transition_count == 4
+        assert state.invocation.intent.target_intent == {
+            "provider_profile": "fast-readout"
+        }
+        assert state.latest_transition == terminal_transition
+
+
+def test_domain_job_invocation_without_outcome_survives_restart(
+    tmp_path: Path,
+) -> None:
+    run_id: str
+    execution_id: DomainExecutionId
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(
+            _submission("domain-job-invocation", point_count=1)
+        )
+        run_id = admission.run_id
+        lease = runtime.application.executor.start_executor(
+            run_id,
+            ExecutorStartRequest(executor_id="notebook-1"),
+        )
+        intent, execution_id = domain_execution_identity(
+            run_id=run_id,
+            logical_compute_node_id="domain.batch-0",
+            invocation_id="invocation-1",
+        )
+        [committed] = runtime.application.executor.commit_domain_job_transitions(
+            run_id,
+            RunDomainJobTransitionBatchCommand(
+                lease_id=lease.lease_id,
+                items=(
+                    RunDomainJobTransitionItem(
+                        logical_compute_node_id=execution_id.logical_compute_node_id,
+                        point_ordinals=(0,),
+                        transition=DomainJobInvocationTransition(
+                            execution_id=execution_id,
+                            intent=intent,
+                        ),
+                    ),
+                ),
+            ),
+        ).items
+        assert committed.transition.kind == "invocation"
+
+    with LocalDaemonRuntime(tmp_path) as restarted:
+        page = restarted.application.executor.domain_job_transitions(run_id)
+        [persisted] = page.items
+        assert isinstance(persisted.transition, DomainJobInvocationTransition)
+        assert persisted.transition.execution_id == execution_id
+        [state] = restarted.application.executor.domain_jobs(run_id).items
+        assert state.state == "invocation_unknown"
+        assert state.transition_count == 1
+        assert state.invocation.intent == intent
+        assert state.latest_transition == persisted.transition
 
 
 def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(

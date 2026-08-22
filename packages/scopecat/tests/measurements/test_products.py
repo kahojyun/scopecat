@@ -21,6 +21,7 @@ from scopecat.compiler.bound_facts import (
 from scopecat.compiler.point_domain import PointDomain
 from scopecat.config.environment import build_config_environment
 from scopecat.execution.local.program import CollectOperation
+from scopecat.kernel.instrument_members import InterfaceRef
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.product_identity import (
     ProductUse,
@@ -132,7 +133,9 @@ def _program(
         resource_requirements=tuple(
             LogicalResourceRequirement(
                 port_id=port_id,
-                interfaces=tuple(sorted(interfaces)),
+                capabilities=tuple(
+                    InterfaceRef(interface_id) for interface_id in sorted(interfaces)
+                ),
             )
             for port_id, interfaces in interfaces_by_port.items()
         ),

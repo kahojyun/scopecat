@@ -27,6 +27,8 @@ from scopecat.daemon.wire import (
     MeasurementSealCommand,
     RunAdmission,
     RunCoverageAdvanceCommand,
+    RunDomainJobTransitionBatchCommand,
+    RunDomainJobTransitionItem,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
@@ -41,6 +43,15 @@ from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import Problem
 from scopecat.optimization import DomainProposalDecision
 from scopecat.records.config import config_content_hash
+from scopecat.records.execution import (
+    DomainExecutionId,
+    DomainExecutionReceipt,
+    DomainJobCheckpoint,
+    DomainJobCheckpointTransition,
+    DomainJobInvocationTransition,
+    DomainJobTerminalTransition,
+    DomainJobTransitionRecord,
+)
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -56,6 +67,7 @@ from scopecat.records.measurement_recording import (
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
+from scopecat.sdk.domain.invocation import DomainInvocationIntent
 from scopecat.sdk.instruments.execution import (
     RunHardwareBatch,
     RunHardwareBatchReceipt,
@@ -69,6 +81,7 @@ _MEASUREMENT_TRANSPORT_VALUE_BYTE_LIMIT = 8 * 1024 * 1024
 _MEASUREMENT_TRANSPORT_LATENCY_SECONDS = 0.1
 _COVERAGE_TRANSPORT_POINT_LIMIT = 256
 _COVERAGE_TRANSPORT_LATENCY_SECONDS = 0.1
+_DOMAIN_TRANSITION_TRANSPORT_ITEM_LIMIT = 64
 
 
 class ExecutorLeaseLostError(RuntimeError):
@@ -110,6 +123,7 @@ def daemon_execution_session(
     )
     instruments = _DaemonRunInstrumentHost(authority)
     coverage = _DaemonRunCoverage(authority)
+    domain_job_transitions = _DaemonRunDomainJobTransitions(authority)
     domain_proposals = _DaemonRunDomainProposals(authority)
 
     def begin() -> None:
@@ -123,6 +137,7 @@ def daemon_execution_session(
         commit_terminal=authority.commit_terminal,
         measurements=_DaemonMeasurementRepository(authority),
         instruments=instruments,
+        domain_job_transitions=domain_job_transitions,
         coverage=coverage,
         domain_proposals=domain_proposals,
         cancellation_requested=authority.cancellation_requested,
@@ -273,6 +288,111 @@ class _DaemonRunCoverage:
         self._pending_start = None
         self._pending_count = 0
         self._last_send_at = monotonic() if now is None else now
+
+
+class _DaemonRunDomainJobTransitions:
+    """Coalesce eligible target transitions into bounded durable appends."""
+
+    def __init__(self, authority: _LeaseAuthority) -> None:
+        self._authority = authority
+        self._pending: list[RunDomainJobTransitionItem] = []
+
+    def invocation(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        execution_id: DomainExecutionId,
+        intent: DomainInvocationIntent,
+        write_ahead: bool,
+    ) -> None:
+        self._stage(
+            logical_compute_node_id=logical_compute_node_id,
+            point_ordinals=point_ordinals,
+            transition=DomainJobInvocationTransition(
+                execution_id=execution_id,
+                intent=intent,
+            ),
+            write_ahead=write_ahead,
+        )
+
+    def checkpoint(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        checkpoint: DomainJobCheckpoint,
+    ) -> None:
+        self._stage(
+            logical_compute_node_id=logical_compute_node_id,
+            point_ordinals=point_ordinals,
+            transition=DomainJobCheckpointTransition(checkpoint=checkpoint),
+            write_ahead=True,
+        )
+
+    def terminal(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        receipt: DomainExecutionReceipt,
+        write_ahead: bool,
+    ) -> None:
+        self._stage(
+            logical_compute_node_id=logical_compute_node_id,
+            point_ordinals=point_ordinals,
+            transition=DomainJobTerminalTransition(receipt=receipt),
+            write_ahead=write_ahead,
+        )
+
+    def flush(self) -> None:
+        self._send_pending()
+
+    def _stage(
+        self,
+        *,
+        logical_compute_node_id: str,
+        point_ordinals: tuple[int, ...],
+        transition: DomainJobTransitionRecord,
+        write_ahead: bool,
+    ) -> None:
+        self._pending.append(
+            RunDomainJobTransitionItem(
+                logical_compute_node_id=logical_compute_node_id,
+                point_ordinals=point_ordinals,
+                transition=transition,
+            )
+        )
+        if write_ahead or len(self._pending) >= _DOMAIN_TRANSITION_TRANSPORT_ITEM_LIMIT:
+            self._send_pending()
+
+    def _send_pending(self) -> None:
+        items = tuple(self._pending)
+        if not items:
+            return
+        receipt = self._authority.client.commit_run_domain_job_transitions(
+            self._authority.run_id,
+            RunDomainJobTransitionBatchCommand(
+                lease_id=self._authority.fence(),
+                items=items,
+            ),
+        )
+        if (
+            receipt.run_id != self._authority.run_id
+            or len(receipt.items) != len(items)
+            or any(
+                committed.run_id != self._authority.run_id
+                or committed.logical_compute_node_id
+                != requested.logical_compute_node_id
+                or committed.point_ordinals != requested.point_ordinals
+                or committed.transition != requested.transition
+                for committed, requested in zip(receipt.items, items, strict=True)
+            )
+        ):
+            raise ValueError(
+                "domain job transition batch receipt does not match its request"
+            )
+        self._pending.clear()
 
 
 class _DaemonRunDomainProposals:

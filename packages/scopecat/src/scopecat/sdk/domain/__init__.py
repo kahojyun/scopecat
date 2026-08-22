@@ -24,10 +24,14 @@ if TYPE_CHECKING:
         DomainBatchInputs,
         DomainBatchRequest,
     )
-    from scopecat.sdk.domain.compiler import DomainCompiler
+    from scopecat.sdk.domain.compiler import DomainBatchCandidate, DomainCompiler
+    from scopecat.sdk.domain.evidence import DomainExecutionEvidence
     from scopecat.sdk.domain.execution import (
+        DomainResidencyAddress,
+        DomainResidencyRequirement,
         DomainStateAddress,
         DomainStateRequirement,
+        DomainTransitionPolicy,
         PreparedDomainExecution,
     )
     from scopecat.sdk.domain.job import (
@@ -45,8 +49,11 @@ if TYPE_CHECKING:
         DomainExecutionReceipt,
         DomainExecutionResult,
         DomainInstrumentExecutor,
-        DomainRuntime,
+        DomainJobCheckpoint,
+        DomainJobRuntime,
+        DomainJobTransition,
         DomainSetup,
+        ResumableDomainJobRuntime,
     )
     from scopecat.sdk.domain.view import (
         DomainCallView,
@@ -65,10 +72,14 @@ _BATCH_EXPORTS = (
     "DomainBatchRequest",
 )
 _EXECUTION_EXPORTS = (
+    "DomainResidencyAddress",
+    "DomainResidencyRequirement",
     "DomainStateAddress",
     "DomainStateRequirement",
+    "DomainTransitionPolicy",
     "PreparedDomainExecution",
 )
+_EVIDENCE_EXPORTS = ("DomainExecutionEvidence",)
 _JOB_EXPORTS = (
     "DomainInvocationSpec",
     "DomainResultValue",
@@ -96,8 +107,11 @@ _RUNTIME_EXPORTS = (
     "DomainExecutionReceipt",
     "DomainExecutionResult",
     "DomainInstrumentExecutor",
-    "DomainRuntime",
+    "DomainJobCheckpoint",
+    "DomainJobRuntime",
+    "DomainJobTransition",
     "DomainSetup",
+    "ResumableDomainJobRuntime",
 )
 _VIEW_EXPORTS = (
     "DomainCallView",
@@ -113,6 +127,7 @@ _VIEW_EXPORTS = (
 _EXPORTS = {
     **{name: ("scopecat.sdk.domain.batch", name) for name in _BATCH_EXPORTS},
     **{name: ("scopecat.sdk.domain.execution", name) for name in _EXECUTION_EXPORTS},
+    **{name: ("scopecat.sdk.domain.evidence", name) for name in _EVIDENCE_EXPORTS},
     **{name: ("scopecat.sdk.domain.job", name) for name in _JOB_EXPORTS},
     **{name: ("scopecat.inspection", name) for name in _INSPECTION_EXPORTS},
     **{
@@ -121,6 +136,10 @@ _EXPORTS = {
     },
     **{name: ("scopecat.sdk.domain.runtime", name) for name in _RUNTIME_EXPORTS},
     **{name: ("scopecat.sdk.domain.view", name) for name in _VIEW_EXPORTS},
+    "DomainBatchCandidate": (
+        "scopecat.sdk.domain.compiler",
+        "DomainBatchCandidate",
+    ),
     "DomainCompiler": ("scopecat.sdk.domain.compiler", "DomainCompiler"),
     "DomainPreparationBuilder": (
         "scopecat.sdk.domain.preparation",
@@ -155,16 +174,21 @@ __all__ = [
     "CompiledProgramInspectionPage",
     "CompiledProgramInspectionQuery",
     "CompiledWaveformInspection",
+    "DomainBatchCandidate",
     "DomainBatchInputs",
     "DomainBatchRequest",
     "DomainCallView",
     "DomainCompiler",
+    "DomainExecutionEvidence",
     "DomainExecutionId",
     "DomainExecutionReceipt",
     "DomainExecutionResult",
     "DomainInputPortView",
     "DomainInstrumentExecutor",
     "DomainInvocationSpec",
+    "DomainJobCheckpoint",
+    "DomainJobRuntime",
+    "DomainJobTransition",
     "DomainMappedResult",
     "DomainPointRef",
     "DomainPreparationBuilder",
@@ -172,14 +196,17 @@ __all__ = [
     "DomainProductContractView",
     "DomainProductUseRef",
     "DomainProgramView",
+    "DomainResidencyAddress",
+    "DomainResidencyRequirement",
     "DomainResultBinding",
     "DomainResultBindingView",
     "DomainResultMapping",
     "DomainResultPortView",
     "DomainResultValue",
-    "DomainRuntime",
     "DomainSetup",
     "DomainStateAddress",
     "DomainStateRequirement",
+    "DomainTransitionPolicy",
     "PreparedDomainExecution",
+    "ResumableDomainJobRuntime",
 ]

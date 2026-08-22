@@ -446,6 +446,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/observed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read Observed Instrument State Members */
+        post: operations["read_observed_instrument_state_members_api_v1_instrument_sessions__session_id__instruments__instrument_id__state_observed_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read Instrument State Members */
+        post: operations["read_instrument_state_members_api_v1_instrument_sessions__session_id__instruments__instrument_id__state_read_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/instruments": {
         parameters: {
             query?: never;
@@ -1036,6 +1070,7 @@ export interface components {
             label?: string | null;
             /** @default observable */
             role: components["schemas"]["MeasurementVariableRole"];
+            source_property?: components["schemas"]["StatePropertyRef"] | null;
             /** Unit */
             unit?: string | null;
         };
@@ -1488,7 +1523,7 @@ export interface components {
              * @default []
              */
             problems: components["schemas"]["Problem-Output"][];
-            state?: components["schemas"]["InstrumentStateSnapshot"] | null;
+            readback?: components["schemas"]["InstrumentStateReadback"] | null;
             /**
              * Status
              * @default applied
@@ -2318,6 +2353,47 @@ export interface components {
             kind: "delete_parameter_rows";
             parameter_id: components["schemas"]["_ParameterId"];
         };
+        DeviceSchemaId: string;
+        /**
+         * DeviceStateMemberSpec
+         * @description One concrete-model state member at a physical component path.
+         */
+        DeviceStateMemberSpec: {
+            /** Component Path */
+            component_path?: components["schemas"]["_NonEmptyId"][];
+            property: components["schemas"]["PropertySpec"];
+        };
+        /**
+         * DeviceStateMemberTarget
+         * @description One model-specific member not promoted to a portable interface.
+         */
+        DeviceStateMemberTarget: {
+            /**
+             * Component Path
+             * @default []
+             */
+            component_path: components["schemas"]["_NonEmptyId"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "device";
+            property_id: components["schemas"]["_NonEmptyId"];
+            schema_id: components["schemas"]["DeviceSchemaId"];
+        };
+        /**
+         * DeviceStateSpec
+         * @description Versioned model-specific state that is not a portable capability.
+         */
+        DeviceStateSpec: {
+            /** Description */
+            description?: string | null;
+            id: components["schemas"]["DeviceSchemaId"];
+            /** Label */
+            label?: string | null;
+            /** Members */
+            members?: components["schemas"]["DeviceStateMemberSpec"][];
+        };
         /** DirectConfigRegistrySource */
         DirectConfigRegistrySource: {
             /**
@@ -2367,6 +2443,29 @@ export interface components {
             options_schema: {
                 [key: string]: components["schemas"]["pydantic__types__JsonValue"];
             };
+        };
+        /**
+         * DriverManagedInstrumentConnection
+         * @description Physical connection whose resources are owned by its driver factory.
+         */
+        DriverManagedInstrumentConnection: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "driver_managed";
+            /** Options */
+            options?: {
+                [key: string]: components["schemas"]["pydantic__types__JsonValue"];
+            };
+        };
+        /** DriverManagedInstrumentConnectionSummary */
+        DriverManagedInstrumentConnectionSummary: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "driver_managed";
         };
         /** DriverSpec */
         DriverSpec: {
@@ -2621,16 +2720,18 @@ export interface components {
              */
             status: "applied" | "unchanged" | "rejected";
         };
-        InstrumentConnection: components["schemas"]["VirtualInstrumentConnection"] | components["schemas"]["TcpipSocketInstrumentConnection"];
+        InstrumentConnection: components["schemas"]["VirtualInstrumentConnection"] | components["schemas"]["DriverManagedInstrumentConnection"] | components["schemas"]["TcpipSocketInstrumentConnection"] | components["schemas"]["SerialInstrumentConnection"];
         /** @enum {string} */
-        InstrumentConnectionKind: "virtual" | "tcpip_socket";
-        InstrumentConnectionSummary: components["schemas"]["VirtualInstrumentConnectionSummary"] | components["schemas"]["TcpipSocketInstrumentConnectionSummary"];
+        InstrumentConnectionKind: "virtual" | "driver_managed" | "tcpip_socket" | "serial";
+        InstrumentConnectionSummary: components["schemas"]["VirtualInstrumentConnectionSummary"] | components["schemas"]["DriverManagedInstrumentConnectionSummary"] | components["schemas"]["TcpipSocketInstrumentConnectionSummary"] | components["schemas"]["SerialInstrumentConnectionSummary"];
         /** InstrumentDescription */
         InstrumentDescription: {
             /** Components */
             components?: components["schemas"]["InstrumentComponentSpec"][];
             /** Description */
             description?: string | null;
+            /** Device Schemas */
+            device_schemas?: components["schemas"]["DeviceStateSpec"][];
             /** Implementation Id */
             implementation_id: string;
             /** Implementation Version */
@@ -2639,6 +2740,8 @@ export interface components {
             instrument_id: string;
             /** Interface Mounts */
             interface_mounts?: components["schemas"]["InterfaceMountSpec"][];
+            /** Interface Property Implementations */
+            interface_property_implementations?: components["schemas"]["InterfacePropertyImplementationSpec"][];
             /** Interfaces */
             interfaces?: components["schemas"]["InterfaceSpec"][];
             /** Label */
@@ -2689,21 +2792,6 @@ export interface components {
         };
         InstrumentOperationScalarWire: components["schemas"]["_InstrumentOperationScalarModel"];
         InstrumentPropertyScalarWire: components["schemas"]["_InstrumentPropertyScalarModel"];
-        /**
-         * InstrumentPropertyState
-         * @description One physical persistent-property value.
-         */
-        InstrumentPropertyState: {
-            /** Channel Bindings */
-            channel_bindings?: components["schemas"]["CommandChannelBinding"][];
-            /** Component Path */
-            component_path?: components["schemas"]["_NonEmptyId"][];
-            /** Entity Ids */
-            entity_ids?: components["schemas"]["_NonEmptyId"][];
-            interface_id: components["schemas"]["InterfaceId"];
-            property_id: components["schemas"]["_NonEmptyId"];
-            value: components["schemas"]["StateValue"];
-        };
         /** InstrumentReadback */
         InstrumentReadback: {
             metadata?: components["schemas"]["JsonMetadata"];
@@ -2807,7 +2895,7 @@ export interface components {
         InstrumentSpec: {
             connection: components["schemas"]["InstrumentConnection"];
             /** Default State */
-            default_state?: components["schemas"]["InstrumentPropertyState"][];
+            default_state?: components["schemas"]["InstrumentStateSetting"][];
             /** Driver Id */
             driver_id: string;
             /** Exclusivity Key */
@@ -2817,23 +2905,48 @@ export interface components {
             id: string;
             run_start: components["schemas"]["InstrumentRunStartPolicy"];
             /** Safe State */
-            safe_state?: components["schemas"]["InstrumentPropertyState"][];
+            safe_state?: components["schemas"]["InstrumentStateSetting"][];
             success_action: components["schemas"]["InstrumentSuccessAction"];
         };
         /** InstrumentStateAssignment */
         InstrumentStateAssignment: {
             /** Channel Bindings */
             channel_bindings?: components["schemas"]["CommandChannelBinding"][];
-            /** Component Path */
-            component_path?: components["schemas"]["_NonEmptyId"][];
             /** Entity Ids */
             entity_ids?: components["schemas"]["_NonEmptyId"][];
-            interface_id: components["schemas"]["InterfaceId"];
-            property_id: components["schemas"]["_NonEmptyId"];
             /** Resource Id */
             resource_id: string;
+            target: components["schemas"]["StateMemberTarget"];
             value: components["schemas"]["StateValue"];
         };
+        /**
+         * InstrumentStateCacheEntry
+         * @description Current actor knowledge for one exact member in an ownership epoch.
+         */
+        InstrumentStateCacheEntry: {
+            /** Generation */
+            generation: number;
+            observation?: components["schemas"]["InstrumentStateObservation"] | null;
+            reason?: components["schemas"]["InstrumentStateCacheReason"] | null;
+            status: components["schemas"]["InstrumentStateCacheStatus"];
+            target: components["schemas"]["StateMemberTarget"];
+        };
+        /**
+         * InstrumentStateCacheReadback
+         * @description Exact member cache statuses from one live instrument actor.
+         */
+        InstrumentStateCacheReadback: {
+            /** Entries */
+            entries?: components["schemas"]["InstrumentStateCacheEntry"][];
+            /** Generation */
+            generation: number;
+            /** Instrument Id */
+            instrument_id: string;
+        };
+        /** @enum {string} */
+        InstrumentStateCacheReason: "not_observed" | "state_read_unconfirmed" | "state_read_failed" | "state_applied" | "operation_invalidated" | "apply_outcome_unknown" | "invoke_outcome_unknown" | "collect_outcome_unknown" | "explicit_invalidation" | "aborted";
+        /** @enum {string} */
+        InstrumentStateCacheStatus: "unobserved" | "observed" | "invalidated" | "unknown";
         /** InstrumentStateCommand */
         InstrumentStateCommand: {
             /** Assignments */
@@ -2842,15 +2955,69 @@ export interface components {
             instrument_id: components["schemas"]["_NonEmptyId"];
         };
         /**
+         * InstrumentStateObservation
+         * @description One independently obtained physical member value.
+         */
+        InstrumentStateObservation: {
+            /**
+             * Channel Bindings
+             * @default []
+             */
+            channel_bindings: components["schemas"]["CommandChannelBinding"][];
+            /** Coherence Id */
+            coherence_id?: string | null;
+            /**
+             * Entity Ids
+             * @default []
+             */
+            entity_ids: components["schemas"]["_NonEmptyId"][];
+            metadata?: components["schemas"]["JsonMetadata"];
+            /** Observed At */
+            observed_at?: string | null;
+            /** @default hardware_query */
+            source: components["schemas"]["ObservationSource"];
+            target: components["schemas"]["StateMemberTarget"];
+            value: components["schemas"]["StateValue"];
+        };
+        /**
+         * InstrumentStateReadback
+         * @description Fresh observations returned for one explicit member read request.
+         */
+        InstrumentStateReadback: {
+            /** Instrument Id */
+            instrument_id: string;
+            /** Observations */
+            observations?: components["schemas"]["InstrumentStateObservation"][];
+        };
+        /**
+         * InstrumentStateReadCommand
+         * @description Explicit member selection for one live hardware observation.
+         */
+        InstrumentStateReadCommand: {
+            /** Targets */
+            targets: components["schemas"]["StateMemberTarget"][];
+        };
+        /**
+         * InstrumentStateSetting
+         * @description One desired member value used by configuration or a state command.
+         */
+        InstrumentStateSetting: {
+            target: components["schemas"]["StateMemberTarget"];
+            value: components["schemas"]["StateValue"];
+        };
+        /**
          * InstrumentStateSnapshot
-         * @description Complete observable persistent state for one physical instrument.
+         * @description A durable capture assembled from independent member observations.
+         *
+         *     A snapshot is evidence at a lifecycle boundary or an API projection. It is
+         *     not the driver query unit and is complete only relative to an explicit
+         *     capture plan.
          */
         InstrumentStateSnapshot: {
             /** Instrument Id */
             instrument_id: string;
-            metadata?: components["schemas"]["JsonMetadata"];
-            /** Properties */
-            properties?: components["schemas"]["InstrumentPropertyState"][];
+            /** Observations */
+            observations?: components["schemas"]["InstrumentStateObservation"][];
         };
         /** @enum {string} */
         InstrumentSuccessAction: "release" | "restore_baseline";
@@ -2906,6 +3073,23 @@ export interface components {
             interface_id: components["schemas"]["InterfaceId"];
         };
         /**
+         * InterfacePropertyImplementationSpec
+         * @description Concrete semantics for one portable property at a physical endpoint.
+         *
+         *     Omitted properties retain their interface contract semantics. Implementations
+         *     may narrow access, lifecycle participation, or admitted values, but never
+         *     widen the portable contract.
+         */
+        InterfacePropertyImplementationSpec: {
+            access: components["schemas"]["PropertyAccess"];
+            /** Capture */
+            capture: boolean;
+            property: components["schemas"]["StatePropertyRef"];
+            /** Restore */
+            restore: boolean;
+            value_type?: components["schemas"]["InstrumentPropertyScalarWire"] | null;
+        };
+        /**
          * InterfaceSpec
          * @description Versioned behavior contract implemented by an instrument endpoint.
          */
@@ -2923,6 +3107,24 @@ export interface components {
             operations?: components["schemas"]["OperationSpec"][];
             /** Properties */
             properties?: components["schemas"]["PropertySpec"][];
+        };
+        /**
+         * InterfaceStateMemberTarget
+         * @description One member of a portable interface at a physical component path.
+         */
+        InterfaceStateMemberTarget: {
+            /**
+             * Component Path
+             * @default []
+             */
+            component_path: components["schemas"]["_NonEmptyId"][];
+            interface_id: components["schemas"]["InterfaceId"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "interface";
+            property_id: components["schemas"]["_NonEmptyId"];
         };
         /** InvokeCommand */
         InvokeCommand: {
@@ -2955,7 +3157,7 @@ export interface components {
              * @default []
              */
             problems: components["schemas"]["Problem-Output"][];
-            state?: components["schemas"]["InstrumentStateSnapshot"] | null;
+            readback?: components["schemas"]["InstrumentStateReadback"] | null;
             /**
              * Status
              * @default invoked
@@ -3691,6 +3893,8 @@ export interface components {
             root: string;
         };
         NonEmptyText: string;
+        /** @enum {string} */
+        ObservationSource: "hardware_query" | "command_confirmed" | "configured_fixed" | "derived";
         /** OperationArgumentSpec */
         OperationArgumentSpec: {
             /** Description */
@@ -4018,19 +4222,27 @@ export interface components {
              */
             published_at: string;
         };
+        /** @enum {string} */
+        PropertyAccess: "read_only" | "write_only" | "read_write";
         /** PropertySpec */
         PropertySpec: {
+            /** @default read_write */
+            access: components["schemas"]["PropertyAccess"];
             /**
-             * Access
-             * @default read_write
-             * @enum {string}
+             * Capture
+             * @default true
              */
-            access: "read_only" | "write_only" | "read_write";
+            capture: boolean;
             /** Description */
             description?: string | null;
             id: components["schemas"]["_NonEmptyId"];
             /** Label */
             label?: string | null;
+            /**
+             * Restore
+             * @default false
+             */
+            restore: boolean;
             value_type: components["schemas"]["InstrumentPropertyScalarWire"];
         };
         /**
@@ -4949,8 +5161,85 @@ export interface components {
             /** Value */
             value: number;
         };
+        /**
+         * SerialInstrumentConnection
+         * @description One locally attached serial port with explicit framing settings.
+         */
+        SerialInstrumentConnection: {
+            /**
+             * Baud Rate
+             * @default 9600
+             */
+            baud_rate: number;
+            /**
+             * Data Bits
+             * @default 8
+             * @enum {integer}
+             */
+            data_bits: 5 | 6 | 7 | 8;
+            /**
+             * Dsrdtr
+             * @default false
+             */
+            dsrdtr: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "serial";
+            /** Options */
+            options?: {
+                [key: string]: components["schemas"]["pydantic__types__JsonValue"];
+            };
+            /**
+             * Parity
+             * @default none
+             * @enum {string}
+             */
+            parity: "none" | "even" | "odd" | "mark" | "space";
+            /** Port */
+            port: string;
+            /**
+             * Rtscts
+             * @default false
+             */
+            rtscts: boolean;
+            /**
+             * Stop Bits
+             * @default 1
+             */
+            stop_bits: number;
+            /**
+             * Timeout Seconds
+             * @default 1
+             */
+            timeout_seconds: number;
+            /**
+             * Write Timeout Seconds
+             * @default 1
+             */
+            write_timeout_seconds: number;
+            /**
+             * Xonxoff
+             * @default false
+             */
+            xonxoff: boolean;
+        };
+        /** SerialInstrumentConnectionSummary */
+        SerialInstrumentConnectionSummary: {
+            /** Baud Rate */
+            baud_rate: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "serial";
+            /** Port */
+            port: string;
+        };
         Sha256ContentHash: string;
         StateLiteral: boolean | number | string | components["schemas"]["scopecat__kernel__quantity__Quantity"] | components["schemas"]["PayloadRef"];
+        StateMemberTarget: components["schemas"]["InterfaceStateMemberTarget"] | components["schemas"]["DeviceStateMemberTarget"];
         /**
          * StatePropertyRef
          * @description One persistent property referenced by an instrument contract.
@@ -5978,6 +6267,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApplyReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_observed_instrument_state_members_api_v1_instrument_sessions__session_id__instruments__instrument_id__state_observed_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrument_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstrumentStateReadCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentStateCacheReadback"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_instrument_state_members_api_v1_instrument_sessions__session_id__instruments__instrument_id__state_read_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instrument_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstrumentStateReadCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstrumentStateReadback"];
                 };
             };
             /** @description Validation Error */

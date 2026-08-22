@@ -4,8 +4,9 @@ import scopecat as sc
 from scopecat.records.config import InstrumentBindingSpec, VirtualInstrumentConnection
 from scopecat.records.instrument import CommandChannelBinding
 from scopecat.sdk.instruments import (
-    DriverStateEntry,
+    DriverStateAssignment,
     DriverStatePatch,
+    DriverStateReadRequest,
     DriverSuccess,
     InstrumentConnectionContext,
     InstrumentProviderContext,
@@ -62,7 +63,7 @@ def test_multichannel_driver_dispatches_by_component_with_shared_provenance() ->
     outcome = driver.apply_state(
         DriverStatePatch(
             scoped_values=(
-                DriverStateEntry(
+                DriverStateAssignment(
                     target=target,
                     value=sc.Quantity(0.125, "V"),
                     entity_ids=("q0", "coupler0"),
@@ -74,8 +75,9 @@ def test_multichannel_driver_dispatches_by_component_with_shared_provenance() ->
 
     assert isinstance(outcome, DriverSuccess)
     assert world.dc_source("flux-dac:flux.ch1.primary").voltage_level_v == 0.125
+    readback = driver.read_state(DriverStateReadRequest(frozenset({target})))
     state_entry = next(
-        entry for entry in driver.read_state().entries if entry.target == target
+        entry for entry in readback.observations if entry.target == target
     )
     assert state_entry.entity_ids == ("q0", "coupler0")
     assert {binding.channel_id for binding in state_entry.channel_bindings} == {

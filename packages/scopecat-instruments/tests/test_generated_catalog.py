@@ -6,17 +6,7 @@ from scopecat.sdk.instruments import (
     InterfaceRef,
     PropertyRef,
 )
-from scopecat.sdk.instruments.declarations import state_projection_assignments
-from scopecat_testkit.instrument_codegen_fixtures.declarations import (
-    CatalogProjectionState as DeclaredCatalogProjectionState,
-)
-from scopecat_testkit.instrument_codegen_fixtures.declarations import (
-    SharedFixtureState as DeclaredSharedFixtureState,
-)
-from scopecat_testkit.instrument_codegen_fixtures.generated_driver_states import (
-    encode_shared_state_first_state,
-    encode_shared_state_second_state,
-)
+from scopecat.sdk.instruments.declarations import member_projection_assignments
 from scopecat_testkit.instrument_codegen_fixtures.generated_interfaces import (
     catalog_projection_interface,
 )
@@ -24,23 +14,21 @@ from scopecat_testkit.instrument_codegen_fixtures.generated_members import (
     CATALOG_PROJECTION,
     CATALOG_PROJECTION_ENABLED,
     CATALOG_PROJECTION_STATUS,
-    SHARED_STATE_FIRST_ENABLED,
-    SHARED_STATE_SECOND_ENABLED,
+    DRIVER_MONITOR_ENABLED,
+    DRIVER_SOURCE_ENABLED,
+    SHARED_PROPERTY_FIRST_ENABLED,
+    SHARED_PROPERTY_SECOND_ENABLED,
 )
-from scopecat_testkit.instrument_codegen_fixtures.generated_states import (
+from scopecat_testkit.instrument_codegen_fixtures.generated_projections import (
     CatalogProjectionGroupTarget,
     CatalogProjectionPatch,
-    CatalogProjectionState,
     CatalogProjectionTarget,
-    SharedFixtureState,
-    SharedStateFirstPatch,
-    SharedStateSecondPatch,
+    MonitorCompositeGroupTarget,
+    MonitorCompositePatch,
+    MonitorCompositeTarget,
+    SharedPropertyFirstPatch,
+    SharedPropertySecondPatch,
 )
-
-from scopecat_instruments.interface_declarations import (
-    TemperatureReadoutState as DeclaredTemperatureReadoutState,
-)
-from scopecat_instruments.states import TemperatureReadoutState
 
 
 def test_generated_member_catalog_projects_root_properties() -> None:
@@ -63,27 +51,39 @@ def test_generated_interface_factory_returns_fresh_deep_copies() -> None:
     assert not first.components
 
 
-def test_generated_state_catalog_projects_concrete_schema_types() -> None:
+def test_generated_member_projection_catalog_projects_concrete_schema_types() -> None:
     assert_type(CatalogProjectionPatch(enabled=True), CatalogProjectionPatch)
     assert_type(CatalogProjectionTarget(enabled=True), CatalogProjectionTarget)
     assert_type(
         CatalogProjectionGroupTarget(enabled=True),
         CatalogProjectionGroupTarget,
     )
-    assert CatalogProjectionState is DeclaredCatalogProjectionState
-    assert TemperatureReadoutState is DeclaredTemperatureReadoutState
 
 
 def test_shared_schema_projections_keep_each_interface_identity() -> None:
-    assert SharedFixtureState is DeclaredSharedFixtureState
-    assert state_projection_assignments(SharedStateFirstPatch(enabled=True)) == {
-        SHARED_STATE_FIRST_ENABLED: True
+    assert member_projection_assignments(SharedPropertyFirstPatch(enabled=True)) == {
+        SHARED_PROPERTY_FIRST_ENABLED: True
     }
-    assert state_projection_assignments(SharedStateSecondPatch(enabled=False)) == {
-        SHARED_STATE_SECOND_ENABLED: False
+    assert member_projection_assignments(SharedPropertySecondPatch(enabled=False)) == {
+        SHARED_PROPERTY_SECOND_ENABLED: False
     }
-    state = SharedFixtureState(enabled=True)
-    assert encode_shared_state_first_state(state) == {SHARED_STATE_FIRST_ENABLED: True}
-    assert encode_shared_state_second_state(state) == {
-        SHARED_STATE_SECOND_ENABLED: True
+
+
+def test_composite_projection_aliases_keep_each_property_identity() -> None:
+    assert_type(
+        MonitorCompositeGroupTarget(source_enabled=True),
+        MonitorCompositeGroupTarget,
+    )
+    assert_type(
+        MonitorCompositeTarget(monitor_enabled=True),
+        MonitorCompositeTarget,
+    )
+    assert member_projection_assignments(
+        MonitorCompositePatch(
+            source_enabled=True,
+            monitor_enabled=False,
+        )
+    ) == {
+        DRIVER_SOURCE_ENABLED: True,
+        DRIVER_MONITOR_ENABLED: False,
     }

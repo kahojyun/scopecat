@@ -12,7 +12,7 @@ from scopecat_testkit.materialized_effects import config_with_physical_resources
 
 import scopecat as sc
 from scopecat.authoring._module_context import DefinitionResource
-from scopecat.authoring.state_projection import StateProjector, StateTarget
+from scopecat.authoring.member_projection import StateProjector, StateTarget
 from scopecat.execution.local.program import ApplyStateOperation
 from scopecat.planning.local_materialization import (
     materialize_local_success_state,

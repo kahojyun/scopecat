@@ -16,15 +16,25 @@ from scopecat.records.execution import (
 )
 from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.runs.refs import record_content_ref
+from scopecat.sdk.domain.evidence import DomainExecutionEvidence
 
 INSTRUMENT_STATE_EVIDENCE_ID = "instrument-state-evidence"
 INSTRUMENT_STATE_EVIDENCE_KIND = "instrument_state_evidence"
+DOMAIN_EXECUTION_EVIDENCE_ID = "domain-execution-evidence"
+DOMAIN_EXECUTION_EVIDENCE_KIND = "domain_execution_evidence"
 
 
 def instrument_state_evidence_ref() -> str:
     return record_content_ref(
         record_id=INSTRUMENT_STATE_EVIDENCE_ID,
         kind=INSTRUMENT_STATE_EVIDENCE_KIND,
+    )
+
+
+def domain_execution_evidence_ref() -> str:
+    return record_content_ref(
+        record_id=DOMAIN_EXECUTION_EVIDENCE_ID,
+        kind=DOMAIN_EXECUTION_EVIDENCE_KIND,
     )
 
 
@@ -36,6 +46,7 @@ def build_terminal_contents(
     dataset_schema: MeasurementDatasetSchema | None,
     expected_record_count: int | None,
     instrument_state: InstrumentStateEvidence | None,
+    domain_execution: DomainExecutionEvidence | None = None,
 ) -> tuple[ContentEntry, ...]:
     incomplete_run = outcome.result != "succeeded"
     partial = incomplete_run and (
@@ -71,10 +82,9 @@ def build_terminal_contents(
         )
     elif measurement_count:
         raise ValueError("recorded measurements require a sealed dataset contract")
-    records = (
-        ()
-        if instrument_state is None
-        else (
+    records: list[ContentEntry] = []
+    if instrument_state is not None:
+        records.append(
             ContentEntry(
                 role="record",
                 id=INSTRUMENT_STATE_EVIDENCE_ID,
@@ -86,9 +96,26 @@ def build_terminal_contents(
                         instrument_state
                     ).model_dump(mode="json")
                 },
-            ),
+            )
         )
-    )
+    if domain_execution is not None:
+        records.append(
+            ContentEntry(
+                role="record",
+                id=DOMAIN_EXECUTION_EVIDENCE_ID,
+                kind=DOMAIN_EXECUTION_EVIDENCE_KIND,
+                media_type="application/json",
+                content_hash=model_wire_content_hash(domain_execution),
+                metadata={
+                    "detail_complete": domain_execution.detail_complete,
+                    "attempt_count": domain_execution.attempt_count,
+                    "receipt_count": domain_execution.receipt_count,
+                    "completed_count": domain_execution.completed_count,
+                    "target_ids": list(domain_execution.target_ids),
+                    "transition_policies": list(domain_execution.transition_policies),
+                },
+            )
+        )
     return (*records, *datasets)
 
 

@@ -7,6 +7,7 @@ from scopecat.compiler.bound_facts import (
 )
 from scopecat.compiler.point_domain import PointDomain
 from scopecat.config.environment import build_config_environment
+from scopecat.kernel.instrument_members import InterfaceRef
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.product_identity import ProductUse, product_use
@@ -123,7 +124,7 @@ def measurement_assembly_scenario(
             (
                 LogicalResourceRequirement(
                     port_id=logical_resource_port_id("source"),
-                    interfaces=("test.scalar_signal/v1",),
+                    capabilities=(InterfaceRef("test.scalar_signal/v1"),),
                 ),
             )
             if products

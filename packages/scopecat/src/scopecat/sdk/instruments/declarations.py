@@ -1,9 +1,9 @@
 """Typed Python declarations for instrument interface contracts.
 
-State and result decorators turn ordinary annotated classes into immutable
-dataclasses while preserving their authored API for Python type checkers.
-:func:`compile_interface` is the explicit boundary that lowers those
-declarations to the existing :class:`InterfaceSpec` contract.
+State members are explicit class attributes: they carry stable identity and
+schema metadata, but they do not pretend that hardware I/O is normal Python
+attribute access. :func:`compile_interface` lowers those declarations and the
+decorated operation/acquisition methods to :class:`InterfaceSpec`.
 """
 
 from __future__ import annotations
@@ -23,13 +23,14 @@ from typing import (
     get_args,
     get_origin,
     get_type_hints,
-    overload,
 )
 
 from scopecat.kernel.instrument_members import (
     AcquisitionRef,
     AcquisitionResultRef,
     ComponentRef,
+    DevicePropertyRef,
+    DeviceSchemaId,
     InterfaceRef,
     OperationArgumentRef,
     OperationRef,
@@ -80,16 +81,15 @@ from scopecat.sdk.instruments.contracts import (
     operation_argument as build_operation_argument,
 )
 
-type PropertyAccess = Literal["read_only", "read_write"]
+type PropertyAccess = Literal["read_only", "write_only", "read_write"]
 type PreconditionValue = bool | int | float | str | Quantity
 
-_STATE_METADATA = "__scopecat_instrument_state__"
 _RESULT_METADATA = "__scopecat_instrument_result__"
 _INTERFACE_METADATA = "__scopecat_instrument_interface__"
 _COMPONENT_METADATA = "__scopecat_instrument_component__"
 _ACQUISITION_METADATA = "__scopecat_instrument_acquisition__"
 _OPERATION_METADATA = "__scopecat_instrument_operation__"
-_STATE_PROJECTION_METADATA = "__scopecat_instrument_state_projection__"
+_MEMBER_PROJECTION_METADATA = "__scopecat_instrument_member_projection__"
 _FIELD_DECLARATION_METADATA = "scopecat.instrument.declaration"
 
 
@@ -100,24 +100,24 @@ class _NoFieldDefault(Enum):
 _NO_FIELD_DEFAULT = _NoFieldDefault.TOKEN
 
 
-class _StateProjectionOmitted(Enum):
+class _MemberProjectionOmitted(Enum):
     TOKEN = auto()
 
 
-_STATE_PROJECTION_OMITTED = _StateProjectionOmitted.TOKEN
+_MEMBER_PROJECTION_OMITTED = _MemberProjectionOmitted.TOKEN
 
 
-def _state_projection_repr(self: object) -> str:
+def _member_projection_repr(self: object) -> str:
     layout = _required_metadata(
         type(self),
-        _STATE_PROJECTION_METADATA,
-        StateProjectionLayout,
-        "instrument state projection",
+        _MEMBER_PROJECTION_METADATA,
+        MemberProjectionLayout,
+        "instrument member projection",
     )
     arguments: list[str] = []
     for projected_field in layout.fields:
         value = cast("object", getattr(self, projected_field.python_name))
-        if value is _STATE_PROJECTION_OMITTED:
+        if value is _MEMBER_PROJECTION_OMITTED:
             continue
         arguments.append(f"{projected_field.python_name}={value!r}")
     return f"{type(self).__qualname__}({', '.join(arguments)})"
@@ -125,16 +125,62 @@ def _state_projection_repr(self: object) -> str:
 
 @dataclass(frozen=True, slots=True)
 class MemberMetadata:
-    """Metadata that cannot be inferred from a state field annotation."""
+    """Schema metadata carried by one explicit member declaration.
 
+    Read/write access permits commands; baseline restoration remains an
+    independent, opt-in lifecycle policy.
+    """
+
+    access: PropertyAccess
     id: str | None = None
     label: str | None = None
     description: str | None = None
-    access: PropertyAccess = "read_write"
+    capture: bool = True
+    restore: bool = False
     unit: str | None = None
     minimum: float | None = None
     maximum: float | None = None
     choices: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceMemberMetadata(MemberMetadata):
+    """Metadata for a model-specific property outside portable interfaces."""
+
+    component_path: tuple[str, ...] = ()
+
+
+class Member[ValueT]:
+    """A portable state-member declaration and driver-binding target.
+
+    The object intentionally has no value-style descriptor behavior. Accessing
+    ``SomeInterface.frequency`` returns this declaration object, making I/O
+    available only through explicit client or driver operations.
+    """
+
+    __slots__ = ("metadata", "owner", "python_name")
+
+    def __init__(self, metadata: MemberMetadata) -> None:
+        self.metadata = metadata
+        self.owner: type[object] | None = None
+        self.python_name: str | None = None
+
+    def __set_name__(self, owner: type[object], name: str) -> None:
+        if self.owner is not None and (
+            self.owner is not owner or self.python_name != name
+        ):
+            raise TypeError("instrument member declarations cannot be reused")
+        self.owner = owner
+        self.python_name = name
+
+
+class DeviceMember[ValueT](Member[ValueT]):
+    """A model-specific state-member declaration owned by a concrete driver."""
+
+    metadata: DeviceMemberMetadata
+
+    def __init__(self, metadata: DeviceMemberMetadata) -> None:
+        super().__init__(metadata)
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,17 +210,8 @@ class ArgumentMetadata:
     payload_schema_id: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class StateFieldReference:
-    """A deferred property reference addressed by a typed state field."""
-
-    interface_type: type[object] | None
-    state_type: type[object]
-    field_name: str
-
-
-type DeclaredPropertyTarget = PropertyRef | StateFieldReference
-type AxisSize = int | str | StateFieldReference | None
+type DeclaredPropertyTarget = PropertyRef | Member[object]
+type AxisSize = int | str | Member[object] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,14 +225,12 @@ class AxisMetadata:
     description: str | None = None
 
 
-type StateMetadata = type[object]
 type ComponentDeclarations = tuple[tuple[str, type[object]], ...]
 
 
 @dataclass(frozen=True, slots=True)
 class InterfaceMetadata:
     id: str
-    state: StateMetadata | None
     label: str | None
     description: str | None
     components: ComponentDeclarations
@@ -203,7 +238,6 @@ class InterfaceMetadata:
 
 @dataclass(frozen=True, slots=True)
 class ComponentMetadata:
-    state: StateMetadata | None
     label: str | None
     description: str | None
     components: ComponentDeclarations
@@ -225,6 +259,30 @@ class AcquisitionMetadata:
     preconditions: tuple[PreconditionMetadata, ...]
 
 
+class MemberObservation:
+    """A named acquisition projection of independently declared state members."""
+
+    __slots__ = ("members", "metadata", "owner", "python_name")
+
+    def __init__(
+        self,
+        members: tuple[Member[object], ...],
+        metadata: AcquisitionMetadata,
+    ) -> None:
+        self.members = members
+        self.metadata = metadata
+        self.owner: type[object] | None = None
+        self.python_name: str | None = None
+
+    def __set_name__(self, owner: type[object], name: str) -> None:
+        if self.owner is not None and (
+            self.owner is not owner or self.python_name != name
+        ):
+            raise TypeError("member observation declarations cannot be reused")
+        self.owner = owner
+        self.python_name = name
+
+
 @dataclass(frozen=True, slots=True)
 class OperationMetadata:
     id: str | None
@@ -243,19 +301,20 @@ class CompiledInterface[InterfaceT]:
 
 
 @dataclass(frozen=True, slots=True)
-class StateProjectionField:
-    """The runtime identity needed to encode one generated state field."""
+class MemberProjectionField:
+    """The runtime identity needed to encode one projected property."""
 
     python_name: str
     ref: PropertyRef
 
 
 @dataclass(frozen=True, slots=True)
-class DeclaredStateField(StateProjectionField):
-    """One concrete state member paired with its compiled property identity."""
+class DeclaredProperty(MemberProjectionField):
+    """One Python property paired with its compiled instrument identity."""
 
     spec: PropertySpec
     annotation: object
+    declaration: Member[object]
 
     @property
     def property_id(self) -> str:
@@ -263,17 +322,28 @@ class DeclaredStateField(StateProjectionField):
 
 
 @dataclass(frozen=True, slots=True)
-class StateProjectionLayout:
-    """The minimal runtime layout carried by a generated state projection."""
+class DeclaredDeviceProperty:
+    """One concrete-driver property paired with its device-owned identity."""
 
-    fields: tuple[StateProjectionField, ...]
+    python_name: str
+    ref: DevicePropertyRef
+    spec: PropertySpec
+    annotation: object
+    declaration: DeviceMember[object]
 
 
 @dataclass(frozen=True, slots=True)
-class DeclaredStateLayout:
-    """One compiled flat state schema."""
+class MemberProjectionLayout:
+    """The minimal runtime layout carried by a generated member projection."""
 
-    fields: tuple[DeclaredStateField, ...]
+    fields: tuple[MemberProjectionField, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredPropertyLayout:
+    """The compiled properties declared directly by one interface."""
+
+    fields: tuple[DeclaredProperty, ...]
     source_type: type[object]
 
 
@@ -310,6 +380,7 @@ class DeclaredResultField:
     ref: AcquisitionResultRef
     spec: AcquisitionResultSpec
     annotation: object
+    source_property: PropertyRef | None = None
 
     @property
     def result_id(self) -> str:
@@ -320,7 +391,8 @@ class DeclaredResultField:
 class DeclaredResultLayout:
     """The complete result schema for one acquisition."""
 
-    result_type: object
+    result_type: object | None
+    type_name: str
     fields: tuple[DeclaredResultField, ...]
 
 
@@ -332,6 +404,7 @@ class DeclaredAcquisition[ResultT]:
     ref: AcquisitionRef
     spec: AcquisitionSpec
     result: DeclaredResultLayout
+    kind: Literal["acquisition", "member_observation"]
 
     @property
     def result_fields(self) -> tuple[DeclaredResultField, ...]:
@@ -357,71 +430,107 @@ class DeclaredInterfaceLayout[InterfaceT]:
 
     compiled: CompiledInterface[InterfaceT]
     root: DeclaredScopeLayout
-    state: DeclaredStateLayout | None
+    properties: DeclaredPropertyLayout | None
 
 
-def member(
+def member[ValueT](
     *,
+    access: PropertyAccess,
     id: str | None = None,
     label: str | None = None,
     description: str | None = None,
-    access: PropertyAccess = "read_write",
+    capture: bool = True,
+    restore: bool = False,
     unit: str | None = None,
     minimum: float | None = None,
     maximum: float | None = None,
     choices: Sequence[str] | None = None,
-) -> MemberMetadata:
-    """Describe one state field while keeping its Python annotation intact."""
+) -> Member[ValueT]:
+    """Declare one portable member without prescribing its I/O strategy."""
 
-    return MemberMetadata(
-        id=id,
-        label=label,
-        description=description,
-        access=access,
-        unit=unit,
-        minimum=minimum,
-        maximum=maximum,
-        choices=None if choices is None else tuple(choices),
-    )
-
-
-def member_field[ValueT](
-    *,
-    id: str | None = None,
-    label: str | None = None,
-    description: str | None = None,
-    access: PropertyAccess = "read_write",
-    unit: str | None = None,
-    minimum: float | None = None,
-    maximum: float | None = None,
-    choices: Sequence[str] | None = None,
-) -> ValueT:  # pyright: ignore[reportInvalidTypeVarUse]
-    """Declare one required concrete state field and its instrument metadata.
-
-    Interface state describes a complete driver-facing snapshot, so the Python
-    annotation is the concrete ``T``. Generated patch and target carriers add
-    omission where live transitions or symbolic effects need sparse updates.
-    """
-
-    metadata = {
-        _FIELD_DECLARATION_METADATA: member(
+    return Member(
+        MemberMetadata(
             id=id,
             label=label,
             description=description,
             access=access,
+            capture=capture,
+            restore=restore,
             unit=unit,
             minimum=minimum,
             maximum=maximum,
-            choices=choices,
+            choices=None if choices is None else tuple(choices),
         )
-    }
-    return cast("ValueT", field(metadata=metadata))
+    )
 
 
-def state_projection_field[ValueT]() -> ValueT:  # pyright: ignore[reportInvalidTypeVarUse]
-    """Declare an omittable generated state-projection field."""
+def write_only_member[ValueT](
+    *,
+    id: str | None = None,
+    label: str | None = None,
+    description: str | None = None,
+    unit: str | None = None,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    choices: Sequence[str] | None = None,
+) -> Member[ValueT]:
+    """Declare acknowledged state that cannot be queried or restored."""
 
-    return cast("ValueT", field(default=_STATE_PROJECTION_OMITTED))
+    return member(
+        access="write_only",
+        id=id,
+        label=label,
+        description=description,
+        capture=False,
+        restore=False,
+        unit=unit,
+        minimum=minimum,
+        maximum=maximum,
+        choices=choices,
+    )
+
+
+def device_member[ValueT](
+    *,
+    access: PropertyAccess,
+    id: str | None = None,
+    component_path: Sequence[str] = (),
+    label: str | None = None,
+    description: str | None = None,
+    capture: bool = True,
+    restore: bool = False,
+    unit: str | None = None,
+    minimum: float | None = None,
+    maximum: float | None = None,
+    choices: Sequence[str] | None = None,
+) -> DeviceMember[ValueT]:
+    """Declare model-specific background state on a concrete driver class.
+
+    Device members can be captured and explicitly marked restorable without
+    claiming a portable interface. Driver methods bind their I/O explicitly.
+    """
+
+    return DeviceMember(
+        DeviceMemberMetadata(
+            id=id,
+            component_path=tuple(component_path),
+            label=label,
+            description=description,
+            access=access,
+            capture=capture,
+            restore=restore,
+            unit=unit,
+            minimum=minimum,
+            maximum=maximum,
+            choices=None if choices is None else tuple(choices),
+        )
+    )
+
+
+def member_projection_field[ValueT]() -> ValueT:  # pyright: ignore[reportInvalidTypeVarUse]
+    """Declare an omittable generated member-projection field."""
+
+    return cast("ValueT", field(default=_MEMBER_PROJECTION_OMITTED))
 
 
 def argument(
@@ -446,44 +555,6 @@ def argument(
         maximum=maximum,
         choices=None if choices is None else tuple(choices),
         payload_schema_id=payload_schema_id,
-    )
-
-
-@overload
-def state_field(
-    state_type: type[object],
-    field_name: str,
-    /,
-) -> StateFieldReference: ...
-
-
-@overload
-def state_field(
-    interface_type: type[object],
-    state_type: type[object],
-    field_name: str,
-    /,
-) -> StateFieldReference: ...
-
-
-def state_field(
-    interface_or_state_type: type[object],
-    state_type_or_field_name: type[object] | str,
-    field_name: str | None = None,
-    /,
-) -> StateFieldReference:
-    """Defer a cross-property reference until all declarations are defined."""
-
-    if field_name is None:
-        return StateFieldReference(
-            interface_type=None,
-            state_type=interface_or_state_type,
-            field_name=cast("str", state_type_or_field_name),
-        )
-    return StateFieldReference(
-        interface_type=interface_or_state_type,
-        state_type=cast("type[object]", state_type_or_field_name),
-        field_name=field_name,
     )
 
 
@@ -581,37 +652,19 @@ def axis(
 
 
 @dataclass_transform(
-    field_specifiers=(member_field,),
     frozen_default=True,
     kw_only_default=True,
 )
-def instrument_state[ClassT](cls: type[ClassT], /) -> type[ClassT]:
-    """Create an immutable concrete instrument-state schema dataclass.
-
-    Use this for the state a driver can read or report in full. Optionality is
-    ordinary domain optionality, not a marker for an omitted device update.
-    Sparse generated patch and target types are derived from this schema.
-    """
-
-    declared = dataclass(frozen=True, slots=True, kw_only=True)(cls)
-    setattr(declared, _STATE_METADATA, True)
-    return declared
-
-
-@dataclass_transform(
-    frozen_default=True,
-    kw_only_default=True,
-)
-def instrument_state_projection[ClassT](
-    layout: StateProjectionLayout,
+def instrument_member_projection[ClassT](
+    layout: MemberProjectionLayout,
     /,
 ) -> Callable[[type[ClassT]], type[ClassT]]:
-    """Create a sparse generated carrier bound to one concrete state layout."""
+    """Create a sparse generated carrier bound to one property layout."""
 
     def decorate(cls: type[ClassT]) -> type[ClassT]:
         projected = dataclass(frozen=True, slots=True, kw_only=True)(cls)
-        setattr(projected, _STATE_PROJECTION_METADATA, layout)
-        projected.__repr__ = _state_projection_repr
+        setattr(projected, _MEMBER_PROJECTION_METADATA, layout)
+        projected.__repr__ = _member_projection_repr
         return projected
 
     return decorate
@@ -638,12 +691,11 @@ def instrument_result[ClassT](cls: type[ClassT], /) -> type[ClassT]:
 def instrument_interface[ClassT: type[object]](
     id: str,
     *,
-    state: StateMetadata | None = None,
     label: str | None = None,
     description: str | None = None,
     components: Mapping[str, type[object]] | None = None,
 ) -> Callable[[ClassT], ClassT]:
-    """Attach instrument identity to an authored ``Protocol`` or ABC.
+    """Attach instrument identity to an authored class, ``Protocol``, or ABC.
 
     The decorator preserves the Python class. Decorated methods define typed
     operation and acquisition members; ``compile_interface`` is the explicit
@@ -652,7 +704,6 @@ def instrument_interface[ClassT: type[object]](
 
     declaration = InterfaceMetadata(
         id=id,
-        state=state,
         label=label,
         description=description,
         components=tuple((components or {}).items()),
@@ -667,7 +718,6 @@ def instrument_interface[ClassT: type[object]](
 
 def instrument_component[ClassT: type[object]](
     *,
-    state: StateMetadata | None = None,
     label: str | None = None,
     description: str | None = None,
     components: Mapping[str, type[object]] | None = None,
@@ -679,7 +729,6 @@ def instrument_component[ClassT: type[object]](
     """
 
     declaration = ComponentMetadata(
-        state=state,
         label=label,
         description=description,
         components=tuple((components or {}).items()),
@@ -744,13 +793,37 @@ def acquisition[**P, ReturnT](
     return decorate
 
 
+def observation(
+    *members: Member[object],
+    id: str | None = None,
+    label: str | None = None,
+    description: str | None = None,
+) -> MemberObservation:
+    """Declare a fresh, recordable observation of existing scalar members."""
+
+    if not members:
+        raise ValueError("member observation requires at least one member")
+    if len(set(members)) != len(members):
+        raise ValueError("member observation cannot repeat a member")
+    return MemberObservation(
+        tuple(members),
+        AcquisitionMetadata(
+            id=id,
+            axes=(),
+            label=label,
+            description=description,
+            preconditions=(),
+        ),
+    )
+
+
 def compile_interface[InterfaceT](
     interface_type: type[InterfaceT],
 ) -> CompiledInterface[InterfaceT]:
     """Lower one decorated Python interface class to a typed, fresh contract."""
 
     declaration = _required_interface_metadata(interface_type)
-    properties = [] if declaration.state is None else _compile_state(declaration.state)
+    properties = _compile_properties(interface_type)
     scope = InterfaceRef(declaration.id)
     operations, acquisitions = _compile_scope_members(interface_type, scope=scope)
     components = [
@@ -798,9 +871,7 @@ def _compile_component(
         component_id,
         label=declaration.label,
         description=declaration.description,
-        properties=(
-            () if declaration.state is None else _compile_state(declaration.state)
-        ),
+        properties=_compile_properties(component_type),
         operations=operations,
         acquisitions=acquisitions,
         components=[
@@ -823,6 +894,16 @@ def _compile_scope_members(
     operations: list[OperationSpec] = []
     acquisitions: list[AcquisitionSpec] = []
     for method_name, method in _declared_members(scope_type).items():
+        if isinstance(method, MemberObservation):
+            acquisitions.append(
+                _compile_member_observation(
+                    method_name,
+                    method,
+                    scope_type=scope_type,
+                    scope=scope,
+                )
+            )
+            continue
         operation_declaration = getattr(method, _OPERATION_METADATA, None)
         acquisition_declaration = getattr(method, _ACQUISITION_METADATA, None)
         if isinstance(operation_declaration, OperationMetadata) and isinstance(
@@ -864,19 +945,55 @@ def declared_interface_ref(interface_type: type[object]) -> InterfaceRef:
 
 def declared_property_ref(
     interface_type: type[object],
-    state_type: type[object],
-    field_name: str,
+    property_name: str,
+    /,
 ) -> PropertyRef:
-    """Resolve a state dataclass field to its declared property identity."""
+    """Resolve a declared property to its stable member identity."""
 
-    return declared_interface_ref(interface_type).property(
-        _declared_dataclass_field_id(
-            state_type,
-            field_name,
-            metadata_type=MemberMetadata,
-            label="state",
+    declared_property = _declared_properties(interface_type).get(property_name)
+    if declared_property is None:
+        raise ValueError(f"declared scope has no property {property_name!r}")
+    metadata = declared_property.metadata
+    property_id = metadata.id or property_name
+    return declared_interface_ref(interface_type).property(property_id)
+
+
+def declared_device_properties(
+    driver_type: type[object],
+    schema_id: DeviceSchemaId | None,
+    /,
+) -> tuple[DeclaredDeviceProperty, ...]:
+    """Compile device-owned properties declared directly on a driver hierarchy."""
+
+    fields: list[DeclaredDeviceProperty] = []
+    for property_name, declaration in _declared_properties(driver_type).items():
+        if not isinstance(declaration, DeviceMember):
+            continue
+        metadata = declaration.metadata
+        if schema_id is None:
+            raise TypeError(
+                f"device property {property_name!r} requires "
+                "instrument_driver(device_schema_id=...)"
+            )
+        annotation, spec = _compile_declared_property(
+            driver_type,
+            property_name,
+            declaration,
         )
-    )
+        fields.append(
+            DeclaredDeviceProperty(
+                python_name=property_name,
+                ref=DevicePropertyRef(
+                    schema_id,
+                    metadata.component_path,
+                    spec.id,
+                ),
+                spec=spec,
+                annotation=annotation,
+                declaration=declaration,
+            )
+        )
+    return tuple(fields)
 
 
 def declared_operation_ref(
@@ -943,23 +1060,23 @@ def _declared_operation_argument_id(
     return parameter_name if metadata is None or metadata.id is None else metadata.id
 
 
-def state_projection_assignments(
+def member_projection_assignments(
     projection: object,
 ) -> dict[PropertyRef, StateBinding]:
-    """Encode one generated state projection using explicit field presence."""
+    """Encode one generated member projection using explicit field presence."""
 
     if not is_dataclass(projection):
-        raise TypeError("instrument state projection must be a dataclass instance")
+        raise TypeError("instrument member projection must be a dataclass instance")
     layout = _required_metadata(
         type(projection),
-        _STATE_PROJECTION_METADATA,
-        StateProjectionLayout,
-        "instrument state projection",
+        _MEMBER_PROJECTION_METADATA,
+        MemberProjectionLayout,
+        "instrument member projection",
     )
     assignments: dict[PropertyRef, StateBinding] = {}
     for projected_field in layout.fields:
         value = cast("object", getattr(projection, projected_field.python_name))
-        if value is not _STATE_PROJECTION_OMITTED:
+        if value is not _MEMBER_PROJECTION_OMITTED:
             assignments[projected_field.ref] = cast("StateBinding", value)
     return assignments
 
@@ -970,55 +1087,49 @@ def declared_interface_layout[InterfaceT](
 ) -> DeclaredInterfaceLayout[InterfaceT]:
     """Project a compiled interface into its complete typed Python member tree."""
 
-    declaration = _required_interface_metadata(compiled.interface_type)
     return DeclaredInterfaceLayout(
         compiled=compiled,
         root=_declared_scope_layout(
             compiled,
         ),
-        state=_declared_state_layout(compiled, declaration.state),
+        properties=_declared_property_layout(compiled),
     )
 
 
-def _declared_state_layout[InterfaceT](
+def _declared_property_layout[InterfaceT](
     compiled: CompiledInterface[InterfaceT],
-    declaration: StateMetadata | None,
-) -> DeclaredStateLayout | None:
-    if declaration is None:
+) -> DeclaredPropertyLayout | None:
+    declared_properties = _declared_properties(compiled.interface_type)
+    if not declared_properties:
         return None
-    return DeclaredStateLayout(
-        source_type=declaration,
-        fields=_declared_state_fields(compiled, declaration),
+    return DeclaredPropertyLayout(
+        source_type=compiled.interface_type,
+        fields=_declared_property_fields(compiled),
     )
 
 
-def _declared_state_fields[InterfaceT](
+def _declared_property_fields[InterfaceT](
     compiled: CompiledInterface[InterfaceT],
-    state_type: type[object],
-) -> tuple[DeclaredStateField, ...]:
-    hints = cast(
-        "Mapping[str, object]",
-        get_type_hints(state_type, include_extras=True),
-    )
+) -> tuple[DeclaredProperty, ...]:
     specs_by_id = {item.id: item for item in compiled.spec.properties}
-    declared_fields: list[DeclaredStateField] = []
-    for state_member in _instrument_state_fields(state_type):
-        annotation = hints.get(state_member.name)
-        if annotation is None:
-            raise TypeError(f"state field {state_member.name!r} must be annotated")
-        concrete_annotation, _ = _split_annotation(annotation, MemberMetadata)
-        property_id = _declared_dataclass_field_id(
-            state_type,
-            state_member.name,
-            metadata_type=MemberMetadata,
-            label="state",
+    declared_fields: list[DeclaredProperty] = []
+    for property_name, declaration in _declared_properties(
+        compiled.interface_type
+    ).items():
+        annotation = _declared_member_annotation(
+            compiled.interface_type,
+            property_name,
+            declaration,
         )
+        metadata = declaration.metadata
+        property_id = metadata.id or property_name
         declared_fields.append(
-            DeclaredStateField(
-                python_name=state_member.name,
+            DeclaredProperty(
+                python_name=property_name,
                 ref=compiled.ref.property(property_id),
                 spec=specs_by_id[property_id],
-                annotation=concrete_annotation,
+                annotation=_expand_concrete_alias(annotation),
+                declaration=declaration,
             )
         )
     return tuple(declared_fields)
@@ -1030,6 +1141,9 @@ def _declared_scope_layout[InterfaceT](
     operations: list[DeclaredOperation] = []
     acquisitions: list[DeclaredAcquisition[object]] = []
     for method in _declared_members(compiled.interface_type).values():
+        if isinstance(method, MemberObservation):
+            acquisitions.append(declared_acquisition(compiled, method))
+            continue
         operation_declaration = getattr(method, _OPERATION_METADATA, None)
         acquisition_declaration = getattr(method, _ACQUISITION_METADATA, None)
         if isinstance(operation_declaration, OperationMetadata):
@@ -1123,10 +1237,10 @@ def declared_operation[InterfaceT](
 
 def declared_acquisition[InterfaceT, ResultT](
     compiled: CompiledInterface[InterfaceT],
-    method: Callable[..., ResultT],
+    method: Callable[..., ResultT] | MemberObservation,
     /,
 ) -> DeclaredAcquisition[ResultT]:
-    """Bind a decorated interface method to its compiled result layout."""
+    """Bind an acquisition declaration to its compiled result layout."""
 
     method_name = next(
         (
@@ -1139,28 +1253,45 @@ def declared_acquisition[InterfaceT, ResultT](
         None,
     )
     if method_name is None:
-        raise ValueError("acquisition method does not belong to the compiled interface")
-    declaration = _required_metadata(
-        method,
-        _ACQUISITION_METADATA,
-        AcquisitionMetadata,
-        f"interface method {method_name!r}",
+        raise ValueError("acquisition declaration does not belong to the interface")
+    declaration = (
+        method.metadata
+        if isinstance(method, MemberObservation)
+        else _required_metadata(
+            method,
+            _ACQUISITION_METADATA,
+            AcquisitionMetadata,
+            f"interface method {method_name!r}",
+        )
     )
     acquisition_id = declaration.id or method_name
     acquisition_spec = next(
         item for item in compiled.spec.acquisitions if item.id == acquisition_id
     )
     acquisition_ref = compiled.ref.acquisition(acquisition_id)
-    result_type = _declared_method_result_type(method, method_name=method_name)
+    if isinstance(method, MemberObservation):
+        result_layout = _declared_member_observation_result_layout(
+            compiled,
+            method,
+            method_name=method_name,
+            acquisition_ref=acquisition_ref,
+            result_specs=acquisition_spec.results,
+        )
+        kind: Literal["acquisition", "member_observation"] = "member_observation"
+    else:
+        result_type = _declared_method_result_type(method, method_name=method_name)
+        result_layout = _declared_result_layout(
+            result_type,
+            acquisition_ref=acquisition_ref,
+            result_specs=acquisition_spec.results,
+        )
+        kind = "acquisition"
     return DeclaredAcquisition(
         method_name=method_name,
         ref=acquisition_ref,
         spec=acquisition_spec,
-        result=_declared_result_layout(
-            result_type,
-            acquisition_ref=acquisition_ref,
-            result_specs=acquisition_spec.results,
-        ),
+        result=result_layout,
+        kind=kind,
     )
 
 
@@ -1173,11 +1304,15 @@ def declared_acquisition_ref(
     method = _declared_members(interface_type).get(method_name)
     if method is None:
         raise ValueError(f"declared scope has no method {method_name!r}")
-    declaration = _required_metadata(
-        method,
-        _ACQUISITION_METADATA,
-        AcquisitionMetadata,
-        f"declared scope method {method_name!r}",
+    declaration = (
+        method.metadata
+        if isinstance(method, MemberObservation)
+        else _required_metadata(
+            method,
+            _ACQUISITION_METADATA,
+            AcquisitionMetadata,
+            f"declared scope method {method_name!r}",
+        )
     )
     return declared_interface_ref(interface_type).acquisition(
         declaration.id or method_name
@@ -1194,6 +1329,22 @@ def declared_result_ref(
     method = _declared_members(interface_type).get(method_name)
     if method is None:
         raise ValueError(f"declared scope has no method {method_name!r}")
+    if isinstance(method, MemberObservation):
+        layout = declared_interface_layout(compile_interface(interface_type))
+        acquisition = next(
+            item for item in layout.root.acquisitions if item.method_name == method_name
+        )
+        result = next(
+            (
+                field
+                for field in acquisition.result_fields
+                if field.python_name == field_name
+            ),
+            None,
+        )
+        if result is None:
+            raise ValueError(f"acquisition result has no field {field_name!r}")
+        return result.ref
     _required_metadata(
         method,
         _ACQUISITION_METADATA,
@@ -1273,62 +1424,86 @@ def _declared_result_layout(
     )
     return DeclaredResultLayout(
         result_type=result_type,
+        type_name=result_class.__name__,
         fields=declared_fields,
     )
 
 
-def _require_instrument_state(state_type: type[object]) -> None:
-    _required_metadata(
-        state_type,
-        _STATE_METADATA,
-        bool,
-        "instrument state",
-    )
-    if not is_dataclass(state_type):
-        raise TypeError("instrument state must be a dataclass")
-
-
-def _instrument_state_fields(
-    state_type: type[object],
-) -> tuple[Field[object], ...]:
-    _require_instrument_state(state_type)
-    if not is_dataclass(state_type):
-        raise TypeError("instrument state must be a dataclass")
-    return fields(state_type)
-
-
-def _compile_state(state_type: type[object]) -> list[PropertySpec]:
-    return _compile_state_fields(state_type)
-
-
-def _compile_state_fields(
-    state_type: type[object],
-) -> list[PropertySpec]:
-    _require_instrument_state(state_type)
-    if not is_dataclass(state_type):
-        raise TypeError("instrument state must be a dataclass")
-    hints = cast(
-        "Mapping[str, object]",
-        get_type_hints(state_type, include_extras=True),
-    )
-    state_fields = {state_field.name: state_field for state_field in fields(state_type)}
-    properties: list[PropertySpec] = []
-    for field_name, state_field in state_fields.items():
-        annotation = hints.get(field_name)
-        if annotation is None:
-            raise TypeError(f"state field {field_name!r} must be annotated")
-        base, annotated_metadata = _split_annotation(annotation, MemberMetadata)
-        metadata = (
-            _declared_field_metadata(state_field, MemberMetadata) or annotated_metadata
-        )
-        properties.append(
-            _compile_property(
-                field_name,
-                base,
-                metadata or MemberMetadata(),
+def _declared_member_observation_result_layout[InterfaceT](
+    compiled: CompiledInterface[InterfaceT],
+    declaration: MemberObservation,
+    *,
+    method_name: str,
+    acquisition_ref: AcquisitionRef,
+    result_specs: Sequence[AcquisitionResultSpec],
+) -> DeclaredResultLayout:
+    properties = {
+        field.declaration: field for field in _declared_property_fields(compiled)
+    }
+    specs_by_id = {item.id: item for item in result_specs}
+    declared_fields: list[DeclaredResultField] = []
+    for member in declaration.members:
+        field = properties.get(member)
+        if field is None:
+            raise TypeError(
+                f"member observation {method_name!r} targets a member not declared "
+                "by its interface"
+            )
+        spec = specs_by_id[field.property_id]
+        declared_fields.append(
+            DeclaredResultField(
+                python_name=field.python_name,
+                ref=acquisition_ref.result(spec.id),
+                spec=spec,
+                annotation=field.annotation,
+                source_property=field.ref,
             )
         )
+    interface_name = compiled.interface_type.__name__.removesuffix("Interface")
+    observation_name = "".join(
+        segment[:1].upper() + segment[1:]
+        for segment in method_name.split("_")
+        if segment
+    )
+    return DeclaredResultLayout(
+        result_type=None,
+        type_name=f"{interface_name}{observation_name}Results",
+        fields=tuple(declared_fields),
+    )
+
+
+def _compile_properties(scope_type: type[object]) -> list[PropertySpec]:
+    properties: list[PropertySpec] = []
+    for property_name, declaration in _declared_properties(scope_type).items():
+        if isinstance(declaration, DeviceMember):
+            raise TypeError(
+                f"interface property {property_name!r} cannot use @device_member"
+            )
+        _, spec = _compile_declared_property(
+            scope_type,
+            property_name,
+            declaration,
+        )
+        properties.append(spec)
     return properties
+
+
+def _compile_declared_property(
+    scope_type: type[object],
+    property_name: str,
+    declaration: Member[object],
+) -> tuple[object, PropertySpec]:
+    annotation = _declared_member_annotation(
+        scope_type,
+        property_name,
+        declaration,
+    )
+    expanded_annotation = _expand_concrete_alias(annotation)
+    return expanded_annotation, _compile_property(
+        property_name,
+        expanded_annotation,
+        declaration.metadata,
+    )
 
 
 def _compile_property(
@@ -1397,6 +1572,8 @@ def _compile_property(
         label=metadata.label,
         description=metadata.description,
         access=metadata.access,
+        capture=metadata.capture,
+        restore=metadata.restore,
         value_type=Scalar(atom),
     )
 
@@ -1545,6 +1722,50 @@ def _compile_operation_argument(
     )
 
 
+def _compile_member_observation(
+    name: str,
+    declaration: MemberObservation,
+    *,
+    scope_type: type[object],
+    scope: _DeclaredScopeRef,
+) -> AcquisitionSpec:
+    acquisition_id = declaration.metadata.id or name
+    declared_members = {
+        member: (python_name, member)
+        for python_name, member in _declared_properties(scope_type).items()
+    }
+    results: list[AcquisitionResultSpec] = []
+    for member in declaration.members:
+        selected = declared_members.get(member)
+        if selected is None:
+            raise TypeError(
+                f"member observation {name!r} targets a member not declared "
+                "by its interface scope"
+            )
+        python_name, selected_member = selected
+        annotation, property_spec = _compile_declared_property(
+            scope_type,
+            python_name,
+            selected_member,
+        )
+        results.append(
+            build_acquisition_result(
+                property_spec.id,
+                dtype=_infer_result_dtype(annotation),
+                unit=selected_member.metadata.unit,
+                label=property_spec.label,
+                description=property_spec.description,
+                source_property=scope.property(property_spec.id),
+            )
+        )
+    return build_acquisition(
+        acquisition_id,
+        label=declaration.metadata.label,
+        description=declaration.metadata.description,
+        results=results,
+    )
+
+
 def _compile_acquisition(
     method_name: str,
     method: Callable[..., object],
@@ -1578,7 +1799,7 @@ def _compile_acquisition(
                 else (
                     scope.property(axis_metadata.size)
                     if isinstance(axis_metadata.size, str)
-                    else _resolve_state_field_reference(
+                    else _resolve_member_declaration(
                         axis_metadata.size,
                         scope=scope,
                     )
@@ -1629,28 +1850,22 @@ def _resolve_property_target(
 ) -> PropertyRef:
     if isinstance(target, PropertyRef):
         return target
-    return _resolve_state_field_reference(target, scope=scope)
+    return _resolve_member_declaration(target, scope=scope)
 
 
-def _resolve_state_field_reference(
-    target: StateFieldReference,
+def _resolve_member_declaration(
+    target: Member[object],
     *,
     scope: _DeclaredScopeRef,
 ) -> PropertyRef:
-    if target.interface_type is not None:
+    if target.owner is None or target.python_name is None:
+        raise TypeError("instrument member declaration is not bound to a class")
+    if isinstance(getattr(target.owner, _INTERFACE_METADATA, None), InterfaceMetadata):
         return declared_property_ref(
-            target.interface_type,
-            target.state_type,
-            target.field_name,
+            target.owner,
+            target.python_name,
         )
-    return scope.property(
-        _declared_dataclass_field_id(
-            target.state_type,
-            target.field_name,
-            metadata_type=MemberMetadata,
-            label="state",
-        )
-    )
+    return scope.property(target.metadata.id or target.python_name)
 
 
 def _compile_results(
@@ -1762,6 +1977,11 @@ def _infer_result_dtype(annotation: object) -> MeasurementDType:
     if annotation is complex:
         return "complex128"
     if annotation is str:
+        return "string"
+    literal_choices = cast("tuple[object, ...]", get_args(annotation))
+    if get_origin(annotation) is Literal and all(
+        isinstance(choice, str) for choice in literal_choices
+    ):
         return "string"
     raise TypeError(
         f"cannot infer a measurement dtype from {annotation!r}; set result(dtype=...)"
@@ -1876,6 +2096,40 @@ def _declared_members(interface_type: type[object]) -> Mapping[str, object]:
             continue
         members.update(cast("Mapping[str, object]", vars(base)))
     return members
+
+
+def _declared_properties(
+    scope_type: type[object],
+) -> Mapping[str, Member[object]]:
+    return {
+        name: member
+        for name, member in _declared_members(scope_type).items()
+        if isinstance(member, Member)
+    }
+
+
+def _declared_member_annotation(
+    scope_type: type[object],
+    property_name: str,
+    declaration: Member[object],
+) -> object:
+    hints = cast(
+        "Mapping[str, object]",
+        get_type_hints(scope_type, include_extras=True),
+    )
+    annotation = hints.get(property_name)
+    origin = get_origin(annotation)
+    arguments = get_args(annotation)
+    if origin not in (Member, DeviceMember) or len(arguments) != 1:
+        raise TypeError(
+            f"declared member {property_name!r} requires a Member[T] or "
+            "DeviceMember[T] annotation"
+        )
+    if isinstance(declaration, DeviceMember) != (origin is DeviceMember):
+        raise TypeError(
+            f"declared member {property_name!r} annotation does not match its value"
+        )
+    return cast("tuple[object, ...]", arguments)[0]
 
 
 def _integer_bound(
@@ -2033,26 +2287,29 @@ __all__ = [
     "CompiledInterface",
     "ComponentMetadata",
     "DeclaredAcquisition",
+    "DeclaredDeviceProperty",
     "DeclaredInterfaceLayout",
     "DeclaredOperation",
     "DeclaredOperationArgument",
+    "DeclaredProperty",
+    "DeclaredPropertyLayout",
     "DeclaredPropertyTarget",
     "DeclaredResultField",
     "DeclaredResultLayout",
     "DeclaredScopeLayout",
-    "DeclaredStateField",
-    "DeclaredStateLayout",
+    "DeviceMember",
+    "DeviceMemberMetadata",
     "InterfaceMetadata",
+    "Member",
     "MemberMetadata",
+    "MemberObservation",
+    "MemberProjectionField",
+    "MemberProjectionLayout",
     "OperationMetadata",
     "PreconditionMetadata",
     "PreconditionValue",
     "PropertyAccess",
     "ResultMetadata",
-    "StateFieldReference",
-    "StateMetadata",
-    "StateProjectionField",
-    "StateProjectionLayout",
     "acquisition",
     "argument",
     "axis",
@@ -2060,24 +2317,25 @@ __all__ = [
     "declared_acquisition",
     "declared_acquisition_ref",
     "declared_argument_ref",
+    "declared_device_properties",
     "declared_interface_layout",
     "declared_interface_ref",
     "declared_operation",
     "declared_operation_ref",
     "declared_property_ref",
     "declared_result_ref",
+    "device_member",
     "instrument_component",
     "instrument_interface",
+    "instrument_member_projection",
     "instrument_result",
-    "instrument_state",
-    "instrument_state_projection",
     "member",
-    "member_field",
+    "member_projection_assignments",
+    "member_projection_field",
+    "observation",
     "operation",
     "precondition",
     "result",
     "result_field",
-    "state_field",
-    "state_projection_assignments",
-    "state_projection_field",
+    "write_only_member",
 ]

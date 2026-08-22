@@ -24,11 +24,12 @@ class _RegisteredImplementation(Protocol):
 
 
 def test_provider_import_does_not_load_driver_implementations() -> None:
+    runtime_forbidden = (*_DRIVER_MODULES, "scopecat.sdk.instruments.client_codegen")
     script = (
         "import sys\n"
         "from scopecat_instruments.provider import ConfiguredInstrumentProvider\n"
         "ConfiguredInstrumentProvider()\n"
-        f"forbidden = {_DRIVER_MODULES!r}\n"
+        f"forbidden = {runtime_forbidden!r}\n"
         "loaded = [name for name in forbidden if name in sys.modules]\n"
         "assert not loaded, loaded\n"
     )

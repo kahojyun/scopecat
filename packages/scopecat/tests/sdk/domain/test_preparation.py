@@ -25,6 +25,8 @@ from scopecat.program.products import ModuleProductDecl, ProductValueSpec
 from scopecat.sdk.domain import (
     DomainBatchRequest,
     DomainPreparationBuilder,
+    DomainResidencyAddress,
+    DomainResidencyRequirement,
     DomainResultBinding,
     DomainResultMapping,
     DomainStateAddress,
@@ -48,13 +50,25 @@ type _ResultBinding = DomainResultBinding[str]
 
 
 class _NoEffectsRuntime:
-    def execute(
+    def start(
         self,
         execution_key: str,
         payload: dict[str, str],
         *,
         instruments: object,
     ) -> DomainExecutionReceipt | DomainExecutionResult[dict[str, str]]:
+        del execution_key, payload, instruments
+        raise AssertionError("preparation must not execute")
+
+
+class _NoEffectsSetup:
+    def prepare(
+        self,
+        execution_key: str,
+        payload: dict[str, str],
+        *,
+        instruments: object,
+    ) -> None:
         del execution_key, payload, instruments
         raise AssertionError("preparation must not execute")
 
@@ -375,8 +389,16 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
         interface_id="test.guard/v1",
         property_id="enabled",
     )
+    resident_program = DomainResidencyRequirement(
+        address=DomainResidencyAddress(
+            instrument_id="instrument-b",
+            slot_id="program",
+        ),
+        content_fingerprint="program-v1",
+    )
     prepared = preparation.build(
         instrument_ids=("instrument-b", "instrument-a"),
+        setup=_NoEffectsSetup(),
         setup_write_footprint=(
             DomainStateAddress(
                 instrument_id="instrument-b",
@@ -384,6 +406,7 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
                 property_id="loaded",
             ),
         ),
+        setup_residency_requirements=(resident_program, resident_program),
         state_requirements=(
             DomainStateRequirement(
                 address=guard_enabled,
@@ -417,12 +440,13 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
         next_batch_max_points=32,
         mapping=mapping,
         invocation=invocation,
-        runtime=_NoEffectsRuntime(),
+        job_runtime=_NoEffectsRuntime(),
         realize=reject_realization,
     )
 
     assert isinstance(prepared, PreparedDomainExecution)
     assert prepared.instrument_ids == ("instrument-a", "instrument-b")
+    assert prepared.invocation.intent.target_intent == {"mode": "test"}
     assert prepared.state_requirements == (
         DomainStateRequirement(
             address=guard_enabled,
@@ -436,6 +460,7 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
             property_id="loaded",
         ),
     )
+    assert prepared.setup_residency_requirements == (resident_program,)
     assert prepared.realtime_write_footprint == (
         DomainStateAddress(
             instrument_id="instrument-a",
@@ -474,7 +499,30 @@ def test_measurement_plan_and_build_close_the_complete_public_sdk_declaration(
             next_batch_max_points=32,
             mapping=mapping,
             invocation=invocation,
-            runtime=_NoEffectsRuntime(),
+            job_runtime=_NoEffectsRuntime(),
+            realize=reject_realization,
+        )
+    with pytest.raises(
+        ValueError,
+        match="domain residency requirements conflict for instrument-b:program",
+    ):
+        preparation.build(
+            instrument_ids=("instrument-b",),
+            setup=_NoEffectsSetup(),
+            setup_residency_requirements=(
+                resident_program,
+                DomainResidencyRequirement(
+                    address=resident_program.address,
+                    content_fingerprint="program-v2",
+                ),
+            ),
+            state_requirements=(),
+            realtime_write_footprint=(),
+            realtime_state_invalidations=(),
+            next_batch_max_points=32,
+            mapping=mapping,
+            invocation=invocation,
+            job_runtime=_NoEffectsRuntime(),
             realize=reject_realization,
         )
     assert prepared.realtime_state_invalidations == (

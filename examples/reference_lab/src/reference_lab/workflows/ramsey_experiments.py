@@ -8,7 +8,7 @@ from typing import cast
 import scopecat as sc
 from scopecat.kernel.entity import EntityRef
 from scopecat.program.measurement_types import MeasurementArrayData
-from scopecat_instruments import DCSourceTarget, dc_source, rf_output
+from scopecat_instruments import DCSourceTarget, dc_source, rf_source
 from scopecat_quantum import authoring as q
 from scopecat_quantum.measurement_computes import (
     BinaryIqProbabilityProducts,
@@ -65,14 +65,14 @@ def q0_fixed_if_lo_sweep(
     """Sweep the host-controlled LO while the real-time program keeps one IF."""
 
     lo_frequency = experiment.scan("lo_frequency", Q0_LO_FREQUENCIES)
-    drive_lo = rf_output(experiment, for_=sc.one(Q0), role="drive-lo")
+    drive_lo = rf_source(experiment, for_=sc.one(Q0), role="drive-lo")
     drive_lo.ensure(
         frequency=lo_frequency,
         power=DRIVE_LO_A[LO_POWER].ref,
         output_enabled=True,
         reference_source="external",
     )
-    readout_lo = rf_output(experiment, for_=sc.one(Q0), role="readout-lo")
+    readout_lo = rf_source(experiment, for_=sc.one(Q0), role="readout-lo")
     readout_lo.ensure(
         frequency=READOUT_LO[LO_FREQUENCY].ref,
         power=READOUT_LO[LO_POWER].ref,

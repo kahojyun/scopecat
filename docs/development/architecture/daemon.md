@@ -30,14 +30,15 @@ long run history never materializes every run's content metadata.
 Admission closes the complete instrument claim set before hardware access. It
 also binds the expected provider and instrument-description fingerprints. The
 executor then atomically acquires a renewable lease with a unique fencing
-identity. Every measurement, coverage, point-plan, and terminal command presents
-that identity, so an expired executor cannot continue writing.
+identity. Every measurement, coverage, point-plan, domain-job transition, and
+terminal command presents that identity, so an expired executor cannot continue
+writing.
 
-Lease validation and each coarse checkpoint or terminal commit share one SQLite
-transaction. Heartbeats renew the lease and return durable cancellation state.
-Routine renewals stay out of the project timeline; lease grant or loss,
-cancellation, quarantine, and attention resolution remain visible state
-changes.
+Lease validation and each coarse domain-job transition or run-terminal commit
+share one SQLite transaction. Heartbeats renew the lease and return durable
+cancellation state. Routine renewals stay out of the project timeline; lease
+grant or loss, cancellation, quarantine, and attention resolution remain
+visible state changes.
 
 Each run claims a flat set of registered instruments. Planning derives it from
 residual host effects and the exact footprints of prepared domain executions.
@@ -46,7 +47,8 @@ Interface, entity, channel, component, and property addresses remain exact
 command data, while instrument claims provide exclusion against other runs and
 direct sessions.
 
-Host orchestration and domain runtime may use the same provisioned instrument.
+Host orchestration and a domain job runtime may use the same provisioned
+instrument.
 Property-level write authority, state requirements, and invalidations are
 verified during planning; the daemon schedules only the resulting instrument
 claims. The [execution semantics](execution.md#physical-authority-and-shared-state)
@@ -131,14 +133,15 @@ versioned automatic policy.
 
 Cancelling queued work commits a known `cancelled` outcome immediately.
 Cancelling leased work stores an idempotent request. The executor observes it on
-a heartbeat and stops at the next operation, hardware-batch, coverage, or
-normal-completion boundary.
+a heartbeat and stops at the next operation, hardware-batch, domain-job
+transition, coverage, or normal-completion boundary.
 
-An active synchronous driver batch or domain call cannot be interrupted in the
-middle. Provisioned hardware follows normal failure finalization before the
-cancelled outcome is committed. If finalization has an unknown outcome, the run
-is cancelled with indeterminate certainty and affected resources remain
-quarantined.
+An active blocking driver or provider call cannot be interrupted in the middle.
+A resumable domain job first commits its returned checkpoint and then observes
+cancellation before the next `resume`. Provisioned hardware follows normal
+failure finalization before the cancelled outcome is committed. If finalization
+has an unknown outcome, the run is cancelled with indeterminate certainty and
+affected resources remain quarantined.
 
 Cancellation and terminal commit are serialized by the SQLite writer:
 
@@ -153,8 +156,12 @@ closes the run with an indeterminate failed outcome and releases the claims. The
 original program is not resumed because general effect replay is unsafe; another
 attempt is a new run. The daemon discards that executor's pending/live measurement
 state as soon as the lease supervisor fences it. Any already durable measurement
-prefix and coverage watermark remain inspectable, but neither authorizes appending
-to or resuming the failed attempt.
+prefix, coverage watermark, and domain-job transition ledger remain inspectable,
+but none authorizes appending to or resuming the failed attempt. Diagnosis can
+distinguish an invocation with no observed outcome, a pending provider
+checkpoint, and a terminal provider receipt. Invocation-only state deliberately
+does not claim that the provider received `start`, and none of the three states
+is replay authority.
 
 A daemon restart immediately fences executors from the previous process rather
 than trusting their remaining lease time. Process-local measurement state is not
@@ -164,8 +171,14 @@ release boundaries for it.
 ## API and event stream
 
 The daemon serves the bundled GUI and a versioned typed HTTP API. Run detail,
-resource state, configuration history, and measurements are exposed through
-bounded queries. Measurement control commands remain small JSON documents;
+resource state, configuration history, measurements, and domain-job transitions
+are exposed through bounded queries. The domain-job collection projects one
+current `invocation_unknown`, `pending`, or `terminal` state for each observed
+execution, while its transition subresource retains the ordered evidence. The
+projection includes the complete durable invocation intent, is explicitly
+diagnostic, and exposes no replay operation. Run-terminal domain evidence is a
+compact ledger index rather than a duplicate array of those transitions.
+Measurement control commands remain small JSON documents;
 measurement ingest and the live latest-point response use schema-driven Arrow
 IPC, while direct and run-scoped hardware receipts use typed JSON headers with
 binary measurement-array attachments. Numeric acquisition results therefore do

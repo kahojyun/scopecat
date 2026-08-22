@@ -27,11 +27,12 @@ from pydantic import (
 from scopecat.kernel.problems import Problem
 from scopecat.project import load_instrument_backend_factory
 from scopecat.records.config import InstrumentBindingSpec
-from scopecat.records.instrument import InstrumentStateSnapshot
+from scopecat.records.instrument import InstrumentStateReadback
 from scopecat.sdk.instruments.backend import (
     BackendApplyRequest,
     BackendCollectRequest,
     BackendInvokeRequest,
+    BackendReadRequest,
 )
 from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
@@ -413,10 +414,18 @@ class SubprocessInstrumentBackendEndpoint:
             received.response,
         )
 
-    def read_state(self, handle: InstrumentHandle) -> InstrumentStateSnapshot:
-        received = self._rpc("read_state", handle=handle)
+    def read_state(
+        self,
+        handle: InstrumentHandle,
+        request: BackendReadRequest,
+    ) -> InstrumentStateReadback:
+        received = self._rpc(
+            "read_state",
+            handle=handle,
+            body={"request": _model_to_body(request)},
+        )
         return self._decode_response(
-            InstrumentStateSnapshot,
+            InstrumentStateReadback,
             received.response,
         )
 
@@ -952,8 +961,12 @@ def _dispatch_request(
 
     handle = _require_child_handle(request)
     if operation == "read_state":
+        read_request = _model_from_body(
+            BackendReadRequest,
+            _require_mapping(body, "request"),
+        )
         return _OutgoingResponse(
-            response=_ok_response(request, endpoint.read_state(handle))
+            response=_ok_response(request, endpoint.read_state(handle, read_request))
         )
     if operation == "apply_state":
         receipt = endpoint.apply_state(

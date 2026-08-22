@@ -61,6 +61,20 @@ _OPERATIONS = {
         "get",
     ),
     (
+        (
+            "/api/v1/instrument-sessions/{session_id}/instruments/"
+            "{instrument_id}/state/observed"
+        ),
+        "post",
+    ),
+    (
+        (
+            "/api/v1/instrument-sessions/{session_id}/instruments/"
+            "{instrument_id}/state/read"
+        ),
+        "post",
+    ),
+    (
         "/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/invoke",
         "post",
     ),

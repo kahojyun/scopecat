@@ -24,6 +24,10 @@ from scopecat.daemon.views import (
     RunAnalysisView,
     RunContentPage,
 )
+from scopecat.daemon.wire import (
+    RunDomainJobStatePage,
+    RunDomainJobTransitionPage,
+)
 from scopecat.kernel.errors import NotFound
 from scopecat.kernel.ids import artifact_slug
 from scopecat.measurements.datasets import (
@@ -56,6 +60,7 @@ from scopecat.runs.service import (
     read_run_record_json,
 )
 from scopecat_server.storage.sqlite.execution import (
+    SQLiteDomainJobTransitions,
     SQLiteMeasurementDatasetRepository,
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
@@ -73,6 +78,30 @@ class ServiceRunOperations:
 
     def load_request(self, run_id: str) -> RunRequest:
         return load_run_request(run_id=run_id, services=self.services)
+
+    def domain_jobs(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunDomainJobStatePage:
+        return SQLiteDomainJobTransitions(
+            cast("SQLiteRunRepository", self.services.runs),
+            run_id=run_id,
+        ).read_current(limit=limit, before=before)
+
+    def domain_job_transitions(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunDomainJobTransitionPage:
+        return SQLiteDomainJobTransitions(
+            cast("SQLiteRunRepository", self.services.runs),
+            run_id=run_id,
+        ).read(limit=limit, before=before)
 
     def contents(
         self,

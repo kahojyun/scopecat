@@ -3,29 +3,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast, override
+from typing import Annotated, Protocol, cast, override
 
 import numpy as np
 from numpy.typing import NDArray
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.kernel.value_types import Payload, Scalar
 from scopecat.records.content import command_payload_from_bytes
 from scopecat.sdk.domain import (
     DomainInstrumentExecutor,
 )
-from scopecat.sdk.instruments import (
-    InterfaceRef,
-    InterfaceSpec,
-    interface,
-    operation,
-    operation_argument,
-)
 from scopecat.sdk.instruments.commands import InstrumentOperationArgument
+from scopecat.sdk.instruments.declarations import (
+    argument,
+    compile_interface,
+    declared_argument_ref,
+    declared_operation_ref,
+    instrument_interface,
+    operation,
+)
 from scopecat.sdk.instruments.execution import RunHardwareBatch, RunHardwareInvoke
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
 from reference_lab.payloads import reference_lab_payload_codecs
-from reference_lab.targets.list_mode.domain_runtime import ListModeDomainRuntime
 from reference_lab.targets.list_mode.execution_model import (
     AcquisitionResponse,
     DigitizerResultBatch,
@@ -35,6 +34,7 @@ from reference_lab.targets.list_mode.execution_model import (
     digitizer_addresses,
     run_fingerprint,
 )
+from reference_lab.targets.list_mode.job_runtime import ListModeDomainJobRuntime
 from reference_lab.targets.list_mode.model import (
     DigitizerAcquisitionWindow,
     DigitizerInputId,
@@ -44,36 +44,38 @@ from reference_lab.virtual_lab.capture_payload import (
     VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID,
 )
 
-VIRTUAL_CAPTURE_SOURCE = InterfaceRef("reference_lab.virtual_capture_source/v1")
-VIRTUAL_CAPTURE_LOAD = VIRTUAL_CAPTURE_SOURCE.operation("load")
-VIRTUAL_CAPTURE_QUEUE = VIRTUAL_CAPTURE_LOAD.argument("captures")
+
+@instrument_interface(
+    "reference_lab.virtual_capture_source/v1",
+    label="Virtual capture source",
+    description="Test-only plant input for queued raw ADC captures.",
+)
+class VirtualCaptureSourceInterface(Protocol):
+    @operation(label="Load raw capture queue")
+    def load(
+        self,
+        *,
+        captures: Annotated[
+            object,
+            argument(payload_schema_id=VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID),
+        ],
+    ) -> None: ...
+
+
+_COMPILED_VIRTUAL_CAPTURE_SOURCE = compile_interface(VirtualCaptureSourceInterface)
+VIRTUAL_CAPTURE_SOURCE_SPEC = _COMPILED_VIRTUAL_CAPTURE_SOURCE.spec
+VIRTUAL_CAPTURE_SOURCE = _COMPILED_VIRTUAL_CAPTURE_SOURCE.ref
+VIRTUAL_CAPTURE_LOAD = declared_operation_ref(VirtualCaptureSourceInterface, "load")
+VIRTUAL_CAPTURE_QUEUE = declared_argument_ref(
+    VirtualCaptureSourceInterface,
+    "load",
+    "captures",
+)
 
 type _DigitizerValue = complex | None
 
 
-def virtual_capture_source_interface() -> InterfaceSpec:
-    """Describe the test-only worker input for synthetic ADC traces."""
-
-    return interface(
-        VIRTUAL_CAPTURE_SOURCE.interface_id,
-        label="Virtual capture source",
-        description="Test-only plant input for queued raw ADC captures.",
-        operations=(
-            operation(
-                VIRTUAL_CAPTURE_LOAD.operation_id,
-                label="Load raw capture queue",
-                arguments=(
-                    operation_argument(
-                        VIRTUAL_CAPTURE_QUEUE.argument_id,
-                        value_type=Scalar(Payload(VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID)),
-                    ),
-                ),
-            ),
-        ),
-    )
-
-
-class VirtualListModeDomainRuntime(ListModeDomainRuntime):
+class VirtualListModeDomainJobRuntime(ListModeDomainJobRuntime):
     """Program the worker-owned virtual plant before normal target execution."""
 
     def __init__(self, response: AcquisitionResponse) -> None:
@@ -286,6 +288,6 @@ __all__ = [
     "VIRTUAL_CAPTURE_LOAD",
     "VIRTUAL_CAPTURE_QUEUE",
     "VIRTUAL_CAPTURE_SOURCE",
-    "VirtualListModeDomainRuntime",
-    "virtual_capture_source_interface",
+    "VirtualCaptureSourceInterface",
+    "VirtualListModeDomainJobRuntime",
 ]

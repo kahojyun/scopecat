@@ -75,10 +75,17 @@ class ProductAxis:
     unit: str | None = None
     entity_values: bool = False
     shared_as: str | None = None
+    _inherited_dimension_id: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if self.shared_as is not None and not self.shared_as:
             msg = "shared product axis identity must be non-empty"
+            raise ValueError(msg)
+        if (
+            self._inherited_dimension_id is not None
+            and not self._inherited_dimension_id
+        ):
+            msg = "inherited product dimension identity must be non-empty"
             raise ValueError(msg)
 
 
@@ -489,6 +496,8 @@ def _product_axis_dimension_id(
     product_id: ProductId,
     axis: ProductAxis,
 ) -> str:
+    if axis._inherited_dimension_id is not None:
+        return axis._inherited_dimension_id
 
     if axis.shared_as is not None:
         return SymbolId(
@@ -499,6 +508,18 @@ def _product_axis_dimension_id(
         scope=("product", *product_id.scope, product_id.local_id),
         local_id=axis.id,
     ).qualified_name
+
+
+def inherit_product_axis_dimension_internal(
+    product: ProductRef,
+    axis: ProductAxis,
+) -> ProductAxis:
+    """Preserve one source axis's exact dimension identity on a derived product."""
+
+    return replace(
+        axis,
+        _inherited_dimension_id=_product_axis_dimension_id(product.product_id, axis),
+    )
 
 
 def record_product(
