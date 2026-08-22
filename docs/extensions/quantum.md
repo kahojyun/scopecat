@@ -14,6 +14,10 @@ and
 Logical point and product identity must not depend on physical batching. The
 target may partition compilation, upload, shots, and acquisition inside its
 declared capacity while retaining the authored measurement schema and lineage.
+`prepare_batch` should retain point binding and pulse lowering shared by the
+candidate, because core may later split it around host-state changes. Repeated
+device-effective programs may share one scheduled representation; exact target
+entry ids and result mappings remain request-local.
 
 ## Cache opaque target setup by content
 

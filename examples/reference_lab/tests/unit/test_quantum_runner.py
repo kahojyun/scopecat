@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 from typing import assert_type, cast
+from unittest.mock import patch
 
 import pytest
 import scopecat as sc
@@ -29,6 +30,7 @@ from scopecat_quantum.measurement_computes import (
 from scopecat_testkit.instrument_host import compose_test_instruments
 from scopecat_testkit.server.in_process_lab import in_process_lab
 
+import reference_lab.compiler as reference_compiler_module
 from reference_lab.bench_interfaces import (
     ANALOG_WAVEFORM_OUTPUT,
     ANALOG_WAVEFORM_OUTPUT_RESET,
@@ -797,7 +799,20 @@ def test_fixed_if_lo_sweep_bounds_real_time_batches_with_host_effects() -> None:
     )
 
     plan = compile_run_program(composition.system, bound=bound)
-    coverage = tuple(plan.coverage)
+    compile_points = reference_compiler_module._compile_points
+    with (
+        patch.object(
+            reference_compiler_module,
+            "_compile_points",
+            wraps=compile_points,
+        ) as compile_points_probe,
+        patch.object(
+            quantum,
+            "bind",
+            wraps=quantum.bind,
+        ) as bind_probe,
+    ):
+        coverage = tuple(plan.coverage)
 
     state_effects = tuple(
         operation
@@ -815,6 +830,8 @@ def test_fixed_if_lo_sweep_bounds_real_time_batches_with_host_effects() -> None:
         "readout-lo",
     }
     assert [job.point_ordinals for job in jobs] == [(0,), (1,), (2,)]
+    assert compile_points_probe.call_count == 2
+    assert bind_probe.call_count == 2
     assert all(job.execution.setup_residency_requirements for job in jobs)
     assert len({job.execution.setup_residency_requirements for job in jobs}) == 1
     assert all(job.execution.transition_policy == "abnormal_only" for job in jobs)

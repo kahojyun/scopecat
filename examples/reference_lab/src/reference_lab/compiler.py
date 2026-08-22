@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 from scopecat.inspection import (
@@ -45,6 +45,7 @@ from scopecat_quantum.programs import (
     plan_quantum_pulse_lowering,
 )
 from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
+from scopecat_quantum.targets import TargetCompileEntry
 
 from reference_lab.parameters import QUBITS
 from reference_lab.point_values import QuantumLabPointValues
@@ -193,25 +194,15 @@ class QuantumLabCompiler:
         )
 
     def prepare_batch(self, request: DomainBatchRequest) -> DomainBatchCandidate:
-        """The statically bounded list-mode candidate is already compatible."""
+        """Lower candidate points once and retain them across host-state splits."""
 
-        return DomainBatchCandidate(
-            compatible_point_count=len(request.points),
-            _compile=self._compile_batch,
-        )
-
-    def _compile_target_artifact(
-        self,
-        program: quantum.Program,
-        inputs: DomainBatchInputs,
-        point_ordinals: tuple[int, ...],
-        *,
-        shots: int,
-    ) -> _ListQuantumLabArtifact:
+        program = _quantum_program(request.call)
+        _validate_call(request.call, program)
+        shots = _shot_count(request.call)
         points = _compile_points(
             program,
-            inputs,
-            point_ordinals,
+            request.inputs,
+            request.point_ordinals,
             max_expanded_operations=self._target.max_program_event_count,
         )
         entries = _prepare_target_entries(
@@ -219,6 +210,45 @@ class QuantumLabCompiler:
             points,
             max_expanded_operations=self._target.max_program_event_count,
         )
+        source_indices = {
+            point_ordinal: index
+            for index, point_ordinal in enumerate(request.point_ordinals)
+        }
+
+        def compile_exact(
+            exact_request: DomainBatchRequest,
+        ) -> PreparedDomainExecution:
+            selected_indices = tuple(
+                source_indices[point_ordinal]
+                for point_ordinal in exact_request.point_ordinals
+            )
+            selected_points = tuple(points[index] for index in selected_indices)
+            selected_entries = _retarget_target_entries(
+                program,
+                selected_points,
+                tuple(entries[index] for index in selected_indices),
+            )
+            return self._compile_prepared_batch(
+                exact_request,
+                program=program,
+                points=selected_points,
+                entries=selected_entries,
+                shots=shots,
+            )
+
+        return DomainBatchCandidate(
+            compatible_point_count=len(request.points),
+            _compile=compile_exact,
+        )
+
+    def _compile_target_artifact(
+        self,
+        program: quantum.Program,
+        points: tuple[_CompiledQuantumPoint, ...],
+        entries: tuple[PreparedQuantumTargetEntry, ...],
+        *,
+        shots: int,
+    ) -> _ListQuantumLabArtifact:
         batch = prepare_quantum_target_batch(
             entries,
             repetitions=shots,
@@ -236,17 +266,20 @@ class QuantumLabCompiler:
             compilation_trace=compilation_trace,
         )
 
-    def _compile_batch(
+    def _compile_prepared_batch(
         self,
         request: DomainBatchRequest,
+        *,
+        program: quantum.Program,
+        points: tuple[_CompiledQuantumPoint, ...],
+        entries: tuple[PreparedQuantumTargetEntry, ...],
+        shots: int,
     ) -> PreparedDomainExecution:
-        program = _quantum_program(request.call)
-        _validate_call(request.call, program)
         artifact = self._compile_target_artifact(
             program,
-            request.inputs,
-            request.point_ordinals,
-            shots=_shot_count(request.call),
+            points,
+            entries,
+            shots=shots,
         )
         preparation = DomainPreparationBuilder(request)
         entries = artifact.entries
@@ -423,17 +456,37 @@ def _compile_points(
         for index, ordinal in enumerate(point_ordinals)
     )
     compiled: list[_CompiledQuantumPoint] = []
+    effective_points: dict[
+        str,
+        tuple[quantum.BoundProgram, ResolvedPulseImplementations],
+    ] = {}
     for point, parameters in zip(points, compiler_parameters, strict=True):
-        bound = quantum.bind(program, dict(point.values))
+        effective_fingerprint = stable_content_hash(
+            content_fingerprint(
+                {
+                    "schema": "reference_lab.quantum_point_inputs.v1",
+                    "program_id": program.id,
+                    "values": point.values,
+                    "compiler_parameters": parameters,
+                }
+            )
+        )
+        retained = effective_points.get(effective_fingerprint)
+        if retained is None:
+            bound = quantum.bind(program, dict(point.values))
+            implementations = QUANTUM_PULSE_PROFILE.materialize_quantum(
+                parameters,
+                bound.verified,
+                max_expanded_operations=max_expanded_operations,
+            )
+            effective_points[effective_fingerprint] = (bound, implementations)
+        else:
+            bound, implementations = retained
         compiled.append(
             _CompiledQuantumPoint(
                 values=point,
                 bound=bound,
-                implementations=QUANTUM_PULSE_PROFILE.materialize_quantum(
-                    parameters,
-                    bound.verified,
-                    max_expanded_operations=max_expanded_operations,
-                ),
+                implementations=implementations,
             )
         )
     return tuple(compiled)
@@ -454,33 +507,78 @@ def _prepare_target_entries(
     """
 
     occurrences: dict[str, int] = {}
+    scheduled_by_digest: dict[str, PreparedQuantumTargetEntry] = {}
     entries: list[PreparedQuantumTargetEntry] = []
     for point in points:
-        digest = stable_content_hash(
-            content_fingerprint(
-                {
-                    "schema": "reference_lab.quantum_point_program.v1",
-                    "program_id": program.id,
-                    "verified": point.bound.verified,
-                    "implementations": point.implementations,
-                }
-            )
-        )
+        digest = _compiled_point_program_digest(program, point)
         occurrence = occurrences.get(digest, 0)
         occurrences[digest] = occurrence + 1
         local_id = f"{program.id}.content-{digest[:16]}.entry-{occurrence}"
-        entries.append(
-            prepare_quantum_target_entry(
+        retained = scheduled_by_digest.get(digest)
+        if retained is None:
+            retained = prepare_quantum_target_entry(
                 TargetCompileEntryId(local_id),
                 plan_quantum_pulse_lowering(
                     point.bound.verified,
                     point.implementations,
-                    output_id=PulseProgramId(f"{local_id}.pulses"),
+                    output_id=PulseProgramId(
+                        f"{program.id}.content-{digest[:16]}.pulses"
+                    ),
                     max_expanded_operations=max_expanded_operations,
                 ),
             )
+            scheduled_by_digest[digest] = retained
+        entries.append(
+            PreparedQuantumTargetEntry(
+                replace(
+                    retained.target_entry,
+                    id=TargetCompileEntryId(local_id),
+                )
+            )
         )
     return tuple(entries)
+
+
+def _compiled_point_program_digest(
+    program: quantum.Program,
+    point: _CompiledQuantumPoint,
+) -> str:
+    return stable_content_hash(
+        content_fingerprint(
+            {
+                "schema": "reference_lab.quantum_point_program.v1",
+                "program_id": program.id,
+                "verified": point.bound.verified,
+                "implementations": point.implementations,
+            }
+        )
+    )
+
+
+def _retarget_target_entries(
+    program: quantum.Program,
+    points: tuple[_CompiledQuantumPoint, ...],
+    entries: tuple[PreparedQuantumTargetEntry, ...],
+) -> tuple[PreparedQuantumTargetEntry, ...]:
+    """Normalize request-local entry occurrence ids without re-lowering pulses."""
+
+    occurrences: dict[str, int] = {}
+    selected: list[PreparedQuantumTargetEntry] = []
+    for point, entry in zip(points, entries, strict=True):
+        digest = _compiled_point_program_digest(program, point)
+        occurrence = occurrences.get(digest, 0)
+        occurrences[digest] = occurrence + 1
+        selected.append(
+            PreparedQuantumTargetEntry(
+                TargetCompileEntry(
+                    id=TargetCompileEntryId(
+                        f"{program.id}.content-{digest[:16]}.entry-{occurrence}"
+                    ),
+                    program=entry.scheduled,
+                )
+            )
+        )
+    return tuple(selected)
 
 
 def _result_address(
