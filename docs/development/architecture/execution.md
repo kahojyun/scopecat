@@ -295,6 +295,12 @@ the latest retained transition. Consequently a fully audited dense sweep grows
 the ledger by job, while `abnormal_only` grows it by exceptional job and the run
 terminal model remains bounded by target and policy diversity.
 
+Notebook diagnostics use the run facade rather than the executor transport:
+`run.domain_jobs(limit=..., before=...)` pages current projections and
+`run.domain_job_transitions(limit=..., before=...)` pages the retained timeline.
+These are read-only evidence surfaces; exposing them on `RunHandle` does not add
+resume or replay authority.
+
 These durable transitions make interrupted provider state inspectable after
 executor or daemon loss, but do not by themselves authorize continuing the run.
 Daemon restart fences the instrument session, process-local measurement writer,

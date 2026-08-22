@@ -45,6 +45,8 @@ from scopecat.daemon.wire import (
     MeasurementAnalysisInputPayload,
     PublishedAnalysisInputPayload,
     RunAttachmentCommand,
+    RunDomainJobStatePage,
+    RunDomainJobTransitionPage,
 )
 from scopecat.records.analysis import AnalysisExecution
 from scopecat.records.config import ConfigProfileSnapshot
@@ -77,6 +79,32 @@ class RemoteRunOperations:
 
     def load_request(self, run_id: str) -> RunRequest:
         return self.client.run_request(run_id).request
+
+    def domain_jobs(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunDomainJobStatePage:
+        return self.client.get_run_domain_jobs(
+            run_id,
+            limit=limit,
+            before=before,
+        )
+
+    def domain_job_transitions(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunDomainJobTransitionPage:
+        return self.client.get_run_domain_job_transitions(
+            run_id,
+            limit=limit,
+            before=before,
+        )
 
     def contents(
         self,

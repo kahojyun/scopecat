@@ -30,6 +30,10 @@ from scopecat.daemon.views import (
     RunAnalysisView,
     RunContentPage,
 )
+from scopecat.daemon.wire import (
+    RunDomainJobStatePage,
+    RunDomainJobTransitionPage,
+)
 from scopecat.measurements.dataset import (
     Dataset,
     ExperimentResultView,
@@ -67,6 +71,22 @@ class RunOperations(Protocol):
     def load_config(self, run_id: str) -> ConfigProfileSnapshot: ...
 
     def load_request(self, run_id: str) -> RunRequest: ...
+
+    def domain_jobs(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunDomainJobStatePage: ...
+
+    def domain_job_transitions(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunDomainJobTransitionPage: ...
 
     def contents(
         self,
@@ -209,6 +229,34 @@ class RunHandle:
         """Load the operator request accepted with this run."""
 
         return self.session.run_operations.load_request(self.id)
+
+    def domain_jobs(
+        self,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunDomainJobStatePage:
+        """List current durable domain-job states in invocation order."""
+
+        return self.session.run_operations.domain_jobs(
+            self.id,
+            limit=limit,
+            before=before,
+        )
+
+    def domain_job_transitions(
+        self,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunDomainJobTransitionPage:
+        """List the durable transition timeline for this run's domain jobs."""
+
+        return self.session.run_operations.domain_job_transitions(
+            self.id,
+            limit=limit,
+            before=before,
+        )
 
     def contents(
         self,
