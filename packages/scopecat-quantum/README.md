@@ -107,9 +107,10 @@ overlays, analysis, candidate acceptance, target lowering, and production use.
 Qubits, configured topology, parameter bindings, shots, and result shape
 contribute to the physical workload without changing the authored meaning of a
 program call. A domain compiler bounds candidate point batches, selects the
-largest compatible prefix after inspecting resolved inputs, and receives an
-exact `compile_batch` request for that prefix. The target runtime may further
-group qubits and chunk shots or binary results inside its own contract.
+largest compatible prefix after inspecting resolved inputs, and returns a
+`DomainBatchCandidate` that retains this lowering work while core closes exact
+host-state subregions. The target runtime may further group qubits and chunk
+shots or binary results inside its own contract.
 
 Bound programs and pulse lowering plans retain the `parallel_each`
 entity-set boundary and finite repeat nodes. Recipe matching streams concrete

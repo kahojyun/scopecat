@@ -13,6 +13,7 @@ from scopecat.inspection import (
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.json_types import JsonValue
 from scopecat.sdk.domain import (
+    DomainBatchCandidate,
     DomainBatchInputs,
     DomainBatchRequest,
     DomainCallView,
@@ -191,10 +192,13 @@ class QuantumLabCompiler:
             self._target.max_list_entries,
         )
 
-    def compatible_batch_size(self, request: DomainBatchRequest) -> int:
+    def prepare_batch(self, request: DomainBatchRequest) -> DomainBatchCandidate:
         """The statically bounded list-mode candidate is already compatible."""
 
-        return len(request.points)
+        return DomainBatchCandidate(
+            compatible_point_count=len(request.points),
+            _compile=self._compile_batch,
+        )
 
     def _compile_target_artifact(
         self,
@@ -232,7 +236,7 @@ class QuantumLabCompiler:
             compilation_trace=compilation_trace,
         )
 
-    def compile_batch(
+    def _compile_batch(
         self,
         request: DomainBatchRequest,
     ) -> PreparedDomainExecution:

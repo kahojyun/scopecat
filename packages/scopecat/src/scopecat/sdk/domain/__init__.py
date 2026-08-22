@@ -24,7 +24,7 @@ if TYPE_CHECKING:
         DomainBatchInputs,
         DomainBatchRequest,
     )
-    from scopecat.sdk.domain.compiler import DomainCompiler
+    from scopecat.sdk.domain.compiler import DomainBatchCandidate, DomainCompiler
     from scopecat.sdk.domain.evidence import DomainExecutionEvidence
     from scopecat.sdk.domain.execution import (
         DomainResidencyAddress,
@@ -136,6 +136,10 @@ _EXPORTS = {
     },
     **{name: ("scopecat.sdk.domain.runtime", name) for name in _RUNTIME_EXPORTS},
     **{name: ("scopecat.sdk.domain.view", name) for name in _VIEW_EXPORTS},
+    "DomainBatchCandidate": (
+        "scopecat.sdk.domain.compiler",
+        "DomainBatchCandidate",
+    ),
     "DomainCompiler": ("scopecat.sdk.domain.compiler", "DomainCompiler"),
     "DomainPreparationBuilder": (
         "scopecat.sdk.domain.preparation",
@@ -170,6 +174,7 @@ __all__ = [
     "CompiledProgramInspectionPage",
     "CompiledProgramInspectionQuery",
     "CompiledWaveformInspection",
+    "DomainBatchCandidate",
     "DomainBatchInputs",
     "DomainBatchRequest",
     "DomainCallView",

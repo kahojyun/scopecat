@@ -151,7 +151,7 @@ class DomainPreparationBuilder:
         ``next_batch_max_points`` bounds the next candidate using information
         learned from this concrete artifact. It may account for bytes, samples,
         shots, channels, device entries, or another domain-owned resource
-        budget; ``compatible_batch_size`` still selects that candidate's exact
+        budget; ``prepare_batch`` still selects that candidate's compatible
         prefix after its point-local inputs are available.
         """
 

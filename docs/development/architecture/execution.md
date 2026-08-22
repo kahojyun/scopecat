@@ -136,22 +136,24 @@ logical point identity or results.
 
 One `ExperimentSystem` owns one domain compiler. The compiler may internally
 route supported dialects or invoke a lower-level target compiler after resolving
-inputs. Planning interacts with it through one `compile_batch` boundary and
-receives prepared executions containing the closed target artifact, exact
-point/product mapping, physical authority, and target job invocation.
+inputs. Planning calls `prepare_batch` once per candidate window and receives a
+compiler-owned `DomainBatchCandidate`. That candidate retains shared lowering
+or packing work while closing prepared executions containing the exact target
+artifact, point/product mapping, physical authority, and target job invocation.
 
 Planning asks the domain compiler for a small initial candidate maximum before
 any point-local inputs are resolved. For each candidate, the compiler inspects
-the complete request and returns the length of its largest compatible prefix;
-core may shorten that prefix to align host-state regions or another domain call,
-then calls `compile_batch` with the exact final points. Every prepared execution
-reports the maximum candidate point count for the following window. The
-compiler may derive compatibility and continuation feedback from aggregate
-payload bytes, channels, samples, shots, device entries, or another target-owned
-limit. Core still schedules contiguous logical points and uses the minimum
-prefix or feedback when a window contains multiple domain jobs. This keeps
-launch preparation bounded without forcing a target to reserve one worst-case
-resource unit for every point. A local-only run uses a small initial window and
+the complete request and returns a candidate with the length of its largest
+compatible prefix. Core may shorten or split that prefix to align host-state
+regions or another domain call, then asks the same candidate to close each exact
+final subrange. Every prepared execution reports the maximum candidate point
+count for the following window. The compiler may derive compatibility and
+continuation feedback from aggregate payload bytes, channels, samples, shots,
+device entries, or another target-owned limit. Core still schedules contiguous
+logical points and uses the minimum prefix or feedback when a window contains
+multiple domain jobs. This keeps launch preparation bounded without forcing a
+target to reserve one worst-case resource unit for every point or repeat the
+candidate's lowering work. A local-only run uses a small initial window and
 bounded follow-up windows.
 
 Each target batch is one bounded coverage window. Host lowering forms stable

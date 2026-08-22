@@ -89,6 +89,7 @@ from scopecat.records.config import (
     config_content_hash,
 )
 from scopecat.sdk.domain.compiler import (
+    DomainBatchCandidate,
     DomainCompiler,
 )
 from scopecat.sdk.domain.execution import DomainStateAddress, PreparedDomainExecution
@@ -1058,20 +1059,23 @@ def _coverage_operations(
     offset = 0
     while offset < len(point_ordinals):
         candidate_batch = tuple(point_ordinals[offset : offset + next_batch_max_points])
+        batch_candidates: dict[str, DomainBatchCandidate] = {}
         if has_domain_calls:
             assert compiler is not None
+            for effect in effects:
+                if isinstance(effect, LogicalDomainExecution):
+                    batch_candidates[effect.id] = _prepare_domain_batch(
+                        compiler,
+                        domain_calls[effect.id],
+                        bound_points,
+                        candidate_batch,
+                        batch_ordinal=next_batch_ordinals[effect.id],
+                        inspection_requested=inspection_requested,
+                        inspection_query=inspection_query,
+                    )
             compatible_sizes = tuple(
-                _compatible_domain_batch_size(
-                    compiler,
-                    domain_calls[effect.id],
-                    bound_points,
-                    candidate_batch,
-                    batch_ordinal=next_batch_ordinals[effect.id],
-                    inspection_requested=inspection_requested,
-                    inspection_query=inspection_query,
-                )
-                for effect in effects
-                if isinstance(effect, LogicalDomainExecution)
+                candidate.compatible_point_count
+                for candidate in batch_candidates.values()
             )
             if not compatible_sizes:
                 raise AssertionError("domain coverage produced no compatible prefix")
@@ -1128,7 +1132,7 @@ def _coverage_operations(
                     assert compiler is not None
                     batch_ordinal = next_batch_ordinals[effect.id]
                     job = _compile_domain_batch(
-                        compiler,
+                        batch_candidates[effect.id],
                         domain_calls[effect.id],
                         bound_points,
                         region,
@@ -1247,7 +1251,7 @@ def _retarget_invariant_local_probe(
     )
 
 
-def _compatible_domain_batch_size(
+def _prepare_domain_batch(
     compiler: DomainCompiler,
     call: DomainCallView,
     bound_points: MaterializedBoundPoints,
@@ -1256,7 +1260,7 @@ def _compatible_domain_batch_size(
     batch_ordinal: int,
     inspection_requested: bool,
     inspection_query: CompiledProgramInspectionQuery | None,
-) -> int:
+) -> DomainBatchCandidate:
     request = make_domain_batch_request(
         call,
         bound_points,
@@ -1265,13 +1269,19 @@ def _compatible_domain_batch_size(
         inspection_requested=inspection_requested,
         inspection_query=inspection_query,
     )
-    size = compiler.compatible_batch_size(request)
+    candidate_value = cast("object", compiler.prepare_batch(request))
+    if not isinstance(candidate_value, DomainBatchCandidate):
+        raise TypeError(
+            "domain compiler prepare_batch must return DomainBatchCandidate"
+        )
+    candidate = candidate_value
+    size = candidate.compatible_point_count
     if type(size) is not int or not 1 <= size <= len(point_ordinals):
         raise ValueError(
-            "domain compiler compatible batch size must be a positive candidate "
-            "prefix length"
+            "domain batch candidate compatible point count must be a positive "
+            "candidate prefix length"
         )
-    return size
+    return candidate
 
 
 def _validate_domain_batch_max_points(
@@ -1372,7 +1382,7 @@ def _coalesce_host_state(
 
 
 def _compile_domain_batch(
-    compiler: DomainCompiler,
+    candidate: DomainBatchCandidate,
     call: DomainCallView,
     bound_points: MaterializedBoundPoints,
     point_ordinals: tuple[int, ...],
@@ -1391,11 +1401,11 @@ def _compile_domain_batch(
     )
     execution_candidate = cast(
         "object",
-        compiler.compile_batch(request),
+        candidate.compile(request),
     )
     if not isinstance(execution_candidate, PreparedDomainExecution):
         raise TypeError(
-            "domain compiler compile_batch must return PreparedDomainExecution"
+            "domain batch candidate compile must return PreparedDomainExecution"
         )
     return RunDomainJob(
         id=f"{call.id}:batch-{batch_ordinal}",

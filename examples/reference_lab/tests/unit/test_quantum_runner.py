@@ -493,7 +493,8 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
         link.relation == "selected_route" for link in inspection.content.program.links
     )
     [entry] = inspection.content.points
-    assert entry.target_entry_id.endswith(".point-14")
+    assert entry.target_entry_id.startswith("drag-beta-rough-calibration.content-")
+    assert entry.target_entry_id.endswith(".entry-0")
 
     selected_again = lab.prepare(invocation).preview(
         coordinates=preview.selected_point.coordinates
@@ -578,7 +579,8 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
     [free_inspection] = free.domain_inspections
     assert free_inspection.point_index is None
     [free_entry] = free_inspection.content.points
-    assert free_entry.target_entry_id.endswith(".point-0")
+    assert free_entry.target_entry_id.startswith("drag-beta-rough-calibration.content-")
+    assert free_entry.target_entry_id.endswith(".entry-0")
 
     bound = bind_program(
         compile_invocation(invocation).program,
@@ -594,9 +596,7 @@ def test_quantum_preview_inspects_only_the_selected_point_without_device_effects
         "MappedListModeTarget",
         actual_job.execution.invocation.payload,
     ).artifact
-    actual_entry = next(
-        item for item in actual.entries if item.entry_id.value.endswith("point-14")
-    )
+    actual_entry = actual.entries[actual_job.point_ordinals.index(14)]
     preview_hashes = {
         waveform.channel_id: waveform.samples_sha256 for waveform in entry.waveforms
     }

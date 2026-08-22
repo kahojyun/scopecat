@@ -105,6 +105,7 @@ from scopecat.records.config import (
     config_content_hash,
 )
 from scopecat.sdk.domain import (
+    DomainBatchCandidate,
     DomainBatchRequest,
     DomainPreparationBuilder,
     DomainStateAddress,
@@ -194,14 +195,21 @@ class _DomainCompiler:
             else self.initial_size
         )
 
-    def compatible_batch_size(self, request: DomainBatchRequest) -> int:
+    def prepare_batch(self, request: DomainBatchRequest) -> DomainBatchCandidate:
         index = len(self.compatibility_requests)
         self.compatibility_requests.append(request)
         if self.compatible_sizes is None:
-            return len(request.points)
-        return self.compatible_sizes[min(index, len(self.compatible_sizes) - 1)]
+            compatible_point_count = len(request.points)
+        else:
+            compatible_point_count = self.compatible_sizes[
+                min(index, len(self.compatible_sizes) - 1)
+            ]
+        return DomainBatchCandidate(
+            compatible_point_count=compatible_point_count,
+            _compile=self._compile_batch,
+        )
 
-    def compile_batch(
+    def _compile_batch(
         self,
         request: DomainBatchRequest,
     ) -> PreparedDomainExecution:
