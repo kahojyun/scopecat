@@ -168,7 +168,7 @@ groups all endpoints chosen together:
       "entity_ids": ["q0"],
       "endpoints": [
         {
-          "interface_id": "scopecat.rf_output/v1",
+          "interface_id": "scopecat.rf_output/v2",
           "entity_id": "q0",
           "channel_id": "readout-q0",
           "component_path": ["outputs", "readout-q0"]
@@ -207,6 +207,14 @@ and `trigger_domains/0` express those distinct owners.
 Roles select hardware by purpose. Component paths express shared mutable state.
 Logical entity ids remain provenance and do not create copies of a physical
 state slot.
+
+An interface contains behavior that callers can rely on across compatible
+devices. A repeated physical implementation uses `interface_mounts`; one
+model's narrower access, capture, restore, or value domain stays in its
+interface-property implementation. Model-specific facts and settings that are
+useful for diagnosis, recording, or restoration but are not portable behavior
+belong to a versioned `device_schema`. They are independently readable and
+cacheable state members and do not require inventing a one-device interface.
 
 ### Use signed IF for specialized LO scans
 

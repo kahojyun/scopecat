@@ -132,11 +132,12 @@ already unambiguous. This is also the explicit escape hatch when different
 composite acquisitions happen to reuse the same result-class name; it does not
 change acquisition or result refs.
 
-The generator currently requires schema-specific client carriers before
-exposing payload-bearing operations. The declaration compiler and driver
-adapter already accept decoded payloads. Reusable instrument components compile
-to nested interface members; resource routes mount root client members at their
-physical `component_path`.
+Payload-bearing operations use `CommandPayload` on live clients and
+`Symbolic[PayloadValue]` on symbolic clients. The generator deliberately does
+not synthesize a schema-specific decoded carrier for each payload schema; the
+driver adapter receives the decoded payload declared by the interface. Reusable
+instrument components compile to nested interface members; resource routes
+mount root client members at their physical `component_path`.
 
 ## Driver authoring
 
@@ -371,8 +372,12 @@ Virtual instrument:
   },
   "default_state": [
     {
-      "interface_id": "scopecat.dc_source/v3",
-      "property_id": "output_enabled",
+      "target": {
+        "kind": "interface",
+        "interface_id": "scopecat.dc_source/v3",
+        "component_path": [],
+        "property_id": "output_enabled"
+      },
       "value": false
     }
   ],
@@ -447,8 +452,9 @@ Driver-managed SDK:
 ```
 
 Every run first synchronizes the device. `preserve` retains that observed
-state; `apply_default_state` then applies the saved partial public state.
-Unspecified and private driver settings remain untouched. After authored
+state; `apply_default_state` then applies the saved sparse member patch. A patch
+may target portable interface state or declared model-specific device state;
+all unlisted members remain untouched. After authored
 normal-completion state, `release` leaves the resulting state in place;
 `restore_baseline` restores the writable portion of the synchronized,
 run-start-adjusted baseline before terminal readback and release. Failure always
@@ -481,10 +487,10 @@ The package supports these driver IDs:
 | Driver ID | Interface |
 | --- | --- |
 | `scopecat.yokogawa.gs200` | `scopecat.dc_source/v3`; optional `scopecat.dc_monitor/v4` |
-| `scopecat.rohde_schwarz.sgs100a` | `scopecat.rf_output/v1` |
+| `scopecat.rohde_schwarz.sgs100a` | `scopecat.rf_output/v2`, `scopecat.reference_clock/v1` |
 | `scopecat.lakeshore.372` | `scopecat.temperature_readout/v1` |
 | `scopecat.keysight.e5080b` | `scopecat.network_sweep/v1` |
-| `scopecat.virtual.rf_source` | `scopecat.rf_output/v1` |
+| `scopecat.virtual.rf_source` | `scopecat.rf_output/v2`, `scopecat.reference_clock/v1` |
 | `scopecat.virtual.dc_source` | `scopecat.dc_source/v3`, `scopecat.dc_monitor/v4` |
 | `scopecat.virtual.temperature_monitor` | `scopecat.temperature_readout/v1` |
 | `scopecat.virtual.vna` | `scopecat.network_sweep/v1` |
