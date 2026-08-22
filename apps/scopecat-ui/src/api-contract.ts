@@ -62,13 +62,23 @@ export type InstrumentInvokeReceipt =
   PostResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/invoke">;
 export type InstrumentOperation = components["schemas"]["OperationSpec"];
 export type InstrumentProperty = components["schemas"]["PropertySpec"];
-export type InstrumentPropertyState = components["schemas"]["InstrumentPropertyState"];
+export type InstrumentDeviceState = components["schemas"]["DeviceStateSpec"];
+export type InstrumentInterfaceMount = components["schemas"]["InterfaceMountSpec"];
+export type InstrumentInterfacePropertyImplementation =
+  components["schemas"]["InterfacePropertyImplementationSpec"];
 export type InstrumentSession = PostResponse<"/api/v1/instrument-sessions">;
 export type InstrumentSessionLease =
   PostResponse<"/api/v1/instrument-sessions/{session_id}/heartbeat">;
 export type InstrumentSpec = components["schemas"]["InstrumentSpec"];
 export type InstrumentState =
   GetResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state">;
+export type InstrumentStateCache =
+  PostResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/observed">;
+export type InstrumentStateReadback =
+  PostResponse<"/api/v1/instrument-sessions/{session_id}/instruments/{instrument_id}/state/read">;
+export type InstrumentStateObservation = components["schemas"]["InstrumentStateObservation"];
+export type InstrumentStateSetting = components["schemas"]["InstrumentStateSetting"];
+export type InstrumentStateTarget = components["schemas"]["StateMemberTarget"];
 export type InstrumentStateValue = components["schemas"]["StateValue"];
 export type InstrumentView = GetResponse<"/api/v1/instruments/{instrument_id}">;
 export type AnalysisFigureView = components["schemas"]["AnalysisFigureView"];

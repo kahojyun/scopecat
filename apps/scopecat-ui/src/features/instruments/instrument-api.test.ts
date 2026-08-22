@@ -19,6 +19,8 @@ import {
   openInstrumentSession,
   probeInstrumentDriver,
   publishInstrumentSpec,
+  readInstrumentStateMembers,
+  readObservedInstrumentStateMembers,
   renewInstrumentSession,
   type ActiveConfig,
   type InstrumentAcquisitionTarget,
@@ -82,9 +84,12 @@ describe("instrument configuration publishing", () => {
         connection,
         default_state: [
           {
-            interface_id: "scopecat.network_sweep/v1",
-            component_path: [],
-            property_id: "center_frequency",
+            target: {
+              kind: "interface",
+              interface_id: "scopecat.network_sweep/v1",
+              component_path: [],
+              property_id: "center_frequency",
+            },
             value: { value: 6.2, unit: "GHz" },
           },
         ],
@@ -114,9 +119,12 @@ describe("instrument configuration publishing", () => {
     });
     expect(active.config.system.instrument_registry.instruments[0]?.default_state).toEqual([
       {
-        interface_id: "scopecat.network_sweep/v1",
-        component_path: [],
-        property_id: "center_frequency",
+        target: {
+          kind: "interface",
+          interface_id: "scopecat.network_sweep/v1",
+          component_path: [],
+          property_id: "center_frequency",
+        },
         value: { value: 6.2, unit: "GHz" },
       },
     ]);
@@ -171,6 +179,10 @@ describe("instrument configuration publishing", () => {
         port: 5025,
       }),
     ).toBe("TCP/IP · 192.0.2.24:5025");
+    expect(connectionSummary({ kind: "serial", port: "/dev/ttyUSB0", baud_rate: 115_200 })).toBe(
+      "Serial · /dev/ttyUSB0 @ 115200",
+    );
+    expect(connectionSummary({ kind: "driver_managed" })).toBe("Driver managed");
   });
 });
 
@@ -252,6 +264,43 @@ describe("instrument session lease", () => {
 });
 
 describe("interactive collection request shaping", () => {
+  it("selects exact member targets for cached and fresh state reads", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ instrument_id: "vna-1", generation: 2, entries: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ instrument_id: "vna-1", observations: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const targets = [
+      {
+        kind: "device" as const,
+        schema_id: "example.model_state/v1",
+        component_path: [],
+        property_id: "serial_number",
+      },
+    ];
+
+    await readObservedInstrumentStateMembers(session(), "vna-1", targets);
+    await readInstrumentStateMembers(session(), "vna-1", targets);
+
+    expect(fetchMock.mock.calls.map(([input]) => requestPath(input))).toEqual([
+      "/api/v1/instrument-sessions/session-1/instruments/vna-1/state/observed",
+      "/api/v1/instrument-sessions/session-1/instruments/vna-1/state/read",
+    ]);
+    for (const [input, init] of fetchMock.mock.calls) {
+      await expect(requestJson(input, init)).resolves.toEqual({ targets });
+    }
+  });
+
   it("applies configured defaults without exposing assignments to the browser", async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
       Promise.resolve(
@@ -417,9 +466,12 @@ describe("interactive collection request shaping", () => {
     await openInstrumentSession("vna-1", "Ada", "open-retry");
     const properties = [
       {
-        interfaceId: "scopecat.network_sweep/v1",
-        componentPath: [],
-        propertyId: "points",
+        target: {
+          kind: "interface" as const,
+          interface_id: "scopecat.network_sweep/v1",
+          component_path: [],
+          property_id: "points",
+        },
         value: 201,
       },
     ];
@@ -487,9 +539,12 @@ function activeConfig(): ActiveConfig {
             },
             default_state: [
               {
-                interface_id: "scopecat.network_sweep/v1",
-                component_path: [],
-                property_id: "center_frequency",
+                target: {
+                  kind: "interface",
+                  interface_id: "scopecat.network_sweep/v1",
+                  component_path: [],
+                  property_id: "center_frequency",
+                },
                 value: { value: 6.2, unit: "GHz" },
               },
             ],
