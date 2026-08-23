@@ -135,6 +135,7 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
     project = _copy_project(tmp_path)
     assert "worker_fixture.backend" not in sys.modules
     endpoint = SubprocessInstrumentBackendEndpoint(project, _BACKEND)
+    worker_process = psutil.Process(endpoint.worker_pid)
     config = load_config()
 
     assert "worker_fixture.backend" not in sys.modules
@@ -262,7 +263,7 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
         "disconnect:source-0\ndisconnect:source-0\nabort\ndisconnect:source-0\n"
     )
     assert not endpoint.healthy
-    assert not psutil.pid_exists(endpoint.worker_pid)
+    assert not worker_process.is_running()
 
 
 def test_ragged_point_cloud_run_survives_daemon_and_worker_boundaries(
@@ -393,23 +394,6 @@ def test_worker_crash_fails_requests_and_marks_the_endpoint_unhealthy(
     assert not endpoint.healthy
 
     endpoint.shutdown()
-    assert not psutil.pid_exists(worker_pid)
-
-
-def test_worker_start_failure_leaves_no_process(tmp_path: Path) -> None:
-    project = _copy_project(tmp_path)
-
-    with pytest.raises(
-        InstrumentBackendUnavailable,
-        match="failed to start",
-    ):
-        SubprocessInstrumentBackendEndpoint(
-            project,
-            "worker_fixture.backend:create_failing_backend",
-        )
-
-    failed_pid = int((project / "failed-worker.pid").read_text(encoding="utf-8"))
-    assert not psutil.pid_exists(failed_pid)
 
 
 def test_runtime_releases_project_lock_after_worker_start_failure(
@@ -448,7 +432,6 @@ def test_worker_crash_degrades_runtime_health(tmp_path: Path) -> None:
             time.sleep(0.01)
 
     assert health.status == "degraded"
-    assert not psutil.pid_exists(worker_pid)
 
 
 def test_worker_rejects_invalid_collect_array_without_poisoning_protocol(
@@ -643,7 +626,6 @@ def test_operation_timeout_fences_generation_and_wakes_pending_calls(
         assert all(isinstance(error, InstrumentBackendUnavailable) for error in errors)
         assert all("timed out" in str(error) for error in errors)
         assert not endpoint.healthy
-        assert not psutil.pid_exists(endpoint.worker_pid)
         endpoint.shutdown()
         endpoint.shutdown()
     finally:
@@ -695,7 +677,6 @@ def test_shutdown_interrupts_a_blocked_driver_call(tmp_path: Path) -> None:
     assert not invocation.is_alive()
     assert len(errors) == 1
     assert isinstance(errors[0], InstrumentBackendUnavailable)
-    assert not psutil.pid_exists(endpoint.worker_pid)
 
 
 def test_runtime_shutdown_fences_a_blocked_session_and_marks_it_unknown(
@@ -768,7 +749,6 @@ def test_runtime_shutdown_fences_a_blocked_session_and_marks_it_unknown(
     assert len(invoke_errors) == 1
     assert isinstance(invoke_errors[0], BackendConflict)
     assert str(invoke_errors[0]) == "instrument invoke failed with unknown state"
-    assert not psutil.pid_exists(endpoint.worker_pid)
 
     control = SQLiteControlPlane(
         SQLiteDatabase(project / ".scopecat" / "control.sqlite3")

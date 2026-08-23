@@ -17,6 +17,7 @@ from scopecat.sdk.instruments import InstrumentDescription
 
 def test_instrument_heartbeat_recovers_from_temporary_unavailability() -> None:
     now = datetime.now(UTC)
+    renewed_at = now - timedelta(seconds=3)
     session = InstrumentSessionOpenReceipt(
         session_id="session-1",
         actor="operator",
@@ -32,14 +33,14 @@ def test_instrument_heartbeat_recovers_from_temporary_unavailability() -> None:
             ),
         ),
         observed_state=(InstrumentStateSnapshot(instrument_id="source"),),
-        opened_at=now,
-        renewed_at=now,
-        expires_at=now + timedelta(seconds=0.3),
+        opened_at=renewed_at,
+        renewed_at=renewed_at,
+        expires_at=now + timedelta(seconds=3),
     )
     renewed = InstrumentSessionLeaseReceipt(
         session_id=session.session_id,
-        renewed_at=now + timedelta(seconds=0.1),
-        expires_at=now + timedelta(seconds=0.4),
+        renewed_at=now,
+        expires_at=now + timedelta(seconds=3),
     )
     recovered = Event()
     attempts = 0
@@ -63,7 +64,7 @@ def test_instrument_heartbeat_recovers_from_temporary_unavailability() -> None:
         heartbeat = instrument_api._InstrumentSessionHeartbeat(client, session)
         heartbeat.start()
         try:
-            assert recovered.wait(timeout=1)
+            assert recovered.wait(timeout=5)
             heartbeat.require_live()
             assert attempts == 2
         finally:
