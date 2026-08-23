@@ -247,6 +247,7 @@ class LogicalProgram:
     point_repeat: int = 1
     point_repeat_mode: RepeatMode = "point"
     point_traversal: PointTraversal = "forward"
+    point_execution_block_size: int = 1
     value_defs: tuple[ValueDef, ...] = ()
     compute_nodes: tuple[LogicalComputeNode, ...] = ()
     measurement_computes: tuple[LogicalMeasurementCompute, ...] = ()

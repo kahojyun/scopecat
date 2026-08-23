@@ -14,9 +14,10 @@ from scopecat.sdk.domain.execution import PreparedDomainExecution
 class DomainBatchCandidate:
     """Reusable analysis of one candidate point prefix.
 
-    Core may shorten or split the compatible prefix around host-state regions
-    before closing exact executions. The compiler-owned closure retains any
-    lowering or packing work shared by those final subranges.
+    Core may shorten or split the compatible prefix only at the logical block
+    cuts declared by ``DomainBatchRequest.legal_cut_offsets``. The
+    compiler-owned closure retains any lowering or packing work shared by those
+    final subranges.
     """
 
     compatible_point_count: int
@@ -26,7 +27,7 @@ class DomainBatchCandidate:
     )
 
     def compile(self, request: DomainBatchRequest) -> PreparedDomainExecution:
-        """Close one exact contiguous subrange of the compatible prefix."""
+        """Close one exact block-aligned subrange of the compatible prefix."""
 
         return self._compile(request)
 
@@ -53,9 +54,10 @@ class DomainCompiler(Protocol):
         """Analyze a candidate and retain work needed to close its executions.
 
         The compiler may inspect or lower every candidate point, but must not
-        perform external effects. Every non-empty contiguous subrange of the
-        accepted prefix must be independently compilable. Core may shorten or
-        split that prefix to align host-state regions or another domain call
+        perform external effects. ``compatible_point_count`` must identify a
+        legal request cut. Every non-empty subrange aligned to request block
+        cuts must be independently compilable. Core may shorten or split that
+        prefix at those cuts to align host-state regions or another domain call
         before asking the returned candidate to compile each exact final batch.
         """
         ...

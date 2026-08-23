@@ -56,6 +56,37 @@ def test_compile_projects_the_base_grid_and_composes_the_expanded_plan() -> None
     assert program.point_traversal == "snake"
 
 
+def test_inferred_scan_declares_paired_execution_rows() -> None:
+    @sc.experiment(id="test.paired-scan", kind="point_plan")
+    def paired(experiment: sc.ExperimentContext) -> None:
+        experiment.execution_blocks(2)
+        experiment.scan("detuning", (-1, 0, 1))
+        experiment.scan("prepared_state", (0, 1))
+
+    compiled = compile_invocation(paired())
+
+    assert compiled.request.point_plan.execution_block_size == 2
+    assert compiled.program.program.point_execution_block_size == 2
+    assert [axis.id for axis in compiled.program.program.point_domain] == [
+        "detuning",
+        "prepared_state",
+    ]
+    assert _axis_values(compiled.program.program, "prepared_state") == (0, 1)
+
+
+def test_execution_blocks_are_independent_of_explicit_grid_declaration_order() -> None:
+    x = sc.coordinate("x", _INT)
+
+    @sc.experiment(id="test.blocked-grid", kind="point_plan")
+    def blocked(experiment: sc.ExperimentContext) -> None:
+        experiment.execution_blocks(2)
+        experiment.grid(sc.axis(x, (0, 1)))
+
+    compiled = compile_invocation(blocked())
+
+    assert compiled.request.point_plan.execution_block_size == 2
+
+
 def test_compile_records_adaptive_policy_without_serializing_optimizer() -> None:
     x = sc.coordinate("x", _INT)
 

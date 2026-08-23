@@ -569,8 +569,10 @@ fail when their bounded batch is reached. A separate explicit exhaustive check
 may be useful for unattended runs, but it must not become the default launch
 path or silently materialize the full waveform volume.
 
-Physical batching remains expressed as a contiguous point count, but its
-capacity is not point-only. The reference compiler currently combines the
+Physical batching remains expressed as a bounded point count, rounded down to
+an author-declared logical block cut. A target capacity smaller than the next
+complete block is an error rather than permission to split its adjacency
+contract. Capacity is not point-only. The reference compiler currently combines the
 device entry limit with an 8 MiB aggregate waveform target derived from the
 largest entry in the preceding compiled batch. Waveform channel count, sample
 count, and dtype therefore reduce the following point count automatically. A

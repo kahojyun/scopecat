@@ -27,7 +27,10 @@ from scopecat.execution.evidence import (
 from scopecat.execution.measurement_computes import (
     execute_measurement_computes,
 )
-from scopecat.execution.measurement_ordering import CanonicalMeasurementBuffer
+from scopecat.execution.measurement_ordering import (
+    CanonicalMeasurementBuffer,
+    CanonicalPointBuffer,
+)
 from scopecat.execution.measurement_recording import (
     ingest_measurement_dataset,
     initialize_measurement_dataset,
@@ -148,16 +151,22 @@ def _execute_run(
         _prepare_execution_start(program, session)
     )
     recorded_measurement_count = start_point_count
-    completed_coverage_count = start_point_count
     record_content_hashes: list[str] = []
-    measurement_buffer = CanonicalMeasurementBuffer(next_index=start_point_count)
+    measurement_buffer = CanonicalMeasurementBuffer(
+        next_index=start_point_count,
+        is_durable_cut=program.coverage.is_durable_cut,
+    )
+    coverage_buffer = CanonicalPointBuffer(
+        next_index=start_point_count,
+        is_durable_cut=program.coverage.is_durable_cut,
+    )
 
     def commit_coverage(
         points: tuple[AcceptedRunPoint, ...],
         candidates: tuple[MeasurementValueCandidate, ...],
         value_candidates: tuple[ValueRecordCandidate, ...],
     ) -> None:
-        nonlocal completed_coverage_count, recorded_measurement_count
+        nonlocal recorded_measurement_count
         static_value_candidates = program.measurements.static_value_candidates(points)
         all_value_candidates = (*static_value_candidates, *value_candidates)
         completed_candidates = execute_measurement_computes(
@@ -188,10 +197,10 @@ def _execute_run(
         if block_problems:
             raise ProblemFailure(block_problems)
         if not projection.has_dataset:
-            completed_coverage_count = _advance_unrecorded_coverage(
+            _advance_unrecorded_coverage(
                 session,
                 points,
-                completed_point_count=completed_coverage_count,
+                buffer=coverage_buffer,
             )
         else:
             ready_records = measurement_buffer.add(projected.records)
@@ -270,6 +279,10 @@ def _execute_run(
             raise coverage_failure
         _validate_measurement_completion(
             measurement_buffer,
+            successful=not problems,
+        )
+        _validate_point_completion(
+            coverage_buffer,
             successful=not problems,
         )
         if dataset_header is not None and header_failure is None:
@@ -401,18 +414,18 @@ def _advance_unrecorded_coverage(
     session: ExecutionSession,
     points: tuple[AcceptedRunPoint, ...],
     *,
-    completed_point_count: int,
-) -> int:
+    buffer: CanonicalPointBuffer,
+) -> None:
     point_indices = tuple(point.ordinal for point in points)
-    next_completed_count = completed_point_count + len(points)
-    if point_indices != tuple(range(completed_point_count, next_completed_count)):
-        raise AssertionError("completed coverage must be one contiguous prefix")
+    completed_point_count = buffer.next_index
+    ready = buffer.add(point_indices)
+    if not ready:
+        return
     if session.coverage is not None:
         session.coverage.advance(
             start_index=completed_point_count,
-            point_count=len(points),
+            point_count=len(ready),
         )
-    return next_completed_count
 
 
 def _flush_execution_progress(
@@ -442,6 +455,15 @@ def _validate_measurement_completion(
         raise AssertionError(
             "successful coverage left non-contiguous measurement records"
         )
+
+
+def _validate_point_completion(
+    buffer: CanonicalPointBuffer,
+    *,
+    successful: bool,
+) -> None:
+    if successful and buffer.pending_indices:
+        raise AssertionError("successful coverage left non-contiguous point progress")
 
 
 def _initialize_dataset_header(
@@ -747,6 +769,8 @@ def _validate_static_continuation(
     point_count = len(program.points.points)
     if start_point_count > point_count:
         raise ValueError("durable coverage exceeds the compiled static point domain")
+    if not program.coverage.is_durable_cut(start_point_count):
+        raise ValueError("durable coverage ends inside a logical point block")
     if not has_prior_execution_segment:
         return
     if program.adaptive_domain_plan is not None:

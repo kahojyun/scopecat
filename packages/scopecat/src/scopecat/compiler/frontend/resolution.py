@@ -113,6 +113,7 @@ def compile_invocation(
         point_repeat=base_plan.repeat,
         point_repeat_mode=base_plan.repeat_mode,
         point_traversal=base_plan.traversal,
+        point_execution_block_size=base_plan.execution_block_size,
     )
     _validate_point_dependencies(logical, expanded_domain)
     return CompiledInvocation(
@@ -216,6 +217,7 @@ def _materialized_request(
                 repeat=point_plan.repeat,
                 repeat_mode=point_plan.repeat_mode,
                 traversal=point_plan.traversal,
+                execution_block_size=point_plan.execution_block_size,
             ),
             "adaptive_domain_plan": (
                 None

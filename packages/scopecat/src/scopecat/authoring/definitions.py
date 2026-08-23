@@ -622,6 +622,7 @@ class ExperimentContext:
         repeat: int = 1,
         repeat_mode: RepeatMode = "point",
         traversal: PointTraversal = "forward",
+        execution_block_size: int | None = None,
     ) -> None:
         """Declare the complete Cartesian point domain for this experiment."""
 
@@ -630,6 +631,19 @@ class ExperimentContext:
             repeat=repeat,
             repeat_mode=repeat_mode,
             traversal=traversal,
+            execution_block_size=execution_block_size,
+        )
+
+    def execution_blocks(self, size: int) -> None:
+        """Group adjacent design rows into fixed-size indivisible blocks.
+
+        This scheduling declaration is independent of whether the point domain
+        is built incrementally with ``scan`` or declared with ``grid``/``points``.
+        """
+
+        self._point_plan = replace(
+            self._point_plan,
+            execution_block_size=size,
         )
 
     @overload
@@ -757,6 +771,7 @@ class ExperimentContext:
         coordinates: Sequence[CoordinateRef] = (),
         repeat: int = 1,
         repeat_mode: RepeatMode = "point",
+        execution_block_size: int | None = None,
     ) -> None:
         """Declare the complete point cloud in its explicit row order."""
 
@@ -765,6 +780,7 @@ class ExperimentContext:
             repeat=repeat,
             repeat_mode=repeat_mode,
             traversal="forward",
+            execution_block_size=execution_block_size,
         )
 
     def _declare_point_domain(
@@ -774,6 +790,7 @@ class ExperimentContext:
         repeat: int,
         repeat_mode: RepeatMode,
         traversal: PointTraversal,
+        execution_block_size: int | None,
     ) -> None:
         if self._point_domain_mode == "scan":
             raise ValueError(
@@ -787,6 +804,11 @@ class ExperimentContext:
             repeat=repeat,
             repeat_mode=repeat_mode,
             traversal=traversal,
+            execution_block_size=(
+                self._point_plan.execution_block_size
+                if execution_block_size is None
+                else execution_block_size
+            ),
         )
         self._point_domain_mode = "explicit"
 

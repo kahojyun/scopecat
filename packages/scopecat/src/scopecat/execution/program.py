@@ -34,6 +34,10 @@ if TYPE_CHECKING:
     from scopecat.sdk.instruments.contracts import InstrumentDescription
 
 
+def _every_point_count_is_durable(_point_count: int) -> bool:
+    return True
+
+
 @dataclass(frozen=True, slots=True)
 class RunHostBinding:
     """Logical instruments hosted by one daemon backend."""
@@ -67,9 +71,15 @@ class RunCoverageEffect:
 
 @dataclass(frozen=True, slots=True)
 class RunCoverageCheckpoint:
-    """Commit one completed logical point inside a larger effect block."""
+    """Commit one completed indivisible logical point block."""
 
-    point_index: int
+    point_indices: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if not self.point_indices or len(self.point_indices) != len(
+            set(self.point_indices)
+        ):
+            raise ValueError("coverage checkpoint points must be non-empty and unique")
 
 
 type RunCoveredOperation = RunCoverageCheckpoint | RunCoverageEffect | RunDomainJob
@@ -95,7 +105,13 @@ class RunAcceptedCoverage:
 class RunCoverage:
     """A lazy operation stream rebuilt for each planning or execution pass."""
 
-    __slots__ = ("_accept_all", "_factory", "_inspect", "_inspection_snapshots")
+    __slots__ = (
+        "_accept_all",
+        "_factory",
+        "_inspect",
+        "_inspection_snapshots",
+        "_is_durable_cut",
+    )
 
     def __init__(
         self,
@@ -111,10 +127,12 @@ class RunCoverage:
             RunAcceptedCoverage,
         ]
         | None = None,
+        is_durable_cut: Callable[[int], bool] | None = None,
     ) -> None:
         self._factory = factory
         self._inspect = inspect
         self._accept_all = accept_all
+        self._is_durable_cut = is_durable_cut or _every_point_count_is_durable
         self._inspection_snapshots: OrderedDict[
             tuple[str, int | str],
             RunPointInspection,
@@ -128,7 +146,14 @@ class RunCoverage:
 
         if start_point_index < 0:
             raise ValueError("coverage suffix start must be non-negative")
+        if not self.is_durable_cut(start_point_index):
+            raise ValueError("coverage suffix starts inside a logical point block")
         return self._factory(start_point_index)
+
+    def is_durable_cut(self, completed_point_count: int) -> bool:
+        """Return whether a canonical coverage prefix is safe to resume from."""
+
+        return self._is_durable_cut(completed_point_count)
 
     def inspect(
         self,

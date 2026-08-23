@@ -163,7 +163,8 @@ def test_invocation_point_policy_edits_are_immutable_and_resettable() -> None:
 
     repeated = invocation.with_repeat(4)
     traversed = repeated.with_traversal("forward")
-    replaced = traversed.grid(_axis("y", 3, 4))
+    blocked = traversed.with_execution_blocks(2)
+    replaced = blocked.grid(_axis("y", 3, 4))
 
     assert invocation.point_plan == default
     assert repeated.point_plan == PointPlan(
@@ -173,9 +174,11 @@ def test_invocation_point_policy_edits_are_immutable_and_resettable() -> None:
         traversal="snake",
     )
     assert traversed.point_plan.traversal == "forward"
+    assert blocked.point_plan.execution_block_size == 2
     assert replaced.point_plan.repeat == 4
     assert replaced.point_plan.repeat_mode == "point"
     assert replaced.point_plan.traversal == "forward"
+    assert replaced.point_plan.execution_block_size == 2
     assert replaced.reset_points().point_plan == default
 
 

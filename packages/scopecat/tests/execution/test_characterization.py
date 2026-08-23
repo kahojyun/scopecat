@@ -107,9 +107,9 @@ def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
     )
 
     def operations():
-        yield RunCoverageCheckpoint(0)
+        yield RunCoverageCheckpoint((0,))
         assert delivered == [(0,)]
-        yield RunCoverageCheckpoint(1)
+        yield RunCoverageCheckpoint((1,))
 
     result = RunEffectInterpreter(
         run_id="incremental-source-run",

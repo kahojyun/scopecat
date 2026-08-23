@@ -37,3 +37,17 @@ def test_measurement_buffer_rejects_duplicate_or_committed_points() -> None:
     buffer.add((_record(0),))
     with pytest.raises(ValueError, match="already buffered"):
         buffer.add((_record(0),))
+
+
+def test_measurement_buffer_does_not_publish_through_an_illegal_block_cut() -> None:
+    buffer = CanonicalMeasurementBuffer(
+        next_index=2,
+        is_durable_cut=lambda point_count: point_count in (2, 6),
+    )
+
+    assert buffer.add((_record(2), _record(5))) == ()
+    assert buffer.pending_indices == (2, 5)
+    assert buffer.add((_record(4), _record(3))) == tuple(
+        _record(index) for index in range(2, 6)
+    )
+    assert buffer.next_index == 6

@@ -79,7 +79,7 @@ from scopecat.planning.point_materialization import (
     prepare_bound_points,
     prepare_candidate_bound_points,
 )
-from scopecat.planning.point_order import point_execution_ordinals
+from scopecat.planning.point_order import PointExecutionPlan, point_execution_ordinals
 from scopecat.planning.provider_binding import (
     validate_run_host_binding,
 )
@@ -260,6 +260,14 @@ def _compile_system_program(
         repeat_mode=logical.point_repeat_mode,
         traversal=logical.point_traversal,
     )
+    execution_plan = PointExecutionPlan(
+        execution_ordinals,
+        logical.point_execution_block_size,
+    )
+    if adaptive_domain_plan is not None and execution_plan.block_size != 1:
+        raise ValueError(
+            "adaptive point domains require independently cuttable execution rows"
+        )
     measurement_catalog = project_measurement_catalog(
         bound_points,
         point_limit=point_limit,
@@ -329,7 +337,8 @@ def _compile_system_program(
         system=system,
         bound=bound,
         bound_points=bound_points,
-        point_ordinals=execution_ordinals,
+        execution_plan=execution_plan,
+        adaptive=adaptive_domain_plan is not None,
         domain_calls=domain_calls,
         local_target=local_target,
         initial_local_probe=initial_local_probe,
@@ -612,8 +621,9 @@ class _CoverageValidator:
 
     def validate(self, covered: RunCoveredOperation) -> None:
         if isinstance(covered, RunCoverageCheckpoint):
-            self._host_writes_by_point.pop(covered.point_index, None)
-            self._domain_writes_by_point.pop(covered.point_index, None)
+            for point_index in covered.point_indices:
+                self._host_writes_by_point.pop(point_index, None)
+                self._domain_writes_by_point.pop(point_index, None)
             return
         if isinstance(covered, RunCoverageEffect) and isinstance(
             operation := covered.operation,
@@ -884,7 +894,8 @@ def _compile_coverage(
     system: ExperimentSystem,
     bound: BoundPlan,
     bound_points: MaterializedBoundPoints,
-    point_ordinals: Sequence[int],
+    execution_plan: PointExecutionPlan,
+    adaptive: bool,
     domain_calls: dict[str, DomainCallView],
     local_target: LocalTargetPlan | None,
     initial_local_probe: _InitialLocalProbe | None,
@@ -894,16 +905,14 @@ def _compile_coverage(
     compiler = system.domain_compiler
 
     def operations(start_point_index: int) -> Iterator[RunCoveredOperation]:
-        selected_ordinals = tuple(
-            ordinal for ordinal in point_ordinals if ordinal >= start_point_index
-        )
-        if not selected_ordinals:
+        selected_blocks = tuple(execution_plan.blocks(durable_start=start_point_index))
+        if not selected_blocks:
             return iter(())
         return _validated_coverage(
             _coverage_operations(
                 compiler=compiler,
                 bound_points=bound_points,
-                point_ordinals=selected_ordinals,
+                point_blocks=selected_blocks,
                 effects=bound.program.program.effects,
                 domain_calls=domain_calls,
                 local_target=local_target,
@@ -928,7 +937,7 @@ def _compile_coverage(
         inspection_query: CompiledProgramInspectionQuery | None,
     ) -> RunPointInspection:
         if isinstance(point, int):
-            if point not in point_ordinals:
+            if not 0 <= point < execution_plan.point_count:
                 raise IndexError(point)
             point_index: int | None = point
             candidate = PointProposalAttempt(
@@ -936,6 +945,7 @@ def _compile_coverage(
             )
             selected_bound_points = bound_points
             selected_ordinal = point
+            inspection_blocks = (execution_plan.block_containing(point),)
         else:
             point_index = None
             candidate, selected_bound_points = prepare_candidate_bound_points(
@@ -943,11 +953,12 @@ def _compile_coverage(
                 point,
             )
             selected_ordinal = 0
+            inspection_blocks = ((selected_ordinal,),)
         selected_operations = _validated_coverage(
             _coverage_operations(
                 compiler=compiler,
                 bound_points=selected_bound_points,
-                point_ordinals=(selected_ordinal,),
+                point_blocks=inspection_blocks,
                 effects=bound.program.program.effects,
                 domain_calls=domain_calls,
                 local_target=local_target,
@@ -1005,7 +1016,7 @@ def _compile_coverage(
             _coverage_operations(
                 compiler=compiler,
                 bound_points=extended_bound_points,
-                point_ordinals=point_ordinals,
+                point_blocks=tuple((ordinal,) for ordinal in point_ordinals),
                 effects=bound.program.program.effects,
                 domain_calls=domain_calls,
                 local_target=local_target,
@@ -1031,14 +1042,23 @@ def _compile_coverage(
         operations,
         inspect=inspect,
         accept_all=accept_all,
+        is_durable_cut=(
+            _nonnegative_point_count_is_durable
+            if adaptive
+            else execution_plan.is_durable_cut
+        ),
     )
+
+
+def _nonnegative_point_count_is_durable(point_count: int) -> bool:
+    return point_count >= 0
 
 
 def _coverage_operations(
     *,
     compiler: DomainCompiler | None,
     bound_points: MaterializedBoundPoints,
-    point_ordinals: Sequence[int],
+    point_blocks: Sequence[tuple[int, ...]],
     effects: tuple[LogicalEffect, ...],
     domain_calls: dict[str, DomainCallView],
     local_target: LocalTargetPlan | None,
@@ -1055,19 +1075,33 @@ def _coverage_operations(
     previous_static_frame: tuple[tuple[ApplyStateOperation, ...], ...] | None = None
     has_previous_static_frame = False
     has_domain_calls = bool(domain_calls)
-    local_batch_sizes = iter(_bounded_local_batch_sizes(len(point_ordinals)))
+    total_point_count = sum(len(block) for block in point_blocks)
+    if not total_point_count:
+        return
     if has_domain_calls:
         assert compiler is not None
-        next_batch_max_points = compiler.initial_batch_max_points(len(point_ordinals))
+        next_batch_max_points = compiler.initial_batch_max_points(total_point_count)
         _validate_domain_batch_max_points(
             next_batch_max_points,
-            len(point_ordinals),
+            total_point_count,
         )
     else:
-        next_batch_max_points = next(local_batch_sizes)
-    offset = 0
-    while offset < len(point_ordinals):
-        candidate_batch = tuple(point_ordinals[offset : offset + next_batch_max_points])
+        first_block_size = len(point_blocks[0])
+        if first_block_size > _MAX_LOCAL_COVERAGE_BATCH_SIZE:
+            raise ValueError("logical point block exceeds the local coverage limit")
+        next_batch_max_points = min(
+            total_point_count,
+            max(_INITIAL_LOCAL_COVERAGE_BATCH_SIZE, first_block_size),
+        )
+    block_offset = 0
+    covered_point_count = 0
+    while block_offset < len(point_blocks):
+        candidate_blocks = _bounded_block_prefix(
+            point_blocks[block_offset:],
+            max_points=next_batch_max_points,
+        )
+        candidate_batch = _flatten_point_blocks(candidate_blocks)
+        candidate_cuts = _point_block_cut_offsets(candidate_blocks)
         batch_candidates: dict[str, DomainBatchCandidate] = {}
         if has_domain_calls:
             assert compiler is not None
@@ -1078,6 +1112,7 @@ def _coverage_operations(
                         domain_calls[effect.id],
                         bound_points,
                         candidate_batch,
+                        legal_cut_offsets=candidate_cuts,
                         batch_ordinal=next_batch_ordinals[effect.id],
                         inspection_requested=inspection_requested,
                         inspection_query=inspection_query,
@@ -1088,8 +1123,13 @@ def _coverage_operations(
             )
             if not compatible_sizes:
                 raise AssertionError("domain coverage produced no compatible prefix")
-            coverage_batch = candidate_batch[: min(compatible_sizes)]
+            coverage_blocks = _point_block_prefix(
+                candidate_blocks,
+                point_count=min(compatible_sizes),
+            )
+            coverage_batch = _flatten_point_blocks(coverage_blocks)
         else:
+            coverage_blocks = candidate_blocks
             coverage_batch = candidate_batch
         next_domain_max_points: list[int] = []
         local_effects = _materialize_local_coverage(
@@ -1099,13 +1139,14 @@ def _coverage_operations(
             initial_probe=(
                 initial_local_probe
                 if initial_local_probe is not None
-                and (offset == 0 or initial_local_probe.point_invariant)
+                and (block_offset == 0 or initial_local_probe.point_invariant)
                 else None
             ),
         )
         if local_effects is not None:
             yield _MaterializedLocalCoverage(local_effects)
         regions = _stable_host_regions(coverage_batch, local_effects)
+        region_blocks = _align_host_regions_to_point_blocks(coverage_blocks, regions)
         initial_frame = _static_state_frame(local_effects, coverage_batch[0])
         scheduled_local_effects = _coalesce_host_state(
             local_effects,
@@ -1126,7 +1167,7 @@ def _coverage_operations(
             if scheduled_local_effects is None
             else scheduled_local_effects.effect_operations
         )
-        for region in regions:
+        for region, blocks in zip(regions, region_blocks, strict=True):
             yield from (
                 effect for effect in selected_compute if effect.point_index in region
             )
@@ -1145,6 +1186,7 @@ def _coverage_operations(
                         domain_calls[effect.id],
                         bound_points,
                         region,
+                        legal_cut_offsets=_point_block_cut_offsets(blocks),
                         batch_ordinal=batch_ordinal,
                         inspection_requested=inspection_requested,
                         inspection_query=inspection_query,
@@ -1152,15 +1194,16 @@ def _coverage_operations(
                     next_domain_max_points.append(job.execution.next_batch_max_points)
                     yield job
                     next_batch_ordinals[effect.id] = batch_ordinal + 1
-            for ordinal in region:
-                yield RunCoverageCheckpoint(ordinal)
+            for block in blocks:
+                yield RunCoverageCheckpoint(block)
         previous_static_frame = _static_state_frame(
             local_effects,
             coverage_batch[-1],
         )
         has_previous_static_frame = previous_static_frame is not None
-        offset += len(coverage_batch)
-        remaining = len(point_ordinals) - offset
+        block_offset += len(coverage_blocks)
+        covered_point_count += len(coverage_batch)
+        remaining = total_point_count - covered_point_count
         if not remaining:
             return
         if has_domain_calls:
@@ -1168,7 +1211,7 @@ def _coverage_operations(
                 raise AssertionError("domain coverage produced no continuation maximum")
             next_batch_max_points = min(remaining, *next_domain_max_points)
         else:
-            next_batch_max_points = next(local_batch_sizes)
+            next_batch_max_points = min(remaining, _MAX_LOCAL_COVERAGE_BATCH_SIZE)
 
 
 def _materialize_local_coverage(
@@ -1266,6 +1309,7 @@ def _prepare_domain_batch(
     bound_points: MaterializedBoundPoints,
     point_ordinals: tuple[int, ...],
     *,
+    legal_cut_offsets: tuple[int, ...],
     batch_ordinal: int,
     inspection_requested: bool,
     inspection_query: CompiledProgramInspectionQuery | None,
@@ -1274,6 +1318,7 @@ def _prepare_domain_batch(
         call,
         bound_points,
         point_ordinals,
+        legal_cut_offsets=legal_cut_offsets,
         batch_ordinal=batch_ordinal,
         inspection_requested=inspection_requested,
         inspection_query=inspection_query,
@@ -1285,10 +1330,14 @@ def _prepare_domain_batch(
         )
     candidate = candidate_value
     size = candidate.compatible_point_count
-    if type(size) is not int or not 1 <= size <= len(point_ordinals):
+    if (
+        type(size) is not int
+        or not 1 <= size <= len(point_ordinals)
+        or size not in legal_cut_offsets
+    ):
         raise ValueError(
             "domain batch candidate compatible point count must be a positive "
-            "candidate prefix length"
+            "candidate prefix ending at a legal point-block cut"
         )
     return candidate
 
@@ -1304,15 +1353,78 @@ def _validate_domain_batch_max_points(
         )
 
 
-def _bounded_local_batch_sizes(point_count: int) -> tuple[int, ...]:
-    initial_size = min(point_count, _INITIAL_LOCAL_COVERAGE_BATCH_SIZE)
-    remaining = point_count - initial_size
-    full_batches, tail = divmod(remaining, _MAX_LOCAL_COVERAGE_BATCH_SIZE)
-    return (
-        ((initial_size,) if initial_size else ())
-        + (_MAX_LOCAL_COVERAGE_BATCH_SIZE,) * full_batches
-        + ((tail,) if tail else ())
-    )
+def _bounded_block_prefix(
+    blocks: Sequence[tuple[int, ...]],
+    *,
+    max_points: int,
+) -> tuple[tuple[int, ...], ...]:
+    selected: list[tuple[int, ...]] = []
+    selected_count = 0
+    for block in blocks:
+        next_count = selected_count + len(block)
+        if next_count > max_points:
+            break
+        selected.append(block)
+        selected_count = next_count
+    if not selected:
+        raise ValueError("physical batch maximum ends inside a logical point block")
+    return tuple(selected)
+
+
+def _point_block_prefix(
+    blocks: Sequence[tuple[int, ...]],
+    *,
+    point_count: int,
+) -> tuple[tuple[int, ...], ...]:
+    selected: list[tuple[int, ...]] = []
+    selected_count = 0
+    for block in blocks:
+        selected.append(block)
+        selected_count += len(block)
+        if selected_count == point_count:
+            return tuple(selected)
+        if selected_count > point_count:
+            break
+    raise ValueError("point prefix ends inside a logical point block")
+
+
+def _flatten_point_blocks(
+    blocks: Sequence[tuple[int, ...]],
+) -> tuple[int, ...]:
+    return tuple(ordinal for block in blocks for ordinal in block)
+
+
+def _point_block_cut_offsets(
+    blocks: Sequence[tuple[int, ...]],
+) -> tuple[int, ...]:
+    cuts: list[int] = []
+    point_count = 0
+    for block in blocks:
+        point_count += len(block)
+        cuts.append(point_count)
+    return tuple(cuts)
+
+
+def _align_host_regions_to_point_blocks(
+    blocks: Sequence[tuple[int, ...]],
+    regions: Sequence[tuple[int, ...]],
+) -> tuple[tuple[tuple[int, ...], ...], ...]:
+    selected: list[tuple[tuple[int, ...], ...]] = []
+    block_offset = 0
+    for region in regions:
+        region_blocks: list[tuple[int, ...]] = []
+        point_count = 0
+        while point_count < len(region) and block_offset < len(blocks):
+            block = blocks[block_offset]
+            region_blocks.append(block)
+            point_count += len(block)
+            block_offset += 1
+        if _flatten_point_blocks(region_blocks) != region:
+            raise ValueError("host state boundary splits a logical point block")
+        selected.append(tuple(region_blocks))
+    if block_offset != len(blocks):
+        raise AssertionError("host regions did not cover every logical point block")
+    return tuple(selected)
 
 
 def _stable_host_regions(
@@ -1396,6 +1508,7 @@ def _compile_domain_batch(
     bound_points: MaterializedBoundPoints,
     point_ordinals: tuple[int, ...],
     *,
+    legal_cut_offsets: tuple[int, ...],
     batch_ordinal: int,
     inspection_requested: bool,
     inspection_query: CompiledProgramInspectionQuery | None,
@@ -1404,6 +1517,7 @@ def _compile_domain_batch(
         call,
         bound_points,
         point_ordinals,
+        legal_cut_offsets=legal_cut_offsets,
         batch_ordinal=batch_ordinal,
         inspection_requested=inspection_requested,
         inspection_query=inspection_query,

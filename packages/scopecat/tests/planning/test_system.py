@@ -331,6 +331,7 @@ def _bound_program(
     acquisition_before_domain: bool = False,
     record_instrument_products: bool = True,
     point_count: int = 2,
+    point_execution_block_size: int = 1,
     domain_input: ScalarExpr | None = None,
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     parameter_data: ParameterRelationData | None = None,
@@ -515,6 +516,7 @@ def _bound_program(
         ),
         parameter_overlays=tuple(parameter_overlays),
         effects=effects,
+        point_execution_block_size=point_execution_block_size,
         product_defs=products,
         product_uses=tuple(use for use, _record in recorded_selections),
         record_uses=tuple(record for _use, record in recorded_selections),
@@ -826,9 +828,10 @@ def test_planning_executes_repeated_grid_in_snake_order() -> None:
 
     assert tuple(point.ordinal for point in plan.points.points) == tuple(range(12))
     assert tuple(
-        operation.point_index
+        point_index
         for operation in plan.coverage
         if isinstance(operation, RunCoverageCheckpoint)
+        for point_index in operation.point_indices
     ) == (0, 1, 2, 3, 4, 5, 10, 11, 8, 9, 6, 7)
 
 
@@ -1114,6 +1117,105 @@ def test_domain_target_adapts_followup_batches_from_compiler_feedback() -> None:
     )
 
 
+def test_domain_batches_partition_only_between_logical_point_blocks() -> None:
+    bound = _bound_program(
+        point_count=6,
+        point_execution_block_size=2,
+    )
+    compiler = _DomainCompiler(
+        "tests.logical-blocks",
+        initial_size=3,
+        next_batch_capacities=(3,),
+    )
+
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
+    operations = tuple(plan.coverage)
+
+    assert [request.point_ordinals for request in compiler.compatibility_requests] == [
+        (0, 1),
+        (2, 3),
+        (4, 5),
+    ]
+    compatibility_cuts = [
+        request.legal_cut_offsets for request in compiler.compatibility_requests
+    ]
+    assert compatibility_cuts == [
+        (2,),
+        (2,),
+        (2,),
+    ]
+    assert [request.point_ordinals for request in compiler.compile_requests] == [
+        (0, 1),
+        (2, 3),
+        (4, 5),
+    ]
+    assert [
+        operation.point_indices
+        for operation in operations
+        if isinstance(operation, RunCoverageCheckpoint)
+    ] == [(0, 1), (2, 3), (4, 5)]
+
+
+def test_domain_compiler_compatible_prefix_must_end_at_a_block_cut() -> None:
+    bound = _bound_program(
+        point_count=4,
+        point_execution_block_size=2,
+    )
+    compiler = _DomainCompiler(
+        "tests.invalid-logical-block-prefix",
+        initial_size=4,
+        compatible_sizes=(1,),
+    )
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
+
+    with pytest.raises(ValueError, match="legal point-block cut"):
+        tuple(plan.coverage)
+
+
+def test_host_state_boundary_cannot_split_a_logical_point_block() -> None:
+    bound = _bound_program(
+        state_mode="varying",
+        point_count=2,
+        point_execution_block_size=2,
+    )
+    compiler = _DomainCompiler("tests.host-state-splits-logical-block")
+    provider = _TrackingProvider()
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound, provider),
+        domain_compiler=compiler,
+    ).compile(bound)
+
+    with pytest.raises(
+        ValueError,
+        match="host state boundary splits a logical point block",
+    ):
+        tuple(plan.coverage)
+
+
+def test_static_coverage_resume_starts_only_between_complete_blocks() -> None:
+    bound = _bound_program(
+        product_count=0,
+        domain_product_count=0,
+        point_count=4,
+        point_execution_block_size=2,
+    )
+    plan = ExperimentSystem(instrument_catalog=_catalog(bound)).compile(bound)
+
+    with pytest.raises(ValueError, match="inside a logical point block"):
+        tuple(plan.coverage.suffix(1))
+    assert [
+        operation.point_indices
+        for operation in plan.coverage.suffix(2)
+        if isinstance(operation, RunCoverageCheckpoint)
+    ] == [(2, 3)]
+
+
 def test_domain_target_uses_the_largest_compatible_candidate_prefix() -> None:
     bound = _bound_program(point_count=10)
     compiler = _DomainCompiler(
@@ -1163,7 +1265,7 @@ def test_domain_target_rejects_an_invalid_compatible_prefix(
         instrument_catalog=_catalog(bound),
         domain_compiler=compiler,
     ).compile(bound)
-    with pytest.raises(ValueError, match="positive candidate prefix length"):
+    with pytest.raises(ValueError, match="positive candidate prefix ending"):
         tuple(plan.coverage)
 
 
@@ -1413,9 +1515,10 @@ def test_host_state_bounds_domain_compilation_regions() -> None:
         if isinstance(operation, RunCoverageEffect)
     ] == [0, 1]
     assert [
-        operation.point_index
+        point_index
         for operation in coverage
         if isinstance(operation, RunCoverageCheckpoint)
+        for point_index in operation.point_indices
     ] == [0, 1]
     assert provider.describe_calls == 1
     assert provider.connect_calls == 0
@@ -2006,6 +2109,8 @@ def test_adaptive_plan_uses_an_open_point_extent_with_a_hard_limit() -> None:
     assert preview.initial_point_count == 2
     assert preview.point_limit == 5
     assert preview.records[0].shape[0] is None
+    assert plan.coverage.is_durable_cut(5)
+    assert not plan.coverage.is_durable_cut(-1)
 
 
 @pytest.mark.parametrize("source", ("optimizer", "operator"))

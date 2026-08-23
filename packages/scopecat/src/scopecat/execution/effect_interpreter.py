@@ -348,9 +348,9 @@ class RunEffectInterpreter:
         self,
         checkpoint: RunCoverageCheckpoint,
     ) -> None:
-        if not self._known_point(checkpoint.point_index):
+        if any(not self._known_point(index) for index in checkpoint.point_indices):
             raise AssertionError("coverage checkpoint references an unknown point")
-        self._commit_coverage((checkpoint.point_index,))
+        self._commit_coverage(checkpoint.point_indices)
 
     def _commit_coverage(
         self,

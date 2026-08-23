@@ -201,6 +201,7 @@ def compose_experiment(
     point_repeat: int = 1,
     point_repeat_mode: RepeatMode = "point",
     point_traversal: PointTraversal = "forward",
+    point_execution_block_size: int = 1,
 ) -> LogicalProgram:
     """Elaborate a native experiment root without a synthetic module."""
 
@@ -227,6 +228,7 @@ def compose_experiment(
         point_repeat=point_repeat,
         point_repeat_mode=point_repeat_mode,
         point_traversal=point_traversal,
+        point_execution_block_size=point_execution_block_size,
         success_state=definition.success_state,
     )
 
@@ -247,6 +249,7 @@ def _elaborate_hierarchy(
     point_repeat: int = 1,
     point_repeat_mode: RepeatMode = "point",
     point_traversal: PointTraversal = "forward",
+    point_execution_block_size: int = 1,
     success_state: EnsureStateIntent | None,
 ) -> LogicalProgram:
     composer = _LogicalProgramComposer()
@@ -344,6 +347,7 @@ def _elaborate_hierarchy(
         point_repeat=point_repeat,
         point_repeat_mode=point_repeat_mode,
         point_traversal=point_traversal,
+        point_execution_block_size=point_execution_block_size,
         effects=logical_effects,
         success_state=(
             None
