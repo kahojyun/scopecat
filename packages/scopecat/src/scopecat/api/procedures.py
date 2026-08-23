@@ -46,6 +46,7 @@ from scopecat.automation import (
     ProcedureStepAttempt,
     ProcedureStepAttemptListQuery,
     ProcedureStepAttemptPage,
+    ProcedureStepAttentionRetryCommand,
     ProcedureStepOperation,
     ProcedureStepOutputRef,
     ProcedureSubmitCommand,
@@ -166,6 +167,11 @@ class ProcedureHandle:
 
     def resume(self, *, worker_id: str | None = None) -> ProcedureHandle:
         return self.operations.resume(self, worker_id=worker_id)
+
+    def retry_attention(self, *, worker_id: str | None = None) -> ProcedureHandle:
+        """Authorize and execute a new attempt of this procedure's blocked step."""
+
+        return self.operations.retry_attention(self, worker_id=worker_id)
 
 
 class LabProcedureContext:
@@ -678,6 +684,38 @@ class LabProcedureOperations:
         )
         return ProcedureHandle(self, run.procedure_run_id)
 
+    def retry_attention(
+        self,
+        procedure: str | ProcedureHandle,
+        *,
+        worker_id: str | None = None,
+    ) -> ProcedureHandle:
+        """Retry the exact quarantined step after reconciling its side effect."""
+
+        procedure_run_id = (
+            procedure.id if isinstance(procedure, ProcedureHandle) else procedure
+        )
+        run = self._client.get_procedure(procedure_run_id)
+        if run.state != "attention_required":
+            raise ValueError(
+                "procedure step attention retry requires an attention-required run"
+            )
+        step = self._attention_step(procedure_run_id)
+        receipt = self._client.retry_procedure_step_attention(
+            ProcedureStepAttentionRetryCommand(
+                procedure_run_id=procedure_run_id,
+                expected_run_revision=run.revision,
+                step_key=step.step_key,
+                attempt=step.attempt,
+                expected_step_revision=step.revision,
+            )
+        )
+        resumed = self._worker().resume_snapshot(
+            receipt.run,
+            worker_id=self._worker_id if worker_id is None else worker_id,
+        )
+        return ProcedureHandle(self, resumed.procedure_run_id)
+
     def resume_snapshot(
         self,
         run: ProcedureRun,
@@ -712,6 +750,19 @@ class LabProcedureOperations:
             procedure_run_id,
             ProcedureStepAttemptListQuery(limit=limit, cursor=before),
         )
+
+    def _attention_step(self, procedure_run_id: str) -> ProcedureStepAttempt:
+        cursor: int | None = None
+        while True:
+            page = self.steps(procedure_run_id, limit=200, before=cursor)
+            for attempt in page.items:
+                if attempt.state == "attention_required":
+                    return attempt
+            if page.next_cursor is None:
+                raise ValueError(
+                    "procedure attention is not owned by a retryable step attempt"
+                )
+            cursor = page.next_cursor
 
     def list(
         self,

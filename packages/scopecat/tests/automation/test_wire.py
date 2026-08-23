@@ -20,6 +20,8 @@ from scopecat.automation import (
     ProcedureStepAttemptPage,
     ProcedureStepAttentionCommand,
     ProcedureStepAttentionReceipt,
+    ProcedureStepAttentionRetryCommand,
+    ProcedureStepAttentionRetryReceipt,
     ProcedureStepBeginCommand,
     ProcedureStepBeginReceipt,
     ProcedureStepCompleteCommand,
@@ -266,7 +268,6 @@ def test_step_begin_returns_deterministic_side_effect_operation_id() -> None:
     operation_id = procedure_step_operation_id(
         step.procedure_run_id,
         step.step_key,
-        step.attempt,
     )
     receipt = ProcedureStepBeginReceipt(
         run=_run("leased"),
@@ -355,6 +356,21 @@ def test_step_and_run_attention_are_distinct_fenced_mutations() -> None:
     )
     assert ProcedureRunAttentionReceipt(run=_run("attention_required")).run.state == (
         "attention_required"
+    )
+    retry = ProcedureStepAttentionRetryCommand(
+        procedure_run_id="procedure-1",
+        expected_run_revision=3,
+        step_key="baseline",
+        attempt=1,
+        expected_step_revision=3,
+    )
+    assert assert_model_round_trip(retry).step_key == "baseline"
+    assert (
+        ProcedureStepAttentionRetryReceipt(
+            run=_run("ready"),
+            step=_step("attention_required"),
+        ).run.state
+        == "ready"
     )
 
 

@@ -92,9 +92,14 @@ only the procedure because every preceding effect is already known. An unknown
 child-run, publication, or configuration-operation outcome instead moves the
 owning step and procedure to `attention_required`; each domain service keeps its
 own authoritative result. Restart does not retry the effect or execute later
-steps. `attention_required` is a durable quarantine with no transition back to
-runnable work in the current procedure control plane. An operator must reconcile
-the authoritative external state before authoring a new procedure request.
+steps. `attention_required` is a durable quarantine. After reconciling the
+authoritative domain state, an operator may explicitly call
+`procedure.retry_attention()`. The exact quarantined attempt remains immutable,
+the procedure returns to ready, and replay creates the next numbered attempt.
+All attempts of one stable `(procedure_run_id, step_key)` share one side-effect
+operation id, so a child run or domain operation is looked up idempotently rather
+than duplicated. Run-level attention without an owning step is not covered by
+this command and remains an operator concern.
 
 ## Present supported slice
 

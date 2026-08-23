@@ -38,6 +38,8 @@ from scopecat.automation import (
     ProcedureStepAttemptPage,
     ProcedureStepAttentionCommand,
     ProcedureStepAttentionReceipt,
+    ProcedureStepAttentionRetryCommand,
+    ProcedureStepAttentionRetryReceipt,
     ProcedureStepBeginCommand,
     ProcedureStepBeginReceipt,
     ProcedureStepCompleteCommand,
@@ -704,6 +706,16 @@ class DaemonClient:
             self._procedure_step_path(command, "attention"),
             command,
             ProcedureStepAttentionReceipt,
+        )
+
+    def retry_procedure_step_attention(
+        self,
+        command: ProcedureStepAttentionRetryCommand,
+    ) -> ProcedureStepAttentionRetryReceipt:
+        return self._post_idempotent_model(
+            self._procedure_step_path(command, "retry"),
+            command,
+            ProcedureStepAttentionRetryReceipt,
         )
 
     def require_procedure_run_attention(
@@ -1881,7 +1893,8 @@ class DaemonClient:
     def _procedure_step_path(
         command: ProcedureStepCompleteCommand
         | ProcedureStepFailCommand
-        | ProcedureStepAttentionCommand,
+        | ProcedureStepAttentionCommand
+        | ProcedureStepAttentionRetryCommand,
         suffix: str,
     ) -> str:
         return (

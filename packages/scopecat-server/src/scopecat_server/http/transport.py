@@ -40,6 +40,8 @@ from scopecat.automation import (
     ProcedureStepAttemptPage,
     ProcedureStepAttentionCommand,
     ProcedureStepAttentionReceipt,
+    ProcedureStepAttentionRetryCommand,
+    ProcedureStepAttentionRetryReceipt,
     ProcedureStepBeginCommand,
     ProcedureStepBeginReceipt,
     ProcedureStepCompleteCommand,
@@ -894,6 +896,26 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
             command.attempt,
         )
         return application.automation.require_step_attention(command)
+
+    @app.post(
+        f"{_API_PREFIX}/procedures/{{procedure_run_id}}/steps/{{step_key:path}}/"
+        "attempts/{attempt}/retry"
+    )
+    def retry_procedure_step_attention(
+        procedure_run_id: str,
+        step_key: str,
+        attempt: Annotated[int, ApiPath(ge=1)],
+        command: ProcedureStepAttentionRetryCommand,
+    ) -> ProcedureStepAttentionRetryReceipt:
+        _require_procedure_step_identity(
+            procedure_run_id,
+            step_key,
+            attempt,
+            command.procedure_run_id,
+            command.step_key,
+            command.attempt,
+        )
+        return application.automation.retry_step_attention(command)
 
     @app.post(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/attention")
     def require_procedure_run_attention(

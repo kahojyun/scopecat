@@ -30,6 +30,8 @@ from scopecat.automation import (
     ProcedureStepAttemptState,
     ProcedureStepAttentionCommand,
     ProcedureStepAttentionReceipt,
+    ProcedureStepAttentionRetryCommand,
+    ProcedureStepAttentionRetryReceipt,
     ProcedureStepBeginCommand,
     ProcedureStepBeginReceipt,
     ProcedureStepCompleteCommand,
@@ -194,7 +196,6 @@ class AutomationService:
             operation_id=procedure_step_operation_id(
                 transition.attempt.procedure_run_id,
                 transition.attempt.step_key,
-                transition.attempt.attempt,
             ),
         )
 
@@ -263,6 +264,22 @@ class AutomationService:
                 expected_revision=command.expected_run_revision,
                 reason=command.reason,
             )
+        )
+
+    def retry_step_attention(
+        self,
+        command: ProcedureStepAttentionRetryCommand,
+    ) -> ProcedureStepAttentionRetryReceipt:
+        transition = self._retry_step_attention(
+            command.procedure_run_id,
+            expected_run_revision=command.expected_run_revision,
+            step_key=command.step_key,
+            attempt=command.attempt,
+            expected_attempt_revision=command.expected_step_revision,
+        )
+        return ProcedureStepAttentionRetryReceipt(
+            run=transition.run,
+            step=transition.attempt,
         )
 
     def close(self, command: ProcedureCloseCommand) -> ProcedureCloseReceipt:
@@ -549,10 +566,10 @@ class AutomationService:
                     )
                 if existing.state in {"running", "succeeded"}:
                     return ProcedureStepTransition(run=run, attempt=existing)
-                raise AutomationConflict(
-                    "failed or attention-required procedure step is terminal for "
-                    "this procedure run"
-                )
+                if existing.state == "failed":
+                    raise AutomationConflict(
+                        "failed procedure step is terminal for this procedure run"
+                    )
             self._require_revision(run, expected_run_revision)
             running = self._store.running_step_attempt_in_transaction(
                 connection,
@@ -565,7 +582,7 @@ class AutomationService:
             attempt = ProcedureStepAttempt(
                 procedure_run_id=procedure_run_id,
                 step_key=step_key,
-                attempt=1,
+                attempt=1 if existing is None else existing.attempt + 1,
                 operation=operation,
                 intent_hash=intent_hash,
                 inputs=inputs,
@@ -772,6 +789,76 @@ class AutomationService:
                 run=updated_run,
                 attempt=updated_attempt,
             )
+
+    def _retry_step_attention(
+        self,
+        procedure_run_id: str,
+        *,
+        expected_run_revision: int,
+        step_key: str,
+        attempt: int,
+        expected_attempt_revision: int,
+    ) -> ProcedureStepTransition:
+        """Return one exact quarantined step to retryable procedure work."""
+
+        now = self._now()
+        with (
+            _translate_store_errors(),
+            self._store.write_transaction() as connection,
+        ):
+            run = self._store.read_run_in_transaction(connection, procedure_run_id)
+            current = self._store.read_step_attempt_in_transaction(
+                connection,
+                procedure_run_id,
+                step_key,
+                attempt,
+            )
+            if (
+                run.state == "ready"
+                and run.revision == expected_run_revision + 1
+                and current.state == "attention_required"
+                and current.revision == expected_attempt_revision
+            ):
+                return ProcedureStepTransition(run=run, attempt=current)
+            self._require_revision(run, expected_run_revision)
+            self._require_attempt_revision(current, expected_attempt_revision)
+            if (
+                run.state != "attention_required"
+                or current.state != "attention_required"
+            ):
+                raise AutomationConflict(
+                    "procedure step retry requires attention states"
+                )
+            if run.attention_reason != current.attention_reason:
+                raise AutomationConflict(
+                    "procedure run and step attention reasons do not match"
+                )
+            latest = self._store.latest_step_attempt_in_transaction(
+                connection,
+                procedure_run_id,
+                step_key,
+            )
+            if latest != current:
+                raise AutomationConflict(
+                    "procedure step retry must target the latest attempt"
+                )
+            if (
+                self._store.read_lease_in_transaction(
+                    connection,
+                    procedure_run_id,
+                )
+                is not None
+            ):
+                raise AutomationConflict(
+                    "attention-required procedure cannot retain a worker lease"
+                )
+            updated_run = _run_state(run, state="ready", at=now)
+            self._store.replace_run_in_transaction(
+                connection,
+                updated_run,
+                expected_revision=expected_run_revision,
+            )
+            return ProcedureStepTransition(run=updated_run, attempt=current)
 
     def _require_step_attention(
         self,
