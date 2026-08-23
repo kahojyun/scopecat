@@ -15,7 +15,7 @@ from scopecat_quantum._ids import (
     PulseProgramId,
     QubitId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import INTEGRATED_IQ_RESULT
 from scopecat_quantum.circuits import (
     Measure,
     VerifiedCircuitOperations,
@@ -94,7 +94,7 @@ def _measurement_template() -> PulseProgram:
     acquire_signal = AcquireSignal(Q0)
     slot = AcquisitionSlot(
         AcquisitionSlotId("template-result"),
-        AcquisitionKind.INTEGRATED_IQ,
+        INTEGRATED_IQ_RESULT,
         acquire_signal,
     )
     return PulseProgram(
@@ -303,7 +303,7 @@ def test_measurement_without_implementation_prevents_aggregate_binding() -> None
         id=CircuitOperationId("measure"),
         qubit=Q0,
         acquisition_slot_id=AcquisitionSlotId("readout"),
-        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
+        contract=INTEGRATED_IQ_RESULT,
     )
     program = verify_circuit_operations(
         (call, measurement),
@@ -322,7 +322,7 @@ def test_measurement_without_implementation_prevents_aggregate_binding() -> None
     assert issue.message == "operation 'measure' has no exact pulse implementation"
     assert issue.key == MeasurementPulseImplementationKey(
         qubit=Q0,
-        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
+        contract=INTEGRATED_IQ_RESULT,
     )
 
 
@@ -331,7 +331,7 @@ def test_resolved_measurement_implementation_keys_must_be_unique() -> None:
         id=CircuitOperationId("measure"),
         qubit=Q0,
         acquisition_slot_id=AcquisitionSlotId("result"),
-        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
+        contract=INTEGRATED_IQ_RESULT,
     )
     key = MeasurementPulseImplementationKey.from_measurement(measurement)
     template = _measurement_template()
@@ -439,7 +439,7 @@ def test_gate_implementations_cannot_produce_acquisition_results() -> None:
     acquire_signal = AcquireSignal(Q0)
     slot = AcquisitionSlot(
         id=AcquisitionSlotId("readout"),
-        kind=AcquisitionKind.INTEGRATED_IQ,
+        contract=INTEGRATED_IQ_RESULT,
         signal=acquire_signal,
     )
     declared_slot_program = PulseProgram(

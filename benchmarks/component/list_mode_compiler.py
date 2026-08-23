@@ -27,7 +27,7 @@ from scopecat_quantum._ids import (
     TargetCompileEntryId,
     TargetCompilerId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import INTEGRATED_IQ_RESULT
 from scopecat_quantum.pulses import (
     Acquire,
     AcquireSignal,
@@ -41,6 +41,7 @@ from scopecat_quantum.pulses import (
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
 from scopecat_quantum.pulses import Sequence as PulseSequence
+from scopecat_quantum.realtime import TargetProgram
 from scopecat_quantum.targets import TargetCompileEntry, TargetCompileRequest
 
 
@@ -60,7 +61,7 @@ def _scheduled_program():
     q0 = QubitId("q0")
     slot = AcquisitionSlot(
         AcquisitionSlotId("result"),
-        AcquisitionKind.INTEGRATED_IQ,
+        INTEGRATED_IQ_RESULT,
         AcquireSignal(q0),
     )
     return schedule(
@@ -104,7 +105,7 @@ def _request(*, prefix: str, entry_count: int, repetitions: int):
         entries=tuple(
             TargetCompileEntry(
                 TargetCompileEntryId(f"{prefix}-{ordinal}"),
-                scheduled,
+                TargetProgram.from_scheduled(scheduled),
             )
             for ordinal in range(entry_count)
         ),

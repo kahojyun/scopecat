@@ -128,6 +128,7 @@ def _batch_context(
         call,
         bound_points,
         point_ordinals,
+        legal_cut_offsets=tuple(range(1, len(point_ordinals) + 1)),
         batch_ordinal=batch_ordinal,
     )
 

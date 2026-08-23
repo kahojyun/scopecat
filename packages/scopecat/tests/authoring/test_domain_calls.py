@@ -353,6 +353,7 @@ def test_table_module_input_reaches_domain_batch_through_nested_forwarding() -> 
         call,
         points,
         (0,),
+        legal_cut_offsets=(1,),
         batch_ordinal=0,
     )
     assert request.inputs.compiler_input("rows") == (

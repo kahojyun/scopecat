@@ -19,6 +19,7 @@ from scopecat.program.value_types import (
     Quantity as QuantityAtomType,
 )
 
+from scopecat_quantum.acquisitions import QuantumResultDimension
 from scopecat_quantum.pulses import (
     AcquireSignal,
     AnalyticEnvelope,
@@ -45,6 +46,7 @@ from ._ir import (
     QuantumQuantity,
     Qubit,
     QubitSet,
+    _ConditionalFragment,
     _DelayFragment,
     _ExpandedFragment,
     _FragmentCall,
@@ -53,6 +55,7 @@ from ._ir import (
     _ParallelEachFragment,
     _ParallelFragment,
     _PlayFragment,
+    _ProgramFamilyEnvelope,
     _PulseTemplateCallFragment,
     _QuantumParallelFragment,
     _QuantumRepeatFragment,
@@ -147,11 +150,15 @@ def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
         return _InspectionNode(f"gate {_inspection_gate_call(fragment)}")
     if isinstance(fragment, Measurement):
         result = fragment.result
-        return _InspectionNode(f"measure {result.qubit.id} -> {result.id}")
+        return _InspectionNode(
+            f"measure {result.qubit.id} -> {result.id}"
+            f"{_inspection_result_shape(result)}"
+        )
     if isinstance(fragment, Acquisition):
         return _InspectionNode(
             f"acquire {fragment.result.qubit.id} "
             f"duration={_inspection_value(fragment.duration)} -> {fragment.result.id}"
+            f"{_inspection_result_shape(fragment.result)}"
         )
     if isinstance(fragment, _PlayFragment):
         return _InspectionNode(
@@ -187,7 +194,10 @@ def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
         arguments = ", ".join(
             f"{name}={_inspection_value(value)}" for name, value in fragment.arguments
         )
-        return _InspectionNode(f"fragment {fragment.definition.id}({arguments})")
+        return _InspectionNode(
+            f"fragment {fragment.definition.id}({arguments})",
+            (_inspection_program_family_envelope(fragment.definition.envelope),),
+        )
     if isinstance(fragment, _ExpandedFragment):
         return _InspectionNode(
             f"fragment {fragment.definition_id}",
@@ -208,12 +218,51 @@ def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
             f"parallel_each ${fragment.entity_set.id}",
             (_inspection_node(fragment.operation),),
         )
-    if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
+    if isinstance(fragment, _ConditionalFragment):
+        cases = tuple(
+            _InspectionNode(
+                f"case {state}",
+                (_inspection_node(branch),),
+            )
+            for state, branch in fragment.cases
+        )
+        default = (
+            _InspectionNode("default (no-op)")
+            if fragment.default is None
+            else _InspectionNode("default", (_inspection_node(fragment.default),))
+        )
         return _InspectionNode(
-            f"repeat {_inspection_value(fragment.count)}",
+            f"switch ${fragment.predicate.id}",
+            (*cases, default),
+        )
+    if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
+        result_dimension = (
+            fragment.result_dimension_id
+            if isinstance(fragment, _QuantumRepeatFragment)
+            else None
+        )
+        dimension_suffix = (
+            ""
+            if result_dimension is None
+            else f" result_dimension={result_dimension!r}"
+        )
+        return _InspectionNode(
+            f"repeat {_inspection_value(fragment.count)}{dimension_suffix}",
             (_inspection_node(fragment.operation),),
         )
     raise AssertionError(f"unsupported quantum fragment {type(fragment).__name__}")
+
+
+def _inspection_program_family_envelope(
+    envelope: _ProgramFamilyEnvelope,
+) -> _InspectionNode:
+    allowed_gates = ", ".join(
+        definition.id.value for definition in envelope.gate_definitions
+    )
+    return _InspectionNode(
+        f"envelope allowed_gates=[{allowed_gates}] "
+        f"max_operations={envelope.max_operations} max_depth={envelope.max_depth}"
+    )
 
 
 def _inspection_gate_call(fragment: _GateFragment) -> str:
@@ -301,7 +350,34 @@ def _describe_program_input(value: ProgramInput) -> str:
 def _describe_result(result: ProgramResult) -> str:
     contract = result.contract
     unit = "" if contract.unit is None else f" {contract.unit}"
+    entity_axes = ("entity",) if result.entity_set is not None else ()
+    axes = ",".join(
+        (
+            *entity_axes,
+            "shot",
+            *(
+                _describe_result_dimension(dimension)
+                for dimension in contract.dimensions
+            ),
+        )
+    )
     return (
         f"{result.acquisition_kind.value} {contract.dtype}{unit} "
-        f"on {result.qubit.id}; axes=shot"
+        f"on {result.qubit.id}; axes={axes}"
+    )
+
+
+def _describe_result_dimension(dimension: QuantumResultDimension) -> str:
+    input_id = dimension.size_input_id
+    if input_id is None:
+        return dimension.id
+    return f"{dimension.id}=${input_id}(max={dimension.maximum_size})"
+
+
+def _inspection_result_shape(result: ProgramResult) -> str:
+    dimensions = result.contract.dimensions
+    if not dimensions:
+        return ""
+    return " dimensions=" + ",".join(
+        _describe_result_dimension(dimension) for dimension in dimensions
     )

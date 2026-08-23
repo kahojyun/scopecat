@@ -309,6 +309,7 @@ class LogicalProgramBuilder:
         point_repeat: int,
         point_repeat_mode: RepeatMode,
         point_traversal: PointTraversal,
+        point_execution_block_size: int,
         effects: tuple[
             LogicalStateAssignment
             | LogicalEnsureState
@@ -337,6 +338,7 @@ class LogicalProgramBuilder:
             point_repeat=point_repeat,
             point_repeat_mode=point_repeat_mode,
             point_traversal=point_traversal,
+            point_execution_block_size=point_execution_block_size,
             value_defs=tuple(self._definitions.values()),
             compute_nodes=tuple(self._compute_nodes.values()),
             measurement_computes=tuple(self._measurement_computes),

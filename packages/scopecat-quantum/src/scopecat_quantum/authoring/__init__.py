@@ -1,6 +1,15 @@
 # pyright: reportPrivateUsage=false
 """Hardware-independent quantum authoring facade."""
 
+from scopecat_quantum.acquisitions import (
+    CLASSIFIED_STATE_RESULT,
+    INTEGRATED_IQ_RESULT,
+    AcquisitionKind,
+    QuantumResultContract,
+    QuantumResultDimension,
+    raw_trace_result,
+)
+
 from ._analysis import (
     program_port_type,
 )
@@ -40,12 +49,14 @@ from ._construction import (
     sequence,
     shift_phase,
     single_qubit_gate,
+    switch,
     two_qubit_gate,
 )
 from ._definitions import (
     FragmentDefinition,
     Gate,
     GateImplementationDefinition,
+    ProgramFamilyEnvelope,
     PulseTemplateDefinition,
     SingleQubitGate,
     TwoQubitGate,
@@ -58,7 +69,6 @@ from ._inspection import (
     draw,
 )
 from ._ir import (
-    INTEGRATED_IQ_RESULT,
     QUANTUM_PROGRAM_DIALECT_ID,
     QUANTUM_PROGRAM_DIALECT_VERSION,
     Acquisition,
@@ -78,7 +88,6 @@ from ._ir import (
     PulseFragment,
     QuantumFragment,
     QuantumQuantity,
-    QuantumResultContract,
     Qubit,
     QubitInput,
     QubitSet,
@@ -92,10 +101,12 @@ from ._programs import (
 from ._selection import QubitSelectionIntent, select_qubits
 
 __all__ = [
+    "CLASSIFIED_STATE_RESULT",
     "INTEGRATED_IQ_RESULT",
     "QUANTUM_PROGRAM_DIALECT_ID",
     "QUANTUM_PROGRAM_DIALECT_VERSION",
     "Acquisition",
+    "AcquisitionKind",
     "BoundProgram",
     "CircuitArgument",
     "CircuitFragment",
@@ -109,6 +120,7 @@ __all__ = [
     "Program",
     "ProgramBindingError",
     "ProgramDefinition",
+    "ProgramFamilyEnvelope",
     "ProgramInput",
     "ProgramPort",
     "ProgramResult",
@@ -121,6 +133,7 @@ __all__ = [
     "QuantumProgramCall",
     "QuantumQuantity",
     "QuantumResultContract",
+    "QuantumResultDimension",
     "Qubit",
     "QubitInput",
     "QubitSelectionIntent",
@@ -151,6 +164,7 @@ __all__ = [
     "program_port_type",
     "pulse_template",
     "qubit",
+    "raw_trace_result",
     "readout",
     "repeat",
     "scalar_input",
@@ -158,5 +172,6 @@ __all__ = [
     "sequence",
     "shift_phase",
     "single_qubit_gate",
+    "switch",
     "two_qubit_gate",
 ]

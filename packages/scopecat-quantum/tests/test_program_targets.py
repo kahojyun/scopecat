@@ -14,7 +14,7 @@ from scopecat_quantum._ids import (
     QubitId,
     TargetCompileEntryId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import INTEGRATED_IQ_RESULT
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import GateCall, GateDefinition
 from scopecat_quantum.measurement_implementations import (
@@ -50,9 +50,9 @@ from scopecat_quantum.pulses import (
     Play,
     PulseProgram,
     ReadoutSignal,
-    ScheduledPulseProgram,
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
+from scopecat_quantum.realtime import ScheduledBlock, TargetProgram
 
 X90 = GateDefinition(GateId("x90"), qubit_arity=1)
 Q0 = QubitId("q0")
@@ -81,7 +81,7 @@ def _gate_template() -> PulseProgram:
 def _readout_template(qubit: QubitId, *, program_id: str) -> PulseProgram:
     slot = AcquisitionSlot(
         id=AcquisitionSlotId("template-result"),
-        kind=AcquisitionKind.INTEGRATED_IQ,
+        contract=INTEGRATED_IQ_RESULT,
         signal=AcquireSignal(qubit),
     )
     duration = Quantity(8, "ns")
@@ -119,7 +119,7 @@ def _pulse_lowering_plan() -> QuantumPulseLoweringPlan:
         id=CircuitOperationId("measure-q0"),
         qubit=Q0,
         acquisition_slot_id=AcquisitionSlotId("logical-result"),
-        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
+        contract=INTEGRATED_IQ_RESULT,
     )
     source = QuantumProgramIR(
         id=QuantumProgramId("mixed-program"),
@@ -168,12 +168,13 @@ def _batch(
     )
 
 
-def test_preparation_exposes_one_scheduled_target_entry() -> None:
+def test_preparation_exposes_one_static_target_program() -> None:
     prepared = _prepared()
 
-    assert isinstance(prepared.target_entry.program, ScheduledPulseProgram)
-    assert prepared.target_entry.program is prepared.scheduled
-    assert prepared.scheduled.id == PulseProgramId("mixed-program-pulses")
+    assert isinstance(prepared.target_entry.program, TargetProgram)
+    assert prepared.target_entry.program is prepared.program
+    assert prepared.program.id == PulseProgramId("mixed-program-pulses")
+    assert isinstance(prepared.program.body, ScheduledBlock)
     assert prepared.acquisition_addresses == (
         prepared.target_entry.acquisition_addresses
     )

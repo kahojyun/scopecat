@@ -91,6 +91,7 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
         call_view,
         bound_points,
         (0, 1, 2),
+        legal_cut_offsets=(1, 2, 3),
         batch_ordinal=0,
     )
     assert full.call.program.id == "program%2Fvariant"
@@ -118,6 +119,7 @@ def test_domain_batch_request_exposes_complete_inputs_and_call_contract(
         call_view,
         bound_points,
         (1, 2),
+        legal_cut_offsets=(1, 2),
         batch_ordinal=1,
     )
     assert batch.inputs.program_input("count") == (3, 5)

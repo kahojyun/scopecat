@@ -38,6 +38,7 @@ from scopecat.program.products import (
     ProductRefs,
     ProductValueSpec,
     entity_axis,
+    product_axis,
     shot_axis,
 )
 from scopecat.program.value_refs import internal_literal_value_ref
@@ -45,6 +46,7 @@ from scopecat.program.value_refs import internal_literal_value_ref
 from scopecat_quantum._ids import (
     QuantumProgramId,
 )
+from scopecat_quantum.acquisitions import QuantumResultDimension
 
 from ._analysis import (
     _summarize_fragment,
@@ -358,8 +360,34 @@ def _program_call(
                             cast("ValueRef | Quantity | float", normalized_shots),
                             shared_as="shot",
                         ),
+                        *(
+                            product_axis(
+                                dimension.id,
+                                size=_result_dimension_axis_size(
+                                    dimension,
+                                    normalized_inputs,
+                                ),
+                                kind=dimension.kind,
+                                unit=dimension.unit,
+                                shared_as=dimension.id,
+                            )
+                            for dimension in result.contract.dimensions
+                        ),
                     ),
                 ),
+                metadata={
+                    "quantum.acquisition_kind": result.acquisition_kind.value,
+                    "quantum.local_dimensions": tuple(
+                        {
+                            "id": dimension.id,
+                            "kind": dimension.kind,
+                            "unit": dimension.unit,
+                            "maximum_size": dimension.maximum_size,
+                            "size_input_id": dimension.size_input_id,
+                        }
+                        for dimension in result.contract.dimensions
+                    ),
+                },
             )
             for result in program.results
         },
@@ -372,6 +400,21 @@ def _program_call(
         compiler_arguments=tuple(normalized_compiler_inputs.items()),
         shots=shots,
     )
+
+
+def _result_dimension_axis_size(
+    dimension: QuantumResultDimension,
+    inputs: Mapping[str, ComputeInput],
+) -> int | None:
+    """Project fixed call extents and retain scanned extents as ragged axes."""
+
+    input_id = dimension.size_input_id
+    if input_id is None:
+        return cast("int", dimension.size)
+    selected = inputs[input_id]
+    if isinstance(selected, int) and not isinstance(selected, bool):
+        return selected
+    return None
 
 
 def _normalize_compiler_input(name: str, value: ComputeInput) -> ValueRef:

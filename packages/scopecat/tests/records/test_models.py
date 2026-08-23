@@ -108,6 +108,7 @@ def test_run_request_records_canonical_grid_axes_only() -> None:
         "repeat": 1,
         "repeat_mode": "point",
         "traversal": "forward",
+        "execution_block_size": 1,
     }
     with pytest.raises(ValidationError):
         RunRequest.model_validate(

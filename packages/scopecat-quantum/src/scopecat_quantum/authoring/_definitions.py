@@ -385,11 +385,45 @@ class GateImplementationDefinition[**P]:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ProgramFamilyEnvelope:
+    """Static gate and size bounds for one point-bound program family."""
+
+    allowed_gates: tuple[Gate, ...]
+    max_operations: int
+    max_depth: int
+
+    def __post_init__(self) -> None:
+        gate_ids = tuple(gate.id for gate in self.allowed_gates)
+        duplicate_gate_ids = sorted(
+            gate_id for gate_id in set(gate_ids) if gate_ids.count(gate_id) > 1
+        )
+        if duplicate_gate_ids:
+            rendered = ", ".join(repr(gate_id) for gate_id in duplicate_gate_ids)
+            raise ValueError(
+                f"program family envelope has duplicate allowed gates: {rendered}"
+            )
+        for name, value in (
+            ("max_operations", self.max_operations),
+            ("max_depth", self.max_depth),
+        ):
+            if type(value) is not int or value < 0:
+                msg = f"program family envelope {name} must be a non-negative integer"
+                raise ValueError(msg)
+
+    @property
+    def gate_definitions(self) -> tuple[GateDefinition, ...]:
+        """Return the declared semantic gate catalog."""
+
+        return tuple(gate.definition for gate in self.allowed_gates)
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class FragmentDefinition[**P]:
-    """A typed result-free fragment expanded after point inputs bind."""
+    """A bounded, typed program family expanded after point inputs bind."""
 
     id: str
+    envelope: ProgramFamilyEnvelope
     _definition: Callable[P, QuantumFragment]
     _contract: _QuantumFunctionContract
 
@@ -398,6 +432,12 @@ class FragmentDefinition[**P]:
         """Return ports in their declared Python order."""
 
         return self._contract.parameters
+
+    @property
+    def allowed_elements(self) -> tuple[PulseElement, ...]:
+        """Return the only qubit and coupler handles the family may use."""
+
+        return self._contract.elements
 
     @property
     def __wrapped__(self) -> Callable[P, QuantumFragment]:

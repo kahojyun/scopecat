@@ -33,7 +33,7 @@ BENCHMARK_CASES = (
         id="quantum-program",
         kind="component",
         module="benchmarks.component.quantum_program",
-        summary="Retained quantum lowering and bounded program inspection",
+        summary="Bounded quantum authoring, lowering, and local result shape",
     ),
     BenchmarkCase(
         id="inspection-index",

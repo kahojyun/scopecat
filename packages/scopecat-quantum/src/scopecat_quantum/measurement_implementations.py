@@ -11,7 +11,9 @@ from scopecat_quantum._ids import (
     PulseImplementationId,
     QubitId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import (
+    QuantumResultContract,
+)
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.pulses import (
     AcquireSignal,
@@ -28,7 +30,7 @@ class MeasurementPulseImplementationKey:
     """Reusable logical identity of one single-qubit measurement shape."""
 
     qubit: QubitId
-    acquisition_kind: AcquisitionKind
+    contract: QuantumResultContract
 
     @classmethod
     def from_measurement(
@@ -38,7 +40,7 @@ class MeasurementPulseImplementationKey:
 
         return cls(
             qubit=measurement.qubit,
-            acquisition_kind=measurement.acquisition_kind,
+            contract=measurement.contract,
         )
 
 
@@ -54,8 +56,8 @@ def _validate_measurement_template(
         msg = "measurement implementation must declare exactly one acquisition slot"
         raise ValueError(msg)
     slot = slots[0]
-    if slot.kind is not key.acquisition_kind:
-        msg = "measurement acquisition slot kind must match its implementation key"
+    if slot.contract != key.contract:
+        msg = "measurement acquisition slot contract must match its implementation key"
         raise ValueError(msg)
     expected_acquire_signal = AcquireSignal(key.qubit)
     if slot.signal != expected_acquire_signal:

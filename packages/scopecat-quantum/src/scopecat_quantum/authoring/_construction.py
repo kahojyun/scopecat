@@ -24,6 +24,11 @@ from scopecat_quantum._ids import (
     QuantumProgramId,
     QubitId,
 )
+from scopecat_quantum.acquisitions import (
+    INTEGRATED_IQ_RESULT,
+    AcquisitionKind,
+    QuantumResultContract,
+)
 from scopecat_quantum.gates import (
     GateDefinition,
     GateParameterDefinition,
@@ -51,11 +56,14 @@ from ._analysis import (
     _require_quantity_expression,
     _summarize_fragment,
     _unique_gate_definitions,
+    _validate_realtime_structure,
+    _validate_result_repeat_contract,
 )
 from ._definitions import (
     FragmentDefinition,
     Gate,
     GateImplementationDefinition,
+    ProgramFamilyEnvelope,
     PulseTemplateDefinition,
     SingleQubitGate,
     TwoQubitGate,
@@ -66,7 +74,6 @@ from ._definitions import (
 from ._ir import (
     _RESERVED_PROGRAM_PORT_IDS,
     _RESERVED_RESULT_IDS,
-    INTEGRATED_IQ_RESULT,
     Acquisition,
     CircuitFragment,
     Coupler,
@@ -82,10 +89,10 @@ from ._ir import (
     PulseTemplateFunction,
     QuantumFragment,
     QuantumQuantity,
-    QuantumResultContract,
     Qubit,
     QubitSet,
     RepeatCount,
+    _ConditionalFragment,
     _DelayFragment,
     _ParallelEachFragment,
     _ParallelFragment,
@@ -469,6 +476,8 @@ def parallel(
     if len(branches) < 2:
         msg = "parallel requires at least two quantum branches"
         raise ValueError(msg)
+    if any(_summarize_fragment(branch).has_realtime for branch in branches):
+        raise ValueError("real-time control is not supported under parallel")
     if all(isinstance(branch, CircuitFragment) for branch in branches):
         return _ParallelFragment(
             branches=cast("tuple[CircuitFragment, ...]", branches),
@@ -484,13 +493,47 @@ def parallel_each(
     """Retain one parallel operation over a variable-size qubit set."""
 
     body = operation(entity_set.item)
+    if _summarize_fragment(body).has_realtime:
+        raise ValueError("real-time control is not supported under parallel_each")
     return _ParallelEachFragment(entity_set=entity_set, operation=body)
+
+
+def switch(
+    result: MeasurementResult,
+    cases: Mapping[int, QuantumFragment],
+    *,
+    default: QuantumFragment | None = None,
+) -> QuantumFragment:
+    """Select one finite result-free branch from an earlier classified result."""
+
+    if result.contract.acquisition_kind is not AcquisitionKind.CLASSIFIED_STATE:
+        raise ValueError("switch predicates require classified-state results")
+    if not cases:
+        raise ValueError("switch requires at least one classified-state case")
+    if any(type(state) is not int for state in cases):
+        raise TypeError("switch case states must be integers")
+    selected_cases = tuple(sorted(cases.items(), key=lambda item: item[0]))
+    branches = tuple(branch for _state, branch in selected_cases)
+    if default is not None:
+        branches = (*branches, default)
+    if any(_summarize_fragment(branch).results for branch in branches):
+        raise ValueError(
+            "switch branches cannot produce acquisition results; place "
+            "measurement before or after the switch"
+        )
+    return _ConditionalFragment(
+        predicate=result,
+        cases=selected_cases,
+        default=default,
+    )
 
 
 @overload
 def repeat(
     operation: CircuitFragment,
     count: int | ProgramInput,
+    *,
+    result_dimension: None = None,
 ) -> CircuitFragment: ...
 
 
@@ -498,25 +541,55 @@ def repeat(
 def repeat(
     operation: QuantumFragment,
     count: RepeatCount,
+    *,
+    result_dimension: str | None = None,
 ) -> QuantumFragment: ...
 
 
 def repeat(
     operation: QuantumFragment,
     count: RepeatCount,
+    *,
+    result_dimension: str | None = None,
 ) -> QuantumFragment:
-    """Repeat a result-free fragment."""
+    """Repeat a static fragment or retain one bounded result-producing loop."""
 
-    results = _summarize_fragment(operation).results
-    if results:
-        raise ValueError("repeat requires a result-free fragment")
     if isinstance(count, ProgramInput):
         if not _is_integer_input(count):
             msg = "repeat count inputs must have integer kind"
             raise TypeError(msg)
-    elif isinstance(count, bool) or count < 0:
+    elif type(count) is not int or count < 0:
         msg = "repeat count must be a non-negative integer or integer input"
         raise ValueError(msg)
+    if result_dimension is not None and not result_dimension.strip():
+        raise ValueError("repeat result dimension must be a non-empty string")
+
+    facts = _summarize_fragment(operation)
+    if facts.results:
+        if result_dimension is None:
+            raise ValueError(
+                "result-producing repeats require result_dimension and matching "
+                "result contracts"
+            )
+        if isinstance(count, int) and count == 0:
+            raise ValueError("result-producing repeat count must be positive")
+        if facts.result_repeat_dimension_ids:
+            raise ValueError(
+                "result-producing repeats cannot be nested; combine repeated "
+                "rounds into one declared result dimension"
+            )
+        _validate_result_repeat_contract(
+            operation,
+            count=count,
+            result_dimension_id=result_dimension,
+        )
+        return _QuantumRepeatFragment(
+            operation=operation,
+            count=count,
+            result_dimension_id=result_dimension,
+        )
+    if result_dimension is not None:
+        raise ValueError("result-free repeats cannot declare a result dimension")
     if isinstance(operation, CircuitFragment):
         return _RepeatFragment(
             operation=operation,
@@ -525,6 +598,7 @@ def repeat(
     return _QuantumRepeatFragment(
         operation=operation,
         count=count,
+        result_dimension_id=None,
     )
 
 
@@ -533,6 +607,7 @@ def fragment[**P](
     definition: Callable[P, QuantumFragment],
     /,
     *,
+    envelope: ProgramFamilyEnvelope,
     id: str | None = None,
 ) -> FragmentDefinition[P]: ...
 
@@ -542,6 +617,7 @@ def fragment[**P](
     definition: None = None,
     /,
     *,
+    envelope: ProgramFamilyEnvelope,
     id: str | None = None,
 ) -> Callable[[Callable[P, QuantumFragment]], FragmentDefinition[P]]: ...
 
@@ -550,15 +626,16 @@ def fragment[**P](
     definition: Callable[P, QuantumFragment] | None = None,
     /,
     *,
+    envelope: ProgramFamilyEnvelope,
     id: str | None = None,
 ) -> (
     FragmentDefinition[P]
     | Callable[[Callable[P, QuantumFragment]], FragmentDefinition[P]]
 ):
-    """Define a result-free fragment expanded from concrete point inputs."""
+    """Define a bounded result-free family expanded from concrete point inputs."""
 
     def decorate(fn: Callable[P, QuantumFragment]) -> FragmentDefinition[P]:
-        return _fragment_from_function(fn, id=id)
+        return _fragment_from_function(fn, envelope=envelope, id=id)
 
     return decorate(definition) if definition is not None else decorate
 
@@ -664,6 +741,7 @@ def _close_program(
     description: str | None = None,
 ) -> Program:
     ir_id = QuantumProgramId(id)
+    _validate_realtime_structure(body)
     facts = _summarize_fragment(body)
     formal_elements = tuple(elements)
     formal_entity_sets = tuple(entity_sets)
@@ -835,6 +913,7 @@ def _quantum_function_contract(
 def _fragment_from_function[**P](
     fn: Callable[P, QuantumFragment],
     *,
+    envelope: ProgramFamilyEnvelope,
     id: str | None,
 ) -> FragmentDefinition[P]:
     contract = _quantum_function_contract(fn, kind="quantum fragment")
@@ -843,6 +922,7 @@ def _fragment_from_function[**P](
         raise ValueError("quantum fragment id must be non-empty")
     return FragmentDefinition(
         id=selected_id,
+        envelope=envelope,
         _definition=fn,
         _contract=contract,
     )

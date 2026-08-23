@@ -9,8 +9,10 @@ from dataclasses import replace
 from scopecat.program.value_types import ValueValidationError, coerce_literal
 
 from ._analysis import (
+    _expanded_fragment_shape,
     _program_input_type,
     _summarize_fragment,
+    _unique_gate_definitions,
 )
 from ._ir import (
     Coupler,
@@ -19,6 +21,7 @@ from ._ir import (
     QuantumFragment,
     Qubit,
     QubitSet,
+    _ConditionalFragment,
     _ExpandedFragment,
     _FragmentCall,
     _FragmentHandle,
@@ -52,6 +55,22 @@ def _expand_fragment_calls(
         return replace(
             value,
             body=_expand_fragment_calls(value.body, bindings, stack=stack),
+        )
+    if isinstance(value, _ConditionalFragment):
+        return replace(
+            value,
+            cases=tuple(
+                (
+                    state,
+                    _expand_fragment_calls(branch, bindings, stack=stack),
+                )
+                for state, branch in value.cases
+            ),
+            default=(
+                None
+                if value.default is None
+                else _expand_fragment_calls(value.default, bindings, stack=stack)
+            ),
         )
     if isinstance(value, _QuantumSequenceFragment):
         return replace(
@@ -114,6 +133,11 @@ def _validate_expanded_fragment(
     body: QuantumFragment,
 ) -> None:
     facts = _summarize_fragment(body)
+    if facts.has_realtime:
+        msg = (
+            f"quantum fragment {call.definition.id!r} cannot contain real-time control"
+        )
+        raise ValueError(msg)
     if facts.results:
         msg = f"quantum fragment {call.definition.id!r} cannot produce results"
         raise ValueError(msg)
@@ -122,6 +146,12 @@ def _validate_expanded_fragment(
         msg = (
             f"quantum fragment {call.definition.id!r} captures unbound inputs: "
             f"{rendered}"
+        )
+        raise ValueError(msg)
+    if facts.entity_sets:
+        rendered = ", ".join(repr(entity_set.id) for entity_set in facts.entity_sets)
+        msg = (
+            f"quantum fragment {call.definition.id!r} captures entity sets: {rendered}"
         )
         raise ValueError(msg)
     allowed_elements = {
@@ -143,5 +173,50 @@ def _validate_expanded_fragment(
         msg = (
             f"quantum fragment {call.definition.id!r} captures undeclared "
             f"elements: {rendered}"
+        )
+        raise ValueError(msg)
+    envelope = call.definition.envelope
+    actual_gates = _unique_gate_definitions(facts.gate_definitions)
+    allowed_gates = {
+        definition.id.value: definition for definition in envelope.gate_definitions
+    }
+    foreign_gates = sorted(
+        definition.id.value
+        for definition in actual_gates
+        if definition.id.value not in allowed_gates
+    )
+    if foreign_gates:
+        rendered = ", ".join(repr(gate_id) for gate_id in foreign_gates)
+        msg = (
+            f"quantum fragment {call.definition.id!r} uses gates outside its "
+            f"program family envelope: {rendered}"
+        )
+        raise ValueError(msg)
+    conflicting_gates = sorted(
+        definition.id.value
+        for definition in actual_gates
+        if definition.id.value in allowed_gates
+        and allowed_gates[definition.id.value] != definition
+    )
+    if conflicting_gates:
+        rendered = ", ".join(repr(gate_id) for gate_id in conflicting_gates)
+        msg = (
+            f"quantum fragment {call.definition.id!r} uses gate definitions "
+            f"that conflict with its program family envelope: {rendered}"
+        )
+        raise ValueError(msg)
+    shape = _expanded_fragment_shape(body)
+    if shape.operation_count > envelope.max_operations:
+        msg = (
+            f"quantum fragment {call.definition.id!r} expands to "
+            f"{shape.operation_count} operations, exceeding its program family "
+            f"envelope maximum of {envelope.max_operations}"
+        )
+        raise ValueError(msg)
+    if shape.depth > envelope.max_depth:
+        msg = (
+            f"quantum fragment {call.definition.id!r} expands to depth "
+            f"{shape.depth}, exceeding its program family envelope maximum of "
+            f"{envelope.max_depth}"
         )
         raise ValueError(msg)

@@ -5,7 +5,8 @@ Scopecat benchmarks share one discoverable local entrypoint:
 ```console
 uv run python -m benchmarks list
 uv run python -m benchmarks run historical-project --runs 10000
-uv run python -m benchmarks run quantum-program --entities 100,1000
+uv run python -m benchmarks run quantum-program --entities 100,1000 \
+  --family-points 10,1000 --family-sequence-length 64
 uv run python -m benchmarks run scan-execution --profile waveform \
   --points 1,10,100 --qubit-counts 1,2,4
 uv run python -m benchmarks run scan-execution --profile lo-sweep \

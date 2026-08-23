@@ -15,7 +15,7 @@ from scopecat_quantum._ids import (
     TargetCompilerId,
     TargetId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import INTEGRATED_IQ_RESULT
 from scopecat_quantum.pulses import (
     Acquire,
     AcquireSignal,
@@ -26,6 +26,7 @@ from scopecat_quantum.pulses import (
     ScheduledPulseProgram,
     schedule,
 )
+from scopecat_quantum.realtime import TargetProgram
 from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
     TargetArtifact,
@@ -58,7 +59,7 @@ def _scheduled_acquisition_program(
     signal = AcquireSignal(QubitId(qubit_id))
     slot = AcquisitionSlot(
         id=AcquisitionSlotId("result", scope=("local",)),
-        kind=AcquisitionKind.INTEGRATED_IQ,
+        contract=INTEGRATED_IQ_RESULT,
         signal=signal,
     )
     return schedule(
@@ -80,7 +81,7 @@ def _request(*, repetitions: int = 5) -> TargetCompileRequest:
         entries=(
             TargetCompileEntry(
                 id=TargetCompileEntryId("point-0"),
-                program=_scheduled_program(),
+                program=TargetProgram.from_scheduled(_scheduled_program()),
             ),
         ),
         repetitions=repetitions,
@@ -136,11 +137,15 @@ def test_target_artifact_protocol_admits_a_laboratory_adapter() -> None:
 def test_acquisition_addresses_cover_entries_in_exact_schedule_order() -> None:
     first = TargetCompileEntry(
         id=TargetCompileEntryId("point-0"),
-        program=_scheduled_acquisition_program("first", qubit_id="q0"),
+        program=TargetProgram.from_scheduled(
+            _scheduled_acquisition_program("first", qubit_id="q0")
+        ),
     )
     second = TargetCompileEntry(
         id=TargetCompileEntryId("point-1"),
-        program=_scheduled_acquisition_program("second", qubit_id="q1"),
+        program=TargetProgram.from_scheduled(
+            _scheduled_acquisition_program("second", qubit_id="q1")
+        ),
     )
     request = TargetCompileRequest(
         entries=(second, first),
@@ -175,7 +180,7 @@ def test_compile_request_rejects_empty_and_duplicate_entry_sets() -> None:
 
     entry = TargetCompileEntry(
         id=TargetCompileEntryId("point-0"),
-        program=_scheduled_program(),
+        program=TargetProgram.from_scheduled(_scheduled_program()),
     )
     with pytest.raises(ValueError, match="entry ids must be unique"):
         TargetCompileRequest(

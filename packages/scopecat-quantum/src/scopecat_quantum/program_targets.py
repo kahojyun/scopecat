@@ -1,4 +1,4 @@
-"""Materialize quantum pulse plans for target compilation."""
+"""Materialize bounded quantum programs for target compilation."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from dataclasses import dataclass
 from scopecat_quantum._ids import TargetCompileEntryId
 from scopecat_quantum.programs import (
     QuantumPulseLoweringPlan,
-    materialize_quantum_pulse_program,
+    materialize_quantum_target_program,
 )
-from scopecat_quantum.pulses import ScheduledPulseProgram, schedule
+from scopecat_quantum.realtime import TargetProgram
 from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
     TargetCompileEntry,
@@ -20,7 +20,7 @@ from scopecat_quantum.targets import (
 
 @dataclass(frozen=True, slots=True)
 class PreparedQuantumTargetEntry:
-    """One scheduled target entry."""
+    """One target-ready compile entry."""
 
     target_entry: TargetCompileEntry
 
@@ -29,7 +29,7 @@ class PreparedQuantumTargetEntry:
         return self.target_entry.id
 
     @property
-    def scheduled(self) -> ScheduledPulseProgram:
+    def program(self) -> TargetProgram:
         return self.target_entry.program
 
     @property
@@ -41,10 +41,12 @@ def prepare_quantum_target_entry(
     entry_id: TargetCompileEntryId,
     plan: QuantumPulseLoweringPlan,
 ) -> PreparedQuantumTargetEntry:
-    """Materialize retained control flow and schedule one pulse plan."""
+    """Materialize retained source control flow into one target program."""
 
-    scheduled = schedule(materialize_quantum_pulse_program(plan))
-    target_entry = TargetCompileEntry(id=entry_id, program=scheduled)
+    target_entry = TargetCompileEntry(
+        id=entry_id,
+        program=materialize_quantum_target_program(plan),
+    )
     return PreparedQuantumTargetEntry(target_entry)
 
 

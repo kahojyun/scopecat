@@ -1,9 +1,10 @@
 """Hardware-independent pulse authoring and canonical scheduling.
 
-The authoring tree in :class:`PulseProgram` describes relative composition.  Target
-compilers deliberately consume :class:`ScheduledPulseProgram` instead: scheduling
-flattens composition, normalizes quantities, validates acquisition closure, and
-proves that each logical signal has a non-overlapping timeline.
+The authoring tree in :class:`PulseProgram` describes relative composition.
+:class:`ScheduledPulseProgram` is the canonical leaf of a target program's
+realtime block: scheduling flattens composition, normalizes quantities, validates
+acquisition closure, and proves that each logical signal has a non-overlapping
+timeline.
 """
 
 from __future__ import annotations
@@ -22,7 +23,9 @@ from scopecat_quantum._ids import (
     PulseProgramId,
     QubitId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import (
+    QuantumResultContract,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,8 +107,14 @@ class AcquisitionSlot:
     """A declared result slot that an ``Acquire`` instruction must close once."""
 
     id: AcquisitionSlotId
-    kind: AcquisitionKind
+    contract: QuantumResultContract
     signal: AcquireSignal
+
+    def __post_init__(self) -> None:
+        if not self.contract.is_concrete:
+            raise ValueError(
+                "target acquisition slots require point-bound result dimensions"
+            )
 
 
 @dataclass(frozen=True, slots=True)

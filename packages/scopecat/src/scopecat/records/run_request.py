@@ -247,6 +247,7 @@ class PointPlanRecord(_RunRequestModel):
     repeat: StrictInt = Field(default=1, ge=1)
     repeat_mode: Literal["point", "sweep"] = "point"
     traversal: Literal["forward", "snake"] = "forward"
+    execution_block_size: StrictInt = Field(default=1, ge=1)
 
     @model_validator(mode="after")
     def validate_policy(self) -> PointPlanRecord:

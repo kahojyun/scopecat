@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 from typing import override
@@ -12,6 +13,11 @@ from scopecat.compiler.frontend.resolution import (
     compile_invocation,
 )
 from scopecat.execution.interpreter import execute_admitted_run
+from scopecat.execution.program import (
+    RunCoverage,
+    RunCoverageCheckpoint,
+    RunCoveredOperation,
+)
 from scopecat.kernel.errors import CheckFailed, RunCancelled, RunIndeterminate
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.resource_identity import DomainTargetRequirement
@@ -222,6 +228,103 @@ def test_static_execution_continues_only_the_durable_point_suffix(
         1,
         2,
     ]
+
+
+def test_execution_publishes_measurements_only_at_logical_block_cuts(
+    tmp_path: Path,
+) -> None:
+    class _InjectedInterruption(BaseException):
+        pass
+
+    services = sqlite_project_services(tmp_path)
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
+    planned = plan_experiment(
+        load_invocation(),
+        config=config,
+        services=services,
+        system=composition.system,
+    )
+    point_count = planned.program.points.contract.point_count
+    assert point_count == 3
+
+    def instruments() -> TestRunInstrumentHost:
+        return provision_test_instrument_host(
+            composition.backend,
+            context=InstrumentProviderContext(bindings=instrument_bindings(config)),
+            instrument_ids=planned.program.resource_order,
+        )
+
+    def is_durable_cut(completed_point_count: int) -> bool:
+        return completed_point_count in (0, point_count)
+
+    def blocked_coverage(*, interrupt_after_first: bool) -> RunCoverage:
+        def operations(start_point_count: int) -> Iterator[RunCoveredOperation]:
+            for operation in planned.program.coverage.suffix(start_point_count):
+                yield operation
+                if (
+                    interrupt_after_first
+                    and isinstance(operation, RunCoverageCheckpoint)
+                    and operation.point_indices == (0,)
+                ):
+                    raise _InjectedInterruption
+
+        return RunCoverage(operations, is_durable_cut=is_durable_cut)
+
+    interrupted = admit_test_run(
+        config=planned.config,
+        request=planned.request,
+        repository=services.runs,
+    )
+    interrupted_measurements = FakeMeasurementDatasetRepository()
+    with pytest.raises(_InjectedInterruption):
+        execute_admitted_run(
+            program=replace(
+                planned.program,
+                coverage=blocked_coverage(interrupt_after_first=True),
+            ),
+            session=replace(
+                sqlite_execution_session(
+                    tmp_path,
+                    interrupted.run_id,
+                    instruments=instruments(),
+                ),
+                measurements=interrupted_measurements,
+            ),
+        )
+
+    assert interrupted_measurements.appends == ()
+    assert interrupted_measurements.measurements() == ()
+
+    completed = admit_test_run(
+        config=planned.config,
+        request=planned.request,
+        repository=services.runs,
+    )
+    completed_measurements = FakeMeasurementDatasetRepository()
+    snapshot = execute_admitted_run(
+        program=replace(
+            planned.program,
+            coverage=blocked_coverage(interrupt_after_first=False),
+        ),
+        session=replace(
+            sqlite_execution_session(
+                tmp_path,
+                completed.run_id,
+                instruments=instruments(),
+            ),
+            measurements=completed_measurements,
+        ),
+    )
+
+    assert snapshot.status == "completed"
+    assert [
+        [record.point_index for record in append.records]
+        for append in completed_measurements.appends
+    ] == [[0, 1, 2]]
 
 
 def test_non_static_continuation_fails_before_acquiring_instruments(

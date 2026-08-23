@@ -53,9 +53,29 @@ class DomainBatchRequest:
     call: DomainCallView
     inputs: DomainBatchInputs
     points: tuple[DomainPointRef, ...]
+    legal_cut_offsets: tuple[int, ...]
     measurement_catalog: MeasurementValueCatalog = field(repr=False)
     inspection_requested: bool = False
     inspection_query: CompiledProgramInspectionQuery | None = None
+
+    def __post_init__(self) -> None:
+        if not self.points:
+            raise ValueError("domain batch request must contain points")
+        if (
+            not self.legal_cut_offsets
+            or self.legal_cut_offsets[-1] != len(self.points)
+            or any(
+                left >= right
+                for left, right in zip(
+                    (0, *self.legal_cut_offsets[:-1]),
+                    self.legal_cut_offsets,
+                    strict=True,
+                )
+            )
+        ):
+            raise ValueError(
+                "domain batch legal cuts must increase through the complete request"
+            )
 
     @property
     def point_ordinals(self) -> tuple[int, ...]:

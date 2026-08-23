@@ -13,7 +13,12 @@ from scopecat_quantum._ids import (
     PulseProgramId,
     QubitId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import (
+    INTEGRATED_IQ_RESULT,
+    AcquisitionKind,
+    QuantumResultContract,
+    QuantumResultDimension,
+)
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.measurement_implementations import (
     MeasurementPulseImplementation,
@@ -40,6 +45,25 @@ Q0 = QubitId("q0")
 Q1 = QubitId("q1")
 
 
+def _contract(
+    kind: AcquisitionKind,
+    dimensions: tuple[QuantumResultDimension, ...] | None = None,
+) -> QuantumResultContract:
+    selected_dimensions = dimensions
+    if selected_dimensions is None:
+        selected_dimensions = (
+            (QuantumResultDimension("sample", "sample", 128),)
+            if kind is AcquisitionKind.RAW_TRACE
+            else ()
+        )
+    return QuantumResultContract(
+        acquisition_kind=kind,
+        dtype=("int64" if kind is AcquisitionKind.CLASSIFIED_STATE else "complex128"),
+        unit=(None if kind is AcquisitionKind.CLASSIFIED_STATE else "ratio"),
+        dimensions=selected_dimensions,
+    )
+
+
 def _envelope() -> Constant:
     return Constant(
         duration=Quantity(500, "ns"),
@@ -51,14 +75,19 @@ def _key(
     *,
     qubit: QubitId = Q0,
     kind: AcquisitionKind = AcquisitionKind.INTEGRATED_IQ,
+    dimensions: tuple[QuantumResultDimension, ...] | None = None,
 ) -> MeasurementPulseImplementationKey:
-    return MeasurementPulseImplementationKey(qubit=qubit, acquisition_kind=kind)
+    return MeasurementPulseImplementationKey(
+        qubit=qubit,
+        contract=_contract(kind, dimensions),
+    )
 
 
 def _template(
     *,
     qubit: QubitId = Q0,
     kind: AcquisitionKind = AcquisitionKind.INTEGRATED_IQ,
+    dimensions: tuple[QuantumResultDimension, ...] | None = None,
     program_id: PulseProgramId | None = None,
     readout_event_id: PulseEventId | None = None,
     acquire_event_id: PulseEventId | None = None,
@@ -66,7 +95,7 @@ def _template(
     signal = AcquireSignal(qubit)
     slot = AcquisitionSlot(
         id=AcquisitionSlotId("result"),
-        kind=kind,
+        contract=_contract(kind, dimensions),
         signal=signal,
     )
     return PulseProgram(
@@ -121,10 +150,10 @@ def _binding(
 def test_measurement_implementation_key_contains_only_reusable_logical_data() -> None:
     key = MeasurementPulseImplementationKey(
         qubit=Q0,
-        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
+        contract=INTEGRATED_IQ_RESULT,
     )
 
-    assert key == MeasurementPulseImplementationKey(Q0, AcquisitionKind.INTEGRATED_IQ)
+    assert key == MeasurementPulseImplementationKey(Q0, INTEGRATED_IQ_RESULT)
 
 
 def test_measurement_implementation_key_snapshots_measurement_semantics() -> None:
@@ -132,12 +161,12 @@ def test_measurement_implementation_key_snapshots_measurement_semantics() -> Non
         id=CircuitOperationId("measure"),
         qubit=Q1,
         acquisition_slot_id=AcquisitionSlotId("result"),
-        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
+        contract=INTEGRATED_IQ_RESULT,
     )
 
     key = MeasurementPulseImplementationKey.from_measurement(measurement)
 
-    assert key == MeasurementPulseImplementationKey(Q1, AcquisitionKind.INTEGRATED_IQ)
+    assert key == MeasurementPulseImplementationKey(Q1, INTEGRATED_IQ_RESULT)
 
 
 def test_measurement_implementation_accepts_exact_single_slot_template() -> None:
@@ -149,6 +178,16 @@ def test_measurement_implementation_accepts_exact_single_slot_template() -> None
     assert implementation.pulse_template is pulse_template
     assert binding.pulse_template is pulse_template
     assert binding.key == implementation.key
+
+
+def test_measurement_implementation_requires_exact_result_dimensions() -> None:
+    dimensions = (QuantumResultDimension("round", "round", 3),)
+
+    with pytest.raises(ValueError, match="contract must match"):
+        _implementation(
+            key=_key(dimensions=dimensions),
+            pulse_template=_template(),
+        )
 
 
 @given(
@@ -179,7 +218,10 @@ def test_valid_template_contract_is_independent_of_identity_spelling(
         pulse_template=pulse_template,
     )
 
-    assert implementation.key == MeasurementPulseImplementationKey(qubit, kind)
+    assert implementation.key == MeasurementPulseImplementationKey(
+        qubit,
+        _contract(kind),
+    )
 
 
 @pytest.mark.parametrize("slot_count", [0, 2])
@@ -188,7 +230,7 @@ def test_template_requires_exactly_one_declared_slot(slot_count: int) -> None:
     slots = tuple(
         AcquisitionSlot(
             id=AcquisitionSlotId(f"result-{index}"),
-            kind=AcquisitionKind.INTEGRATED_IQ,
+            contract=INTEGRATED_IQ_RESULT,
             signal=signal,
         )
         for index in range(slot_count)
@@ -228,7 +270,7 @@ def test_template_slot_signal_must_match_key_qubit() -> None:
 def test_template_requires_matching_readout_play() -> None:
     slot = AcquisitionSlot(
         id=AcquisitionSlotId("result"),
-        kind=AcquisitionKind.INTEGRATED_IQ,
+        contract=INTEGRATED_IQ_RESULT,
         signal=AcquireSignal(Q0),
     )
     pulse_template = PulseProgram(

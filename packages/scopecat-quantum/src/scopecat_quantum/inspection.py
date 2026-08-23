@@ -27,6 +27,7 @@ from scopecat_quantum.authoring._inspection import _inspection_node, _Inspection
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import GateCall
 from scopecat_quantum.programs import (
+    Conditional,
     ImplementedGate,
     Parallel,
     ParallelEach,
@@ -298,13 +299,49 @@ def _logical_layer_index(
                 CompiledInspectionFact("entity_count", len(node.entity_ids)),
             )
         elif isinstance(node, Repeat):
+            dimension_suffix = (
+                ""
+                if node.result_dimension_id is None
+                else f" result_dimension={node.result_dimension_id!r}"
+            )
             kind, label, children = (
                 "repeat",
-                f"repeat x{node.count}",
+                f"repeat x{node.count}{dimension_suffix}",
                 (node.operation,),
             )
             entity_ids = ()
-            facts = (CompiledInspectionFact("count", node.count),)
+            facts = (
+                CompiledInspectionFact("count", node.count),
+                *(
+                    ()
+                    if node.result_dimension_id is None
+                    else (
+                        CompiledInspectionFact(
+                            "result_dimension_id",
+                            node.result_dimension_id,
+                        ),
+                    )
+                ),
+            )
+        elif isinstance(node, Conditional):
+            case_bodies = tuple(body for _state, body in node.cases)
+            children = (
+                case_bodies if node.default is None else (*case_bodies, node.default)
+            )
+            kind = "switch"
+            label = f"switch ${node.predicate.local_id}"
+            entity_ids = ()
+            result_ids = (node.predicate.local_id,)
+            facts = (
+                CompiledInspectionFact(
+                    "case_states",
+                    tuple(state for state, _body in node.cases),
+                ),
+                CompiledInspectionFact(
+                    "has_default",
+                    node.default is not None,
+                ),
+            )
         else:
             children = ()
             operation_id = node.id.value

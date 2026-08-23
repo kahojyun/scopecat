@@ -15,7 +15,7 @@ from scopecat.config.environment import build_config_environment
 from scopecat.domain.program import DomainProgramDef, DomainResultPort
 from scopecat.kernel.product_identity import product_id
 from scopecat.kernel.value_types import Float, Scalar
-from scopecat.measurements.products import ProductDef
+from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.planning.domain_bridge import (
     make_domain_batch_request,
     make_domain_call_view,
@@ -41,7 +41,7 @@ from scopecat_quantum._ids import (
     TargetCompilerId,
     TargetId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import INTEGRATED_IQ_RESULT
 from scopecat_quantum.program_results import (
     MappedQuantumTarget,
     QuantumTargetEntryPointBinding,
@@ -101,7 +101,9 @@ _REPO_ROOT = Path(__file__).parents[3]
 
 
 def _preparation(
-    *, program_id: str = "mixed-program-result-mapping"
+    *,
+    program_id: str = "mixed-program-result-mapping",
+    product: ProductDef | None = None,
 ) -> DomainPreparationBuilder:
     point_domain = PointDomain(
         axes=(
@@ -112,8 +114,27 @@ def _preparation(
             ),
         )
     )
-    product = ProductDef(id=product_id("result"), dtype="complex128")
-    product_use, record_use = record_product(product, record_id="record")
+    selected_product = (
+        ProductDef(
+            id=product_id("result"),
+            dtype="complex128",
+            unit="ratio",
+            axes=(
+                ProductAxisDef(
+                    id="shot",
+                    dimension_id="shot",
+                    kind="shot",
+                    size=11,
+                    dimension_label="shot",
+                    unit="count",
+                ),
+            ),
+            metadata={"quantum.acquisition_kind": "integrated_iq"},
+        )
+        if product is None
+        else product
+    )
+    product_use, record_use = record_product(selected_product, record_id="record")
     execution = LogicalDomainExecution(
         id="domain",
         program=DomainProgramDef(
@@ -121,13 +142,13 @@ def _preparation(
             dialect_id="test.quantum.mixed-result-mapping",
             dialect_version="1",
             body=object(),
-            result_ports=(DomainResultPort("result"),),
+            result_ports=(DomainResultPort("result", INTEGRATED_IQ_RESULT),),
         ),
-        results=(("result", product.id),),
+        results=(("result", selected_product.id),),
     )
     program = BoundProgramFacts(
         point_domain=point_domain,
-        product_defs=(product,),
+        product_defs=(selected_product,),
         domain_result_use_ids={(execution.id, "result"): (product_use.id,)},
         product_uses=(product_use,),
         record_uses=(record_use,),
@@ -159,6 +180,7 @@ def _preparation(
         call,
         bound_points,
         point_ordinals,
+        legal_cut_offsets=(1, 2),
         batch_ordinal=0,
     )
     return DomainPreparationBuilder(request)
@@ -167,7 +189,7 @@ def _preparation(
 def _prepared(entry_id: str, source_program_id: str):
     slot = AcquisitionSlot(
         id=AcquisitionSlotId("template-result"),
-        kind=AcquisitionKind.INTEGRATED_IQ,
+        contract=INTEGRATED_IQ_RESULT,
         signal=AcquireSignal(Q0),
     )
     duration = Quantity(4, "ns")
@@ -219,8 +241,8 @@ def _batch() -> PreparedQuantumTargetBatch:
     )
 
 
-def _valid_inputs():
-    preparation = _preparation()
+def _valid_inputs(product: ProductDef | None = None):
+    preparation = _preparation(product=product)
     batch = _batch()
     points = preparation.context.points
     product_use = preparation.context.product_uses[0]
@@ -299,6 +321,52 @@ def test_mapping_preserves_logical_order_and_acquisition_addresses() -> None:
         for result in mapping.results
         for address in result.result_address.acquisitions
     } == set(batch.acquisition_addresses)
+
+
+@pytest.mark.parametrize("change", ("dtype", "unit", "local_dimension"))
+def test_mapping_closes_the_complete_quantum_result_contract(change: str) -> None:
+    product = ProductDef(
+        id=product_id("result"),
+        dtype="complex128",
+        unit="ratio",
+        axes=(
+            ProductAxisDef(
+                id="shot",
+                dimension_id="shot",
+                kind="shot",
+                size=11,
+                dimension_label="shot",
+                unit="count",
+            ),
+        ),
+        metadata={"quantum.acquisition_kind": "integrated_iq"},
+    )
+    if change == "dtype":
+        product = replace(product, dtype="float64")
+    elif change == "unit":
+        product = replace(product, unit="V")
+    else:
+        product = replace(
+            product,
+            axes=(
+                *product.axes,
+                ProductAxisDef(
+                    id="capture",
+                    dimension_id="capture",
+                    kind="capture",
+                    size=2,
+                ),
+            ),
+        )
+    preparation, batch, entry_bindings, result_bindings = _valid_inputs(product)
+
+    with pytest.raises(ValueError, match=r"dtype/unit|local axes"):
+        seal_quantum_target_result_mapping(
+            preparation,
+            batch,
+            entry_bindings,
+            result_bindings,
+        )
 
 
 @pytest.mark.parametrize("change", ("missing", "duplicate", "foreign"))

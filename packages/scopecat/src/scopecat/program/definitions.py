@@ -293,6 +293,17 @@ class ExperimentInvocation(Generic[_ExperimentResultT_co]):
             ),
         )
 
+    def with_execution_blocks(self, size: int) -> Self:
+        """Keep fixed-size adjacent execution rows in indivisible blocks."""
+
+        return replace(
+            self,
+            point_plan_override=replace(
+                self.point_plan,
+                execution_block_size=size,
+            ),
+        )
+
     def with_axis(self, axis: AxisSpec) -> Self:
         """Replace one grid axis in place, or append it when newly introduced."""
 

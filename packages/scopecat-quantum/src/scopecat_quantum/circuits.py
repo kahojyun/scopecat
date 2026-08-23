@@ -15,7 +15,9 @@ from scopecat_quantum._ids import (
     GateId,
     QubitId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import (
+    QuantumResultContract,
+)
 from scopecat_quantum.gates import (
     GateArgument,
     GateCall,
@@ -33,7 +35,13 @@ class Measure:
     id: CircuitOperationId
     qubit: QubitId
     acquisition_slot_id: AcquisitionSlotId
-    acquisition_kind: AcquisitionKind
+    contract: QuantumResultContract
+
+    def __post_init__(self) -> None:
+        if not self.contract.is_concrete:
+            raise ValueError(
+                "bound logical measurements require point-bound result dimensions"
+            )
 
 
 type CircuitOperation = GateCall | Measure

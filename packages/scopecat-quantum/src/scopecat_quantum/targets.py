@@ -4,11 +4,14 @@ The objects in this module describe the boundary between the reusable quantum
 package and a laboratory-owned target adapter.  They intentionally say
 nothing about physical instruments, transport, wiring, or artifact layout.
 
-A target compiler is pure and consumes canonical scheduled programs. Concrete
-payloads remain opaque and laboratory-owned; stable target, compiler, capability,
-artifact, entry, and acquisition identities provide correlation without defining
-a universal hardware schema. Adapter fingerprints must cover opaque artifact
-content because core cannot interpret that content itself.
+A target compiler is pure and consumes bounded target programs.  Each target
+program retains canonical scheduled pulse blocks plus any finite real-time
+control between them, leaving capability and timing acceptance to the laboratory
+adapter.  Concrete payloads remain opaque and laboratory-owned; stable target,
+compiler, capability, artifact, entry, and acquisition identities provide
+correlation without defining a universal hardware schema. Adapter fingerprints
+must cover opaque artifact content because core cannot interpret that content
+itself.
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ from scopecat_quantum._ids import (
     TargetCompilerId,
     TargetId,
 )
-from scopecat_quantum.pulses import ScheduledPulseProgram
+from scopecat_quantum.realtime import TargetProgram
 
 
 def _require_text(value: str, *, field: str) -> None:
@@ -35,7 +38,7 @@ def _require_text(value: str, *, field: str) -> None:
 
 @dataclass(frozen=True, slots=True)
 class TargetAcquisitionAddress:
-    """Entry-qualified identity of one scheduled acquisition result."""
+    """Entry-qualified identity of one statically declared acquisition result."""
 
     entry_id: TargetCompileEntryId
     slot_id: AcquisitionSlotId
@@ -43,14 +46,14 @@ class TargetAcquisitionAddress:
 
 @dataclass(frozen=True, slots=True)
 class TargetCompileEntry:
-    """One ordered, identity-bearing scheduled program in a compile request."""
+    """One ordered, identity-bearing target program in a compile request."""
 
     id: TargetCompileEntryId
-    program: ScheduledPulseProgram
+    program: TargetProgram
 
     @property
     def acquisition_addresses(self) -> tuple[TargetAcquisitionAddress, ...]:
-        """Return exact acquisition-slot coverage in canonical program order."""
+        """Return exact acquisition-slot coverage in structural program order."""
 
         return tuple(
             TargetAcquisitionAddress(entry_id=self.id, slot_id=slot.id)
@@ -62,9 +65,10 @@ class TargetCompileEntry:
 class TargetCompileRequest:
     """Closed target-lowering input for a finite batch.
 
-    Entry order is semantic and is therefore retained.  Each entry already
-    contains a canonical :class:`ScheduledPulseProgram`; target adapters are
-    responsible only for accepting and lowering that representation.
+    Entry order is semantic and is therefore retained.  Each entry contains a
+    finite :class:`~scopecat_quantum.realtime.TargetProgram`; target adapters
+    decide whether they support its real-time structure and lower accepted
+    programs to target-owned artifacts.
     """
 
     entries: tuple[TargetCompileEntry, ...]

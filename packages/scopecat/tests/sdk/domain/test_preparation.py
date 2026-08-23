@@ -140,6 +140,7 @@ def _preparation_context(
         call_view,
         bound_points,
         (0, 1),
+        legal_cut_offsets=(1, 2),
         batch_ordinal=0,
     )
 

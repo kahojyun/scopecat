@@ -107,13 +107,16 @@ class PointPlan:
     repeats of each base point adjacent, while ``sweep`` mode keeps complete
     sweeps adjacent. ``traversal`` may change physical grid execution order,
     but logical point identities and result order remain canonical. Explicit
-    point rows therefore support only forward traversal.
+    point rows therefore support only forward traversal. ``execution_block_size``
+    keeps that many adjacent execution rows in one logical block. Core may
+    partition or resume execution only between complete blocks.
     """
 
     domain: PointDomainSpec = field(default_factory=GridSpec)
     repeat: int = 1
     repeat_mode: RepeatMode = "point"
     traversal: PointTraversal = "forward"
+    execution_block_size: int = 1
 
     def __post_init__(self) -> None:
         if type(self.repeat) is not int or self.repeat <= 0:
@@ -122,6 +125,8 @@ class PointPlan:
             raise ValueError("point repeat mode must be 'point' or 'sweep'")
         if self.traversal not in ("forward", "snake"):
             raise ValueError("point traversal must be 'forward' or 'snake'")
+        if type(self.execution_block_size) is not int or self.execution_block_size <= 0:
+            raise ValueError("point execution block size must be a positive integer")
         if isinstance(self.domain, PointsSpec) and self.traversal == "snake":
             raise ValueError("point clouds only support forward traversal")
         if self.repeat > 1 and any(

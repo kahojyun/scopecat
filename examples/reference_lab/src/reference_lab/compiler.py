@@ -45,6 +45,7 @@ from scopecat_quantum.programs import (
     plan_quantum_pulse_lowering,
 )
 from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
+from scopecat_quantum.realtime import ScheduledBlock
 from scopecat_quantum.targets import TargetCompileEntry
 
 from reference_lab.parameters import QUBITS
@@ -325,10 +326,15 @@ class QuantumLabCompiler:
 
         inspection_snapshot = None
         if request.inspection_requested:
+            target_body = artifact.entries[0].program.body
+            if not isinstance(target_body, ScheduledBlock):
+                raise AssertionError(
+                    "reference list-mode compilation accepted real-time control"
+                )
             program_inspection_snapshot = build_quantum_program_inspection_snapshot(
                 artifact.program,
                 bound=artifact.compiled_points[0].bound,
-                scheduled=artifact.entries[0].scheduled,
+                scheduled=target_body.program,
                 snapshot_id=artifact.target_artifact.artifact_fingerprint,
             )
             inspection_snapshot = build_list_mode_artifact_inspection_snapshot(
@@ -507,14 +513,14 @@ def _prepare_target_entries(
     """
 
     occurrences: dict[str, int] = {}
-    scheduled_by_digest: dict[str, PreparedQuantumTargetEntry] = {}
+    prepared_by_digest: dict[str, PreparedQuantumTargetEntry] = {}
     entries: list[PreparedQuantumTargetEntry] = []
     for point in points:
         digest = _compiled_point_program_digest(program, point)
         occurrence = occurrences.get(digest, 0)
         occurrences[digest] = occurrence + 1
         local_id = f"{program.id}.content-{digest[:16]}.entry-{occurrence}"
-        retained = scheduled_by_digest.get(digest)
+        retained = prepared_by_digest.get(digest)
         if retained is None:
             retained = prepare_quantum_target_entry(
                 TargetCompileEntryId(local_id),
@@ -527,7 +533,7 @@ def _prepare_target_entries(
                     max_expanded_operations=max_expanded_operations,
                 ),
             )
-            scheduled_by_digest[digest] = retained
+            prepared_by_digest[digest] = retained
         entries.append(
             PreparedQuantumTargetEntry(
                 replace(
@@ -574,7 +580,7 @@ def _retarget_target_entries(
                     id=TargetCompileEntryId(
                         f"{program.id}.content-{digest[:16]}.entry-{occurrence}"
                     ),
-                    program=entry.scheduled,
+                    program=entry.program,
                 )
             )
         )

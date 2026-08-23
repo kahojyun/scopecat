@@ -13,7 +13,10 @@ from scopecat_quantum._ids import (
     QuantumProgramId,
     QubitId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import (
+    INTEGRATED_IQ_RESULT,
+    AcquisitionKind,
+)
 from scopecat_quantum.circuits import Measure, verify_circuit_operations
 from scopecat_quantum.gates import GateArgument, GateCall, GateParameterKind
 from scopecat_quantum.programs import (
@@ -148,7 +151,7 @@ def _measurement(operation_id: str, qubit_id: str) -> Measure:
         CircuitOperationId(operation_id),
         QubitId(qubit_id),
         AcquisitionSlotId(operation_id),
-        AcquisitionKind.INTEGRATED_IQ,
+        INTEGRATED_IQ_RESULT,
     )
 
 
@@ -176,7 +179,7 @@ def test_profile_maps_only_operations_present_in_the_bound_circuit() -> None:
     assert tuple(implementation.key for implementation in resolved.measurements) == (
         MeasurementPulseImplementationKey(
             QubitId("q0"),
-            AcquisitionKind.INTEGRATED_IQ,
+            INTEGRATED_IQ_RESULT,
         ),
     )
     assert resolved.measurements[0].pulse_template.acquisition_slots[0].id == (

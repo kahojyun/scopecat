@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from scopecat.compiler.point_domain import MaterializedPoint, MaterializedPointDomain
 from scopecat.kernel.point_identity import (
     LogicalPointId,
@@ -7,7 +9,7 @@ from scopecat.kernel.point_identity import (
     PointDomainLayout,
 )
 from scopecat.kernel.value_types import Int, Scalar
-from scopecat.planning.point_order import point_execution_ordinals
+from scopecat.planning.point_order import PointExecutionPlan, point_execution_ordinals
 from scopecat.program.point_domain import point_axis_values
 
 
@@ -106,3 +108,19 @@ def test_sweep_repeat_alternates_the_snake_path_between_sweeps() -> None:
         16,
         15,
     )
+
+
+def test_execution_blocks_distinguish_physical_and_durable_cuts() -> None:
+    execution = PointExecutionPlan((0, 1, 2, 5, 4, 3), block_size=2)
+
+    assert tuple(execution.blocks()) == ((0, 1), (2, 5), (4, 3))
+    assert execution.is_durable_cut(2)
+    assert not execution.is_durable_cut(3)
+    assert not execution.is_durable_cut(4)
+    assert execution.is_durable_cut(6)
+    assert tuple(execution.blocks(durable_start=2)) == ((2, 5), (4, 3))
+
+
+def test_execution_blocks_require_complete_fixed_size_groups() -> None:
+    with pytest.raises(ValueError, match="divisible"):
+        PointExecutionPlan(range(3), block_size=2)
