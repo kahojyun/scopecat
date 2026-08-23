@@ -33,6 +33,9 @@ from scopecat_quantum.gates import (
     GateDefinition,
 )
 from scopecat_quantum.programs import (
+    Conditional as IrQuantumConditional,
+)
+from scopecat_quantum.programs import (
     ImplementedGate,
     PulseBlock,
     QuantumNode,
@@ -71,6 +74,7 @@ from ._analysis import (
     _pulse_envelope_parts,
     _summarize_fragment,
     _unique_gate_definitions,
+    _validate_realtime_structure,
     program_port_type,
 )
 from ._definitions import (
@@ -92,6 +96,7 @@ from ._ir import (
     Qubit,
     QubitSet,
     RepeatCount,
+    _ConditionalFragment,
     _DelayFragment,
     _ExpandedFragment,
     _FragmentCall,
@@ -150,6 +155,10 @@ def materialize_pulse_recipe_body(
 
     expanded = _expand_fragment_calls(body, {})
     facts = _summarize_fragment(expanded)
+    if facts.has_realtime:
+        raise ValueError(
+            "pulse recipe bodies cannot contain target-visible real-time control"
+        )
     if not facts.pulse_only:
         msg = "pulse recipe bodies must contain only pulse statements"
         raise TypeError(msg)
@@ -258,6 +267,7 @@ def bind(
             raise ProgramBindingError(str(error)) from error
 
     expanded_body = _expand_fragment_calls(declaration.body, concrete_bindings)
+    _validate_realtime_structure(expanded_body)
     gate_definitions = _bound_gate_definitions(expanded_body, concrete_bindings)
     concrete = QuantumProgramIR(
         id=declaration.ir_id,
@@ -448,6 +458,36 @@ def _bind_quantum_fragment(
                 acquisition_scope=acquisition_scope,
             ),
         )
+    if isinstance(fragment, _ConditionalFragment):
+        return IrQuantumConditional(
+            predicate=fragment.predicate.acquisition_slot_id.prefixed(
+                *acquisition_scope
+            ),
+            cases=tuple(
+                (
+                    state,
+                    _bind_quantum_fragment(
+                        branch,
+                        bindings,
+                        element_bindings=element_bindings,
+                        path=(*path, f"switch[{state}]"),
+                        acquisition_scope=acquisition_scope,
+                    ),
+                )
+                for state, branch in fragment.cases
+            ),
+            default=(
+                None
+                if fragment.default is None
+                else _bind_quantum_fragment(
+                    fragment.default,
+                    bindings,
+                    element_bindings=element_bindings,
+                    path=(*path, "switch[default]"),
+                    acquisition_scope=acquisition_scope,
+                )
+            ),
+        )
     if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment):
         return IrQuantumSequence(
             tuple(
@@ -489,6 +529,11 @@ def _bind_quantum_fragment(
                 )
             ),
             count=count,
+            result_dimension_id=(
+                fragment.result_dimension_id
+                if isinstance(fragment, _QuantumRepeatFragment)
+                else None
+            ),
         )
     msg = f"unsupported quantum fragment {type(fragment).__name__}"
     raise TypeError(msg)
@@ -585,6 +630,13 @@ def _bind_pulse_fragment(
             )
         )
     if isinstance(fragment, _QuantumRepeatFragment):
+        if (
+            fragment.result_dimension_id is not None
+            or _summarize_fragment(fragment.operation).has_realtime
+        ):
+            raise TypeError(
+                "real-time control cannot be materialized as a pulse-template body"
+            )
         count = _bound_repeat_count(fragment.count, bindings)
         return IrPulseSequence(
             tuple(
@@ -733,6 +785,17 @@ def _bound_gate_definitions(
         raise AssertionError("quantum fragment calls must expand before binding")
     if isinstance(fragment, _ParallelEachFragment):
         return _bound_gate_definitions(fragment.operation, bindings)
+    if isinstance(fragment, _ConditionalFragment):
+        branches = tuple(body for _state, body in fragment.cases)
+        if fragment.default is not None:
+            branches = (*branches, fragment.default)
+        return _unique_gate_definitions(
+            tuple(
+                definition
+                for branch in branches
+                for definition in _bound_gate_definitions(branch, bindings)
+            )
+        )
     if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
         if _bound_repeat_count(fragment.count, bindings) == 0:
             return ()

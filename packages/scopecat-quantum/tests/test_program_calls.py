@@ -258,7 +258,7 @@ def test_program_family_envelope_requires_exact_integer_bounds() -> None:
     with pytest.raises(ValueError, match=r"max_operations.*non-negative integer"):
         authoring.ProgramFamilyEnvelope(
             allowed_gates=(),
-            max_operations=1.5,  # type: ignore[arg-type]
+            max_operations=1.5,  # pyright: ignore[reportArgumentType]
             max_depth=1,
         )
 
@@ -266,7 +266,7 @@ def test_program_family_envelope_requires_exact_integer_bounds() -> None:
         authoring.ProgramFamilyEnvelope(
             allowed_gates=(),
             max_operations=1,
-            max_depth=True,  # type: ignore[arg-type]
+            max_depth=True,
         )
 
 

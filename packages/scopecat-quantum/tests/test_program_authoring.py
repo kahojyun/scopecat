@@ -487,7 +487,7 @@ def test_explicit_acquire_results_cannot_repeat_or_reuse_an_id() -> None:
         result="iq_shots",
     )
 
-    with pytest.raises(ValueError, match="result-free"):
+    with pytest.raises(ValueError, match="require result_dimension"):
         authoring.repeat(first, 2)
     with pytest.raises(ValueError, match="duplicate result ids"):
         authoring._close_program(

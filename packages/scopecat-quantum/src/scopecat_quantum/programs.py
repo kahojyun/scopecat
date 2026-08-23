@@ -4,16 +4,17 @@ The source tree in this module is deliberately heterogeneous: logical gate and
 measurement operations may be composed with authored pulse blocks, while an
 ``ImplementedGate`` retains both a gate's semantic identity and a local pulse
 implementation. Pulse planning pairs that retained tree with the exact
-point-effective implementation catalog; target preparation later produces the
-canonical pulse authoring IR.
+point-effective implementation catalog; target preparation later produces a
+bounded target program of scheduled pulse regions and retained control flow.
 
-Pulse resolution retains finite Map/Repeat control flow and an exact
-implementation catalog. Concrete pulse branches are materialized only at the
-target scheduling boundary.
+Pulse resolution retains finite maps, repeats, and classified-state switches
+with an exact implementation catalog. Target preparation schedules maximal
+static regions while preserving bounded real-time control for the compiler.
 """
 
 from __future__ import annotations
 
+import itertools
 from collections import Counter
 from collections.abc import Iterator
 from collections.abc import Sequence as SequenceCollection
@@ -26,6 +27,7 @@ from scopecat_quantum._ids import (
     QuantumProgramId,
     QubitId,
 )
+from scopecat_quantum.acquisitions import AcquisitionKind, QuantumResultContract
 from scopecat_quantum.circuits import (
     CircuitIssue,
     CircuitVerificationError,
@@ -58,6 +60,17 @@ from scopecat_quantum.pulses import (
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
 from scopecat_quantum.pulses import Sequence as PulseSequence
+from scopecat_quantum.realtime import (
+    ClassifiedStatePredicate,
+    RealtimeCase,
+    RealtimeConditional,
+    RealtimeInstruction,
+    RealtimeNoOp,
+    RealtimeRepeat,
+    RealtimeSequence,
+    ScheduledBlock,
+    TargetProgram,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,18 +131,44 @@ class ParallelEach:
 
 @dataclass(frozen=True, slots=True)
 class Repeat:
-    """A finite repeated subtree."""
+    """A finite subtree, optionally indexing results by one local dimension."""
 
     operation: QuantumNode
     count: int
+    result_dimension_id: str | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.count, bool) or self.count < 0:
             raise ValueError("quantum repeat count must be a non-negative integer")
+        if (
+            self.result_dimension_id is not None
+            and not self.result_dimension_id.strip()
+        ):
+            raise ValueError("quantum repeat result dimension id must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class Conditional:
+    """A finite classified-state switch retained for target compilation."""
+
+    predicate: AcquisitionSlotId
+    cases: tuple[tuple[int, QuantumNode], ...]
+    default: QuantumNode | None = None
+
+    def __post_init__(self) -> None:
+        if not self.cases:
+            raise ValueError("quantum conditionals require at least one case")
+        states = tuple(state for state, _body in self.cases)
+        if any(type(state) is not int for state in states):
+            raise ValueError("quantum conditional case states must be integers")
+        if len(set(states)) != len(states):
+            raise ValueError("quantum conditional case states must be unique")
 
 
 type QuantumOperation = GateCall | Measure | PulseBlock | ImplementedGate
-type QuantumNode = QuantumOperation | Sequence | Parallel | ParallelEach | Repeat
+type QuantumNode = (
+    QuantumOperation | Sequence | Parallel | ParallelEach | Repeat | Conditional
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,7 +332,12 @@ def estimate_quantum_program_workload(
                 selected_template_items | {node.item_id},
             )
             return structural, expanded * len(node.entity_ids)
-        children = node.operations if isinstance(node, Sequence) else node.branches
+        if isinstance(node, Conditional):
+            children = tuple(body for _state, body in node.cases)
+            if node.default is not None:
+                children = (*children, node.default)
+        else:
+            children = node.operations if isinstance(node, Sequence) else node.branches
         estimates = tuple(
             estimate(child, selected_template_items) for child in children
         )
@@ -309,6 +353,11 @@ def estimate_quantum_program_workload(
             return parallel_width(node.operation)
         if isinstance(node, ParallelEach):
             return len(node.entity_ids) * parallel_width(node.operation)
+        if isinstance(node, Conditional):
+            children = tuple(body for _state, body in node.cases)
+            if node.default is not None:
+                children = (*children, node.default)
+            return max((parallel_width(child) for child in children), default=0)
         children = node.operations if isinstance(node, Sequence) else node.branches
         child_widths = tuple(parallel_width(child) for child in children)
         if isinstance(node, Parallel):
@@ -343,6 +392,12 @@ def iter_quantum_operations(node: QuantumNode) -> Iterator[QuantumOperation]:
                 instantiate_parallel_each_operation(node, entity_id)
             )
         return
+    if isinstance(node, Conditional):
+        for _state, body in node.cases:
+            yield from iter_quantum_operations(body)
+        if node.default is not None:
+            yield from iter_quantum_operations(node.default)
+        return
     children = node.operations if isinstance(node, Sequence) else node.branches
     for child in children:
         yield from iter_quantum_operations(child)
@@ -366,6 +421,12 @@ def iter_expanded_quantum_operations(node: QuantumNode) -> Iterator[QuantumOpera
             yield from iter_expanded_quantum_operations(
                 instantiate_parallel_each_operation(node, entity_id)
             )
+        return
+    if isinstance(node, Conditional):
+        for _state, body in node.cases:
+            yield from iter_expanded_quantum_operations(body)
+        if node.default is not None:
+            yield from iter_expanded_quantum_operations(node.default)
         return
     children = node.operations if isinstance(node, Sequence) else node.branches
     for child in children:
@@ -542,6 +603,33 @@ def _substitute_quantum_node(
                 scope=scope,
             ),
             count=node.count,
+            result_dimension_id=node.result_dimension_id,
+        )
+    if isinstance(node, Conditional):
+        return Conditional(
+            predicate=node.predicate.prefixed(*scope),
+            cases=tuple(
+                (
+                    state,
+                    _substitute_quantum_node(
+                        body,
+                        source=source,
+                        target=target,
+                        scope=scope,
+                    ),
+                )
+                for state, body in node.cases
+            ),
+            default=(
+                None
+                if node.default is None
+                else _substitute_quantum_node(
+                    node.default,
+                    source=source,
+                    target=target,
+                    scope=scope,
+                )
+            ),
         )
     return ParallelEach(
         entity_set_id=node.entity_set_id,
@@ -660,6 +748,14 @@ def _verified_quantum_program_components(
                 issues=issues,
             )
 
+    if issues:
+        raise QuantumProgramVerificationError(issues)
+
+    _verify_quantum_realtime_structure(
+        program.body,
+        source_program_id=program.id,
+        issues=issues,
+    )
     if issues:
         raise QuantumProgramVerificationError(issues)
 
@@ -801,6 +897,475 @@ def _verify_acquisition_slot_bindings(
     return effective_outputs
 
 
+type _SourceAcquisition = tuple[AcquisitionSlotId, QuantumResultContract]
+
+
+def _leaf_acquisitions(
+    operation: QuantumOperation,
+    *,
+    source_program_id: QuantumProgramId,
+) -> tuple[_SourceAcquisition, ...]:
+    if isinstance(operation, Measure):
+        return ((operation.acquisition_slot_id, operation.contract),)
+    if not isinstance(operation, PulseBlock):
+        return ()
+    substitutions = dict(operation.acquisition_slot_bindings)
+    prefix = (
+        "programs",
+        source_program_id.value,
+        "operations",
+        operation.id.value,
+    )
+    return tuple(
+        (
+            substitutions.get(slot.id, slot.id.prefixed(*prefix)),
+            slot.contract,
+        )
+        for slot in operation.pulse_template.acquisition_slots
+    )
+
+
+def _node_has_acquisitions(node: QuantumNode) -> bool:
+    if isinstance(node, Measure):
+        return True
+    if isinstance(node, PulseBlock):
+        return bool(node.pulse_template.acquisition_slots)
+    if isinstance(node, GateCall | ImplementedGate):
+        return False
+    if isinstance(node, Repeat):
+        return node.count > 0 and _node_has_acquisitions(node.operation)
+    if isinstance(node, ParallelEach):
+        return _node_has_acquisitions(node.operation)
+    if isinstance(node, Sequence):
+        return any(_node_has_acquisitions(child) for child in node.operations)
+    if isinstance(node, Parallel):
+        return any(_node_has_acquisitions(child) for child in node.branches)
+    return any(_node_has_acquisitions(body) for _state, body in node.cases) or (
+        node.default is not None and _node_has_acquisitions(node.default)
+    )
+
+
+def _node_requires_realtime_target(node: QuantumNode) -> bool:
+    if isinstance(node, GateCall | Measure | PulseBlock | ImplementedGate):
+        return False
+    if isinstance(node, Conditional):
+        return True
+    if isinstance(node, Repeat):
+        return node.result_dimension_id is not None or _node_requires_realtime_target(
+            node.operation
+        )
+    if isinstance(node, ParallelEach):
+        return _node_requires_realtime_target(node.operation)
+    children = node.operations if isinstance(node, Sequence) else node.branches
+    return any(_node_requires_realtime_target(child) for child in children)
+
+
+def _node_needs_realtime_verification(node: QuantumNode) -> bool:
+    if isinstance(node, GateCall | Measure | PulseBlock | ImplementedGate):
+        return False
+    if isinstance(node, Conditional):
+        return True
+    if isinstance(node, Repeat):
+        return (
+            node.result_dimension_id is not None
+            or (node.count > 0 and _node_has_acquisitions(node.operation))
+            or _node_needs_realtime_verification(node.operation)
+        )
+    if isinstance(node, ParallelEach):
+        return _node_needs_realtime_verification(node.operation)
+    children = node.operations if isinstance(node, Sequence) else node.branches
+    return any(_node_needs_realtime_verification(child) for child in children)
+
+
+def _collect_source_acquisitions(
+    node: QuantumNode,
+    *,
+    source_program_id: QuantumProgramId,
+) -> tuple[_SourceAcquisition, ...]:
+    if isinstance(node, GateCall | Measure | PulseBlock | ImplementedGate):
+        return _leaf_acquisitions(node, source_program_id=source_program_id)
+    if isinstance(node, Repeat):
+        if node.count == 0:
+            return ()
+        return _collect_source_acquisitions(
+            node.operation,
+            source_program_id=source_program_id,
+        )
+    if isinstance(node, ParallelEach):
+        if not _node_has_acquisitions(node.operation):
+            return ()
+        return tuple(
+            acquisition
+            for entity_id in node.entity_ids
+            for acquisition in _collect_source_acquisitions(
+                instantiate_parallel_each_operation(node, entity_id),
+                source_program_id=source_program_id,
+            )
+        )
+    if isinstance(node, Conditional):
+        children = tuple(body for _state, body in node.cases)
+        if node.default is not None:
+            children = (*children, node.default)
+    else:
+        children = node.operations if isinstance(node, Sequence) else node.branches
+    return tuple(
+        acquisition
+        for child in children
+        for acquisition in _collect_source_acquisitions(
+            child,
+            source_program_id=source_program_id,
+        )
+    )
+
+
+def _verify_quantum_realtime_structure(
+    body: QuantumNode,
+    *,
+    source_program_id: QuantumProgramId,
+    issues: list[QuantumProgramIssue],
+) -> None:
+    if not _node_needs_realtime_verification(body):
+        return
+    slot_index: dict[AcquisitionSlotId, QuantumResultContract] = {}
+    for slot_id, contract in _collect_source_acquisitions(
+        body,
+        source_program_id=source_program_id,
+    ):
+        slot_index.setdefault(slot_id, contract)
+    _verify_quantum_realtime_dataflow(
+        body,
+        source_program_id=source_program_id,
+        path=("body",),
+        available={},
+        active_result_dimensions=frozenset(),
+        slot_index=slot_index,
+        issues=issues,
+        inside_conditional_branch=False,
+    )
+
+
+def _verify_repeat_result_shape(
+    repeat: Repeat,
+    acquisitions: tuple[_SourceAcquisition, ...],
+    *,
+    path: tuple[QuantumIssuePathItem, ...],
+    active_result_dimensions: frozenset[str],
+    issues: list[QuantumProgramIssue],
+) -> frozenset[str]:
+    dimension_id = repeat.result_dimension_id
+    if acquisitions and dimension_id is None:
+        issues.append(
+            QuantumProgramIssue(
+                code="quantum_repeat_result_dimension_missing",
+                message=(
+                    "result-producing quantum repeats must name their local "
+                    "result dimension"
+                ),
+                path=path,
+            )
+        )
+    if not acquisitions and dimension_id is not None:
+        issues.append(
+            QuantumProgramIssue(
+                code="quantum_repeat_result_dimension_unused",
+                message="result-free quantum repeats cannot name a result dimension",
+                path=path,
+            )
+        )
+    if dimension_id is None:
+        return active_result_dimensions
+    for slot_id, contract in acquisitions:
+        dimension = next(
+            (
+                dimension
+                for dimension in contract.dimensions
+                if dimension.id == dimension_id
+            ),
+            None,
+        )
+        if dimension is None or dimension.size != repeat.count:
+            issues.append(
+                QuantumProgramIssue(
+                    code="quantum_repeat_result_dimension_mismatch",
+                    message=(
+                        f"acquisition slot {slot_id.qualified_name!r} must declare "
+                        f"dimension {dimension_id!r} with size {repeat.count}"
+                    ),
+                    path=path,
+                )
+            )
+    if dimension_id in active_result_dimensions:
+        issues.append(
+            QuantumProgramIssue(
+                code="quantum_repeat_result_dimension_reentered",
+                message=(
+                    f"result dimension {dimension_id!r} cannot identify nested "
+                    "quantum repeats"
+                ),
+                path=path,
+            )
+        )
+    return active_result_dimensions | {dimension_id}
+
+
+def _verify_conditional_predicate(
+    predicate: AcquisitionSlotId,
+    *,
+    path: tuple[QuantumIssuePathItem, ...],
+    available: dict[AcquisitionSlotId, frozenset[str]],
+    active_result_dimensions: frozenset[str],
+    slot_index: dict[AcquisitionSlotId, QuantumResultContract],
+    issues: list[QuantumProgramIssue],
+) -> None:
+    contract = slot_index.get(predicate)
+    if contract is None:
+        issues.append(
+            QuantumProgramIssue(
+                code="quantum_conditional_predicate_unknown",
+                message=(
+                    "conditional predicate references undeclared acquisition slot "
+                    f"{predicate.qualified_name!r}"
+                ),
+                path=path,
+            )
+        )
+        return
+    if predicate not in available:
+        issues.append(
+            QuantumProgramIssue(
+                code="quantum_conditional_predicate_unavailable",
+                message=(
+                    f"conditional predicate slot {predicate.qualified_name!r} is "
+                    "not available before the conditional"
+                ),
+                path=path,
+            )
+        )
+    if contract.acquisition_kind is not AcquisitionKind.CLASSIFIED_STATE:
+        issues.append(
+            QuantumProgramIssue(
+                code="quantum_conditional_predicate_not_classified",
+                message=(
+                    f"conditional predicate slot {predicate.qualified_name!r} must "
+                    "produce a classified state"
+                ),
+                path=path,
+            )
+        )
+    required_dimensions = frozenset(dimension.id for dimension in contract.dimensions)
+    if not required_dimensions <= active_result_dimensions:
+        issues.append(
+            QuantumProgramIssue(
+                code="quantum_conditional_predicate_dimensions_inactive",
+                message=(
+                    f"conditional predicate slot {predicate.qualified_name!r} has "
+                    f"local dimensions {tuple(sorted(required_dimensions))!r} not "
+                    "covered by active quantum repeats"
+                ),
+                path=path,
+            )
+        )
+    acquisition_dimensions = available.get(predicate, frozenset())
+    if not required_dimensions <= acquisition_dimensions:
+        issues.append(
+            QuantumProgramIssue(
+                code="quantum_conditional_predicate_not_current_iteration",
+                message=(
+                    f"conditional predicate slot {predicate.qualified_name!r} was "
+                    "not acquired in the current iterations of its local dimensions"
+                ),
+                path=path,
+            )
+        )
+
+
+def _merge_parallel_availability(
+    available: dict[AcquisitionSlotId, frozenset[str]],
+    outputs: tuple[dict[AcquisitionSlotId, frozenset[str]], ...],
+) -> dict[AcquisitionSlotId, frozenset[str]]:
+    selected = dict(available)
+    for output in outputs:
+        selected.update(output)
+    return selected
+
+
+def _verify_quantum_realtime_dataflow(
+    node: QuantumNode,
+    *,
+    source_program_id: QuantumProgramId,
+    path: tuple[QuantumIssuePathItem, ...],
+    available: dict[AcquisitionSlotId, frozenset[str]],
+    active_result_dimensions: frozenset[str],
+    slot_index: dict[AcquisitionSlotId, QuantumResultContract],
+    issues: list[QuantumProgramIssue],
+    inside_conditional_branch: bool,
+) -> dict[AcquisitionSlotId, frozenset[str]]:
+    if isinstance(node, GateCall | Measure | PulseBlock | ImplementedGate):
+        acquisitions = _leaf_acquisitions(
+            node,
+            source_program_id=source_program_id,
+        )
+        if inside_conditional_branch and acquisitions:
+            issues.append(
+                QuantumProgramIssue(
+                    code="quantum_conditional_branch_acquisition",
+                    message=(
+                        "conditional branches cannot contain acquisitions; place "
+                        "measurement before or after the conditional"
+                    ),
+                    path=path,
+                    operation_id=node.id,
+                )
+            )
+        return {
+            **available,
+            **{
+                slot_id: active_result_dimensions for slot_id, _contract in acquisitions
+            },
+        }
+    if isinstance(node, Sequence):
+        selected = available
+        for index, child in enumerate(node.operations):
+            selected = _verify_quantum_realtime_dataflow(
+                child,
+                source_program_id=source_program_id,
+                path=(*path, "operations", index),
+                available=selected,
+                active_result_dimensions=active_result_dimensions,
+                slot_index=slot_index,
+                issues=issues,
+                inside_conditional_branch=inside_conditional_branch,
+            )
+        return selected
+    if isinstance(node, Parallel):
+        parallel_outputs: list[dict[AcquisitionSlotId, frozenset[str]]] = []
+        for index, branch in enumerate(node.branches):
+            if _node_requires_realtime_target(branch):
+                issues.append(
+                    QuantumProgramIssue(
+                        code="quantum_realtime_parallel_unsupported",
+                        message=(
+                            "parallel branches cannot contain target-visible "
+                            "real-time control"
+                        ),
+                        path=(*path, "branches", index),
+                    )
+                )
+            parallel_outputs.append(
+                _verify_quantum_realtime_dataflow(
+                    branch,
+                    source_program_id=source_program_id,
+                    path=(*path, "branches", index),
+                    available=available,
+                    active_result_dimensions=active_result_dimensions,
+                    slot_index=slot_index,
+                    issues=issues,
+                    inside_conditional_branch=inside_conditional_branch,
+                )
+            )
+        return _merge_parallel_availability(available, tuple(parallel_outputs))
+    if isinstance(node, ParallelEach):
+        has_realtime = _node_requires_realtime_target(node.operation)
+        if has_realtime:
+            issues.append(
+                QuantumProgramIssue(
+                    code="quantum_realtime_parallel_unsupported",
+                    message=(
+                        "parallel_each bodies cannot contain target-visible "
+                        "real-time control"
+                    ),
+                    path=(*path, "operation"),
+                )
+            )
+        if not has_realtime and not _node_has_acquisitions(node.operation):
+            return available
+        mapped_outputs = tuple(
+            _verify_quantum_realtime_dataflow(
+                instantiate_parallel_each_operation(node, entity_id),
+                source_program_id=source_program_id,
+                path=(*path, "entities", entity_id.value),
+                available=available,
+                active_result_dimensions=active_result_dimensions,
+                slot_index=slot_index,
+                issues=issues,
+                inside_conditional_branch=inside_conditional_branch,
+            )
+            for entity_id in node.entity_ids
+        )
+        return _merge_parallel_availability(available, mapped_outputs)
+    if isinstance(node, Repeat):
+        if node.count == 0:
+            return available
+        acquisitions = _collect_source_acquisitions(
+            node.operation,
+            source_program_id=source_program_id,
+        )
+        nested_dimensions = _verify_repeat_result_shape(
+            node,
+            acquisitions,
+            path=path,
+            active_result_dimensions=active_result_dimensions,
+            issues=issues,
+        )
+        return _verify_quantum_realtime_dataflow(
+            node.operation,
+            source_program_id=source_program_id,
+            path=(*path, "operation"),
+            available=available,
+            active_result_dimensions=nested_dimensions,
+            slot_index=slot_index,
+            issues=issues,
+            inside_conditional_branch=inside_conditional_branch,
+        )
+
+    _verify_conditional_predicate(
+        node.predicate,
+        path=(*path, "predicate"),
+        available=available,
+        active_result_dimensions=active_result_dimensions,
+        slot_index=slot_index,
+        issues=issues,
+    )
+    branch_outputs = tuple(
+        _verify_quantum_realtime_dataflow(
+            body,
+            source_program_id=source_program_id,
+            path=(*path, "cases", state),
+            available=available,
+            active_result_dimensions=active_result_dimensions,
+            slot_index=slot_index,
+            issues=issues,
+            inside_conditional_branch=True,
+        )
+        for state, body in node.cases
+    )
+    default_output = (
+        available
+        if node.default is None
+        else _verify_quantum_realtime_dataflow(
+            node.default,
+            source_program_id=source_program_id,
+            path=(*path, "default"),
+            available=available,
+            active_result_dimensions=active_result_dimensions,
+            slot_index=slot_index,
+            issues=issues,
+            inside_conditional_branch=True,
+        )
+    )
+    conditional_outputs = (*branch_outputs, default_output)
+    common_slots = set(available)
+    for output in conditional_outputs:
+        common_slots.intersection_update(output)
+    selected: dict[AcquisitionSlotId, frozenset[str]] = {}
+    for slot_id in common_slots:
+        dimensions = available[slot_id]
+        for output in conditional_outputs:
+            dimensions &= output[slot_id]
+        selected[slot_id] = dimensions
+    return selected
+
+
 def _operation_id(operation: QuantumOperation) -> CircuitOperationId:
     return operation.id
 
@@ -835,6 +1400,18 @@ def _iter_operations_with_paths(
             (*path, "operation"),
         )
         return
+    if isinstance(node, Conditional):
+        for state, body in node.cases:
+            yield from _iter_operations_with_paths(
+                body,
+                (*path, "cases", state),
+            )
+        if node.default is not None:
+            yield from _iter_operations_with_paths(
+                node.default,
+                (*path, "default"),
+            )
+        return
     if node.count:
         yield from _iter_operations_with_paths(
             node.operation,
@@ -856,16 +1433,16 @@ def _verify_parallel_qubits(
     if isinstance(node, ImplementedGate):
         return set(node.call.qubits)
     if isinstance(node, Sequence):
-        touched: set[QubitId] = set()
+        sequence_touched: set[QubitId] = set()
         for index, child in enumerate(node.operations):
-            touched.update(
+            sequence_touched.update(
                 _verify_parallel_qubits(
                     child,
                     (*path, "operations", index),
                     issues,
                 )
             )
-        return touched
+        return sequence_touched
     if isinstance(node, Parallel):
         branch_qubits = tuple(
             _verify_parallel_qubits(
@@ -928,6 +1505,25 @@ def _verify_parallel_qubits(
                 else:
                     owners[qubit] = right_index
         return set(owners)
+    if isinstance(node, Conditional):
+        touched: set[QubitId] = set()
+        for state, body in node.cases:
+            touched.update(
+                _verify_parallel_qubits(
+                    body,
+                    (*path, "cases", state),
+                    issues,
+                )
+            )
+        if node.default is not None:
+            touched.update(
+                _verify_parallel_qubits(
+                    node.default,
+                    (*path, "default"),
+                    issues,
+                )
+            )
+        return touched
     if node.count == 0:
         return set()
     return _verify_parallel_qubits(
@@ -970,7 +1566,7 @@ def _verify_parallel_each_gate_substitutions(
 
 @dataclass(frozen=True, slots=True)
 class QuantumPulseLoweringPlan:
-    """Implementation catalog and Map/Repeat tree awaiting target materialization."""
+    """Implementation catalog and retained tree awaiting target materialization."""
 
     source_program_id: QuantumProgramId
     output_id: PulseProgramId
@@ -992,7 +1588,7 @@ def plan_quantum_pulse_lowering(
     output_id: PulseProgramId,
     max_expanded_operations: int | None = None,
 ) -> QuantumPulseLoweringPlan:
-    """Close retained quantum lowering without expanding Map/Repeat nodes."""
+    """Close quantum lowering without expanding retained control-flow nodes."""
 
     workload = program.require_expansion_budget(max_expanded_operations)
     return QuantumPulseLoweringPlan(
@@ -1007,21 +1603,219 @@ def plan_quantum_pulse_lowering(
 def materialize_quantum_pulse_program(
     plan: QuantumPulseLoweringPlan,
 ) -> PulseProgram:
-    """Expand one retained lowering at an explicit target scheduling boundary."""
+    """Expand a static retained lowering at the pulse scheduling boundary."""
+
+    if _node_requires_realtime_target(plan.body):
+        raise ValueError(
+            "target-visible real-time quantum programs must be materialized as "
+            "TargetProgram"
+        )
 
     bindings = PulseImplementationIndex.from_implementations(plan.implementations)
-    acquisition_slots: list[AcquisitionSlot] = []
-    body = _lower_node(
+    return _materialize_static_quantum_node(
         plan.body,
         source_program_id=plan.source_program_id,
+        output_id=plan.output_id,
+        bindings=bindings,
+    )
+
+
+def materialize_quantum_target_program(
+    plan: QuantumPulseLoweringPlan,
+) -> TargetProgram:
+    """Materialize static pulses and retain bounded target-visible control."""
+
+    if not _node_requires_realtime_target(plan.body):
+        return TargetProgram.from_scheduled(
+            schedule(materialize_quantum_pulse_program(plan))
+        )
+    bindings = PulseImplementationIndex.from_implementations(plan.implementations)
+    block_indices = itertools.count()
+    body = _lower_target_node(
+        plan.body,
+        source_program_id=plan.source_program_id,
+        output_id=plan.output_id,
+        bindings=bindings,
+        block_indices=block_indices,
+    )
+    return TargetProgram(id=plan.output_id, body=body)
+
+
+def _materialize_static_quantum_node(
+    node: QuantumNode,
+    *,
+    source_program_id: QuantumProgramId,
+    output_id: PulseProgramId,
+    bindings: PulseImplementationIndex,
+) -> PulseProgram:
+    acquisition_slots: list[AcquisitionSlot] = []
+    body = _lower_node(
+        node,
+        source_program_id=source_program_id,
         bindings=bindings,
         acquisition_slots=acquisition_slots,
         occurrence_scope=(),
     )
     return PulseProgram(
-        id=plan.output_id,
+        id=output_id,
         body=body,
         acquisition_slots=tuple(acquisition_slots),
+    )
+
+
+def _scheduled_quantum_block(
+    nodes: tuple[QuantumNode, ...],
+    *,
+    source_program_id: QuantumProgramId,
+    output_id: PulseProgramId,
+    bindings: PulseImplementationIndex,
+    block_indices: Iterator[int],
+) -> ScheduledBlock:
+    if not nodes:
+        raise ValueError("scheduled quantum blocks require at least one source node")
+    node: QuantumNode = nodes[0] if len(nodes) == 1 else Sequence(nodes)
+    block_id = _target_block_id(output_id, next(block_indices))
+    return ScheduledBlock(
+        schedule(
+            _materialize_static_quantum_node(
+                node,
+                source_program_id=source_program_id,
+                output_id=block_id,
+                bindings=bindings,
+            )
+        )
+    )
+
+
+def _target_block_id(output_id: PulseProgramId, index: int) -> PulseProgramId:
+    """Identify one scheduled occurrence within a retained target program."""
+
+    return PulseProgramId(f"{output_id.value}/blocks/{index}")
+
+
+def _flatten_quantum_sequence(
+    operations: tuple[QuantumNode, ...],
+) -> Iterator[QuantumNode]:
+    for operation in operations:
+        if isinstance(operation, Sequence):
+            yield from _flatten_quantum_sequence(operation.operations)
+        else:
+            yield operation
+
+
+def _target_sequence(
+    operations: tuple[QuantumNode, ...],
+    *,
+    source_program_id: QuantumProgramId,
+    output_id: PulseProgramId,
+    bindings: PulseImplementationIndex,
+    block_indices: Iterator[int],
+) -> RealtimeInstruction:
+    instructions: list[RealtimeInstruction] = []
+    static_nodes: list[QuantumNode] = []
+
+    def flush_static_nodes() -> None:
+        if not static_nodes:
+            return
+        instructions.append(
+            _scheduled_quantum_block(
+                tuple(static_nodes),
+                source_program_id=source_program_id,
+                output_id=output_id,
+                bindings=bindings,
+                block_indices=block_indices,
+            )
+        )
+        static_nodes.clear()
+
+    for operation in _flatten_quantum_sequence(operations):
+        if _node_requires_realtime_target(operation):
+            flush_static_nodes()
+            instructions.append(
+                _lower_target_node(
+                    operation,
+                    source_program_id=source_program_id,
+                    output_id=output_id,
+                    bindings=bindings,
+                    block_indices=block_indices,
+                )
+            )
+        else:
+            static_nodes.append(operation)
+    flush_static_nodes()
+    if not instructions:
+        return RealtimeNoOp()
+    if len(instructions) == 1:
+        return instructions[0]
+    return RealtimeSequence(tuple(instructions))
+
+
+def _lower_target_node(
+    node: QuantumNode,
+    *,
+    source_program_id: QuantumProgramId,
+    output_id: PulseProgramId,
+    bindings: PulseImplementationIndex,
+    block_indices: Iterator[int],
+) -> RealtimeInstruction:
+    if isinstance(node, Sequence):
+        return _target_sequence(
+            node.operations,
+            source_program_id=source_program_id,
+            output_id=output_id,
+            bindings=bindings,
+            block_indices=block_indices,
+        )
+    if isinstance(node, Conditional):
+        return RealtimeConditional(
+            predicate=ClassifiedStatePredicate(node.predicate),
+            cases=tuple(
+                RealtimeCase(
+                    state,
+                    _lower_target_node(
+                        body,
+                        source_program_id=source_program_id,
+                        output_id=output_id,
+                        bindings=bindings,
+                        block_indices=block_indices,
+                    ),
+                )
+                for state, body in node.cases
+            ),
+            default=(
+                RealtimeNoOp()
+                if node.default is None
+                else _lower_target_node(
+                    node.default,
+                    source_program_id=source_program_id,
+                    output_id=output_id,
+                    bindings=bindings,
+                    block_indices=block_indices,
+                )
+            ),
+        )
+    if isinstance(node, Repeat) and _node_requires_realtime_target(node):
+        if node.count == 0:
+            return RealtimeNoOp()
+        return RealtimeRepeat(
+            instruction=_lower_target_node(
+                node.operation,
+                source_program_id=source_program_id,
+                output_id=output_id,
+                bindings=bindings,
+                block_indices=block_indices,
+            ),
+            count=node.count,
+            result_dimension_id=node.result_dimension_id,
+        )
+    if _node_requires_realtime_target(node):
+        raise AssertionError("parallel real-time source reached target lowering")
+    return _scheduled_quantum_block(
+        (node,),
+        source_program_id=source_program_id,
+        output_id=output_id,
+        bindings=bindings,
+        block_indices=block_indices,
     )
 
 
@@ -1085,6 +1879,8 @@ def _lower_node(
                 for index in range(node.count)
             )
         )
+    if isinstance(node, Conditional):
+        raise AssertionError("real-time conditional reached static pulse lowering")
     return _lower_leaf(
         node,
         source_program_id=source_program_id,

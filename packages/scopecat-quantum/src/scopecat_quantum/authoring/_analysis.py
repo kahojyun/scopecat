@@ -46,6 +46,7 @@ from scopecat_quantum._ids import (
     CouplerId,
     QubitId,
 )
+from scopecat_quantum.acquisitions import AcquisitionKind
 from scopecat_quantum.gates import (
     GateDefinition,
     GateParameterKind,
@@ -69,6 +70,8 @@ from ._ir import (
     QuantumQuantity,
     Qubit,
     QubitSet,
+    RepeatCount,
+    _ConditionalFragment,
     _DelayFragment,
     _ExpandedFragment,
     _FragmentCall,
@@ -379,6 +382,8 @@ class _FragmentFacts:
     repeat_inputs: tuple[ProgramInput, ...] = ()
     results: tuple[ProgramResult, ...] = ()
     gate_definitions: tuple[GateDefinition, ...] = ()
+    has_realtime: bool = False
+    result_repeat_dimension_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -409,6 +414,19 @@ def _expanded_fragment_shape(fragment: QuantumFragment) -> _ExpandedFragmentShap
         raise AssertionError("fragment calls must expand before shape analysis")
     if isinstance(fragment, _ParallelEachFragment):
         raise AssertionError("program family fragments cannot contain entity sets")
+    if isinstance(fragment, _ConditionalFragment):
+        branches = tuple(body for _state, body in fragment.cases)
+        if fragment.default is not None:
+            branches = (*branches, fragment.default)
+        children = tuple(_expanded_fragment_shape(branch) for branch in branches)
+        return _ExpandedFragmentShape(
+            operation_count=1
+            + max(
+                (child.operation_count for child in children),
+                default=0,
+            ),
+            depth=1 + max((child.depth for child in children), default=0),
+        )
     if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
         if isinstance(fragment.count, ProgramInput):
             raise AssertionError("point-expanded repeat counts must be concrete")
@@ -523,6 +541,8 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             repeat_inputs=body.repeat_inputs,
             results=body.results,
             gate_definitions=body.gate_definitions,
+            has_realtime=body.has_realtime,
+            result_repeat_dimension_ids=body.result_repeat_dimension_ids,
         )
     if isinstance(fragment, _ImplementedGateFragment):
         gate = _summarize_fragment(fragment.gate)
@@ -534,6 +554,8 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             # the attached pulse acquire the non-negative contract.
             repeat_inputs=pulse.repeat_inputs,
             gate_definitions=(fragment.gate.gate.definition,),
+            has_realtime=pulse.has_realtime,
+            result_repeat_dimension_ids=pulse.result_repeat_dimension_ids,
         )
     if isinstance(fragment, _ParallelEachFragment):
         operation = _summarize_fragment(fragment.operation)
@@ -553,10 +575,31 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
                 for result in operation.results
             ),
             gate_definitions=operation.gate_definitions,
+            has_realtime=operation.has_realtime,
+            result_repeat_dimension_ids=operation.result_repeat_dimension_ids,
         )
+    if isinstance(fragment, _ConditionalFragment):
+        branches = tuple(body for _state, body in fragment.cases)
+        if fragment.default is not None:
+            branches = (*branches, fragment.default)
+        merged = _merge_fragment_facts(
+            tuple(_summarize_fragment(branch) for branch in branches),
+            carries_pulse_structure=False,
+        )
+        return replace(merged, has_realtime=True)
     if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
         operation = _summarize_fragment(fragment.operation)
         carries_pulse_structure = isinstance(fragment, _QuantumRepeatFragment)
+        result_dimension_id = (
+            fragment.result_dimension_id
+            if isinstance(fragment, _QuantumRepeatFragment)
+            else None
+        )
+        has_realtime = operation.has_realtime or result_dimension_id is not None
+        result_repeat_dimension_ids = (
+            *operation.result_repeat_dimension_ids,
+            *((result_dimension_id,) if result_dimension_id is not None else ()),
+        )
         pulse_only = operation.pulse_only if carries_pulse_structure else False
         pulse_owners = operation.pulse_owners if carries_pulse_structure else ()
         if fragment.count == 0:
@@ -565,6 +608,8 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             return _FragmentFacts(
                 pulse_only=pulse_only,
                 pulse_owners=pulse_owners,
+                has_realtime=has_realtime,
+                result_repeat_dimension_ids=result_repeat_dimension_ids,
             )
         count_inputs: tuple[ProgramInput, ...] = (
             (fragment.count,) if isinstance(fragment.count, ProgramInput) else ()
@@ -577,6 +622,8 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             repeat_inputs=(*count_inputs, *operation.repeat_inputs),
             results=operation.results,
             gate_definitions=operation.gate_definitions,
+            has_realtime=has_realtime,
+            result_repeat_dimension_ids=result_repeat_dimension_ids,
         )
     if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment):
         children = fragment.operations
@@ -622,7 +669,241 @@ def _merge_fragment_facts(
         gate_definitions=tuple(
             definition for child in children for definition in child.gate_definitions
         ),
+        has_realtime=any(child.has_realtime for child in children),
+        result_repeat_dimension_ids=tuple(
+            dimension_id
+            for child in children
+            for dimension_id in child.result_repeat_dimension_ids
+        ),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _ResultAvailability:
+    active_result_dimensions: frozenset[str]
+    aggregate: bool
+
+
+def _validate_realtime_structure(fragment: QuantumFragment) -> None:
+    """Validate source-level feedback dataflow before target lowering."""
+
+    _validate_realtime_node(
+        fragment,
+        available={},
+        active_result_dimensions={},
+        aggregate_results=False,
+        inside_conditional_branch=False,
+    )
+
+
+def _validate_realtime_node(
+    fragment: QuantumFragment,
+    *,
+    available: dict[ProgramResult, _ResultAvailability],
+    active_result_dimensions: dict[str, RepeatCount],
+    aggregate_results: bool,
+    inside_conditional_branch: bool,
+) -> dict[ProgramResult, _ResultAvailability]:
+    if isinstance(fragment, _ExpandedFragment | _PulseTemplateCallFragment):
+        return _validate_realtime_node(
+            fragment.body,
+            available=available,
+            active_result_dimensions=active_result_dimensions,
+            aggregate_results=aggregate_results,
+            inside_conditional_branch=inside_conditional_branch,
+        )
+    if isinstance(fragment, _FragmentCall):
+        # Calls are validated after point expansion, when their generated body
+        # and captured values are visible.
+        return available
+    if isinstance(fragment, Measurement | Acquisition):
+        if inside_conditional_branch:
+            raise ValueError(
+                "switch branches cannot produce acquisition results; place "
+                "measurement before or after the switch"
+            )
+        return {
+            **available,
+            fragment.result: _ResultAvailability(
+                active_result_dimensions=frozenset(active_result_dimensions),
+                aggregate=aggregate_results,
+            ),
+        }
+    if isinstance(fragment, _ConditionalFragment):
+        return _validate_realtime_conditional(
+            fragment,
+            available=available,
+            active_result_dimensions=active_result_dimensions,
+            aggregate_results=aggregate_results,
+        )
+    if isinstance(fragment, _ParallelEachFragment):
+        if _summarize_fragment(fragment.operation).has_realtime:
+            raise ValueError("real-time control is not supported under parallel_each")
+        return _validate_realtime_node(
+            fragment.operation,
+            available=available,
+            active_result_dimensions=active_result_dimensions,
+            aggregate_results=True,
+            inside_conditional_branch=inside_conditional_branch,
+        )
+    if isinstance(fragment, _ParallelFragment | _QuantumParallelFragment):
+        outputs = dict(available)
+        for branch in fragment.branches:
+            if _summarize_fragment(branch).has_realtime:
+                raise ValueError("real-time control is not supported under parallel")
+            outputs.update(
+                _validate_realtime_node(
+                    branch,
+                    available=dict(available),
+                    active_result_dimensions=active_result_dimensions,
+                    aggregate_results=aggregate_results,
+                    inside_conditional_branch=inside_conditional_branch,
+                )
+            )
+        return outputs
+    if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
+        return _validate_realtime_repeat(
+            fragment,
+            available=dict(available),
+            active_result_dimensions=active_result_dimensions,
+            aggregate_results=aggregate_results,
+            inside_conditional_branch=inside_conditional_branch,
+        )
+    if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment):
+        selected = available
+        for operation in fragment.operations:
+            selected = _validate_realtime_node(
+                operation,
+                available=selected,
+                active_result_dimensions=active_result_dimensions,
+                aggregate_results=aggregate_results,
+                inside_conditional_branch=inside_conditional_branch,
+            )
+        return selected
+    return available
+
+
+def _validate_realtime_conditional(
+    fragment: _ConditionalFragment,
+    *,
+    available: dict[ProgramResult, _ResultAvailability],
+    active_result_dimensions: dict[str, RepeatCount],
+    aggregate_results: bool,
+) -> dict[ProgramResult, _ResultAvailability]:
+    predicate = fragment.predicate
+    if predicate.contract.acquisition_kind is not AcquisitionKind.CLASSIFIED_STATE:
+        raise ValueError("switch predicates require classified-state results")
+    predicate_availability = available.get(predicate)
+    if predicate_availability is None:
+        raise ValueError(
+            f"switch predicate result {predicate.id!r} must be produced earlier "
+            "in the same sequence"
+        )
+    if predicate_availability.aggregate:
+        raise ValueError(
+            f"switch predicate result {predicate.id!r} is aggregate and cannot "
+            "be read as one classified state"
+        )
+    active_ids = frozenset(active_result_dimensions)
+    required_ids = frozenset(
+        dimension.id for dimension in predicate.contract.dimensions
+    )
+    if not (
+        required_ids <= active_ids
+        and predicate_availability.active_result_dimensions <= active_ids
+    ):
+        raise ValueError(
+            f"switch predicate result {predicate.id!r} is only scalar in the "
+            "current iteration of all its result dimensions"
+        )
+    branches = tuple(body for _state, body in fragment.cases)
+    if fragment.default is not None:
+        branches = (*branches, fragment.default)
+    for branch in branches:
+        if _summarize_fragment(branch).results:
+            raise ValueError(
+                "switch branches cannot produce acquisition results; place "
+                "measurement before or after the switch"
+            )
+        _validate_realtime_node(
+            branch,
+            available=dict(available),
+            active_result_dimensions=active_result_dimensions,
+            aggregate_results=aggregate_results,
+            inside_conditional_branch=True,
+        )
+    return available
+
+
+def _validate_realtime_repeat(
+    fragment: _RepeatFragment | _QuantumRepeatFragment,
+    *,
+    available: dict[ProgramResult, _ResultAvailability],
+    active_result_dimensions: dict[str, RepeatCount],
+    aggregate_results: bool,
+    inside_conditional_branch: bool,
+) -> dict[ProgramResult, _ResultAvailability]:
+    dimension_id = (
+        fragment.result_dimension_id
+        if isinstance(fragment, _QuantumRepeatFragment)
+        else None
+    )
+    nested_dimensions = active_result_dimensions
+    if dimension_id is not None:
+        if active_result_dimensions:
+            raise ValueError(
+                "result-producing repeats cannot be nested; combine repeated "
+                "rounds into one declared result dimension"
+            )
+        _validate_result_repeat_contract(
+            fragment.operation,
+            count=fragment.count,
+            result_dimension_id=dimension_id,
+        )
+        nested_dimensions = {dimension_id: fragment.count}
+    output = _validate_realtime_node(
+        fragment.operation,
+        available=dict(available),
+        active_result_dimensions=nested_dimensions,
+        aggregate_results=aggregate_results,
+        inside_conditional_branch=inside_conditional_branch,
+    )
+    if fragment.count == 0:
+        return available
+    return output
+
+
+def _validate_result_repeat_contract(
+    operation: QuantumFragment,
+    *,
+    count: RepeatCount,
+    result_dimension_id: str,
+) -> None:
+    results = _summarize_fragment(operation).results
+    if not results:
+        raise ValueError("result-free repeats cannot declare a result dimension")
+    for result in results:
+        dimension = next(
+            (
+                dimension
+                for dimension in result.contract.dimensions
+                if dimension.id == result_dimension_id
+            ),
+            None,
+        )
+        if dimension is None or not _same_repeat_extent(dimension.size, count):
+            raise ValueError(
+                f"repeat result {result.id!r} must declare dimension "
+                f"{result_dimension_id!r} with the same count"
+            )
+
+
+def _same_repeat_extent(left: object, right: RepeatCount) -> bool:
+    if isinstance(left, int) and isinstance(right, int):
+        return (
+            not isinstance(left, bool) and not isinstance(right, bool) and left == right
+        )
+    return left is right
 
 
 def _result_dimension_inputs(result: ProgramResult) -> tuple[ProgramInput, ...]:

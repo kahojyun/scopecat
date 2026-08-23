@@ -21,6 +21,7 @@ from ._ir import (
     QuantumFragment,
     Qubit,
     QubitSet,
+    _ConditionalFragment,
     _ExpandedFragment,
     _FragmentCall,
     _FragmentHandle,
@@ -54,6 +55,22 @@ def _expand_fragment_calls(
         return replace(
             value,
             body=_expand_fragment_calls(value.body, bindings, stack=stack),
+        )
+    if isinstance(value, _ConditionalFragment):
+        return replace(
+            value,
+            cases=tuple(
+                (
+                    state,
+                    _expand_fragment_calls(branch, bindings, stack=stack),
+                )
+                for state, branch in value.cases
+            ),
+            default=(
+                None
+                if value.default is None
+                else _expand_fragment_calls(value.default, bindings, stack=stack)
+            ),
         )
     if isinstance(value, _QuantumSequenceFragment):
         return replace(
@@ -116,6 +133,11 @@ def _validate_expanded_fragment(
     body: QuantumFragment,
 ) -> None:
     facts = _summarize_fragment(body)
+    if facts.has_realtime:
+        msg = (
+            f"quantum fragment {call.definition.id!r} cannot contain real-time control"
+        )
+        raise ValueError(msg)
     if facts.results:
         msg = f"quantum fragment {call.definition.id!r} cannot produce results"
         raise ValueError(msg)

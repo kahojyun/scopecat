@@ -277,7 +277,7 @@ type CouplerInput = Annotated[
 QUANTUM_PROGRAM_DIALECT_ID = "scopecat.quantum.program"
 
 
-QUANTUM_PROGRAM_DIALECT_VERSION = "4"
+QUANTUM_PROGRAM_DIALECT_VERSION = "5"
 
 
 class _GateHandle(Protocol):
@@ -416,6 +416,14 @@ class _ParallelEachFragment(QuantumFragment):
 class _QuantumRepeatFragment(QuantumFragment):
     operation: QuantumFragment
     count: RepeatCount
+    result_dimension_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ConditionalFragment(QuantumFragment):
+    predicate: MeasurementResult
+    cases: tuple[tuple[int, QuantumFragment], ...]
+    default: QuantumFragment | None = None
 
 
 @dataclass(frozen=True, slots=True)

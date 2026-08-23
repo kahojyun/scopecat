@@ -157,7 +157,7 @@ def test_symbolic_repeat_rejects_invalid_bound_counts(count: object) -> None:
         )
 
 
-@pytest.mark.parametrize("count", [-1, True])
+@pytest.mark.parametrize("count", [-1, 1.5, True])
 def test_repeat_rejects_invalid_literal_counts(count: int) -> None:
     q0 = authoring.qubit("q0")
     x = authoring.single_qubit_gate("x")
@@ -172,7 +172,7 @@ def test_repeat_rejects_non_integer_input_and_result_producers() -> None:
 
     with pytest.raises(TypeError, match="integer kind"):
         authoring.repeat(authoring.single_qubit_gate("x")(q0), angle)
-    with pytest.raises(ValueError, match="result-free"):
+    with pytest.raises(ValueError, match="require result_dimension"):
         authoring.repeat(authoring.measure(q0, result="raw_iq"), 2)
 
 

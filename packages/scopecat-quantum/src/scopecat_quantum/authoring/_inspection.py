@@ -46,6 +46,7 @@ from ._ir import (
     QuantumQuantity,
     Qubit,
     QubitSet,
+    _ConditionalFragment,
     _DelayFragment,
     _ExpandedFragment,
     _FragmentCall,
@@ -54,6 +55,7 @@ from ._ir import (
     _ParallelEachFragment,
     _ParallelFragment,
     _PlayFragment,
+    _ProgramFamilyEnvelope,
     _PulseTemplateCallFragment,
     _QuantumParallelFragment,
     _QuantumRepeatFragment,
@@ -192,7 +194,10 @@ def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
         arguments = ", ".join(
             f"{name}={_inspection_value(value)}" for name, value in fragment.arguments
         )
-        return _InspectionNode(f"fragment {fragment.definition.id}({arguments})")
+        return _InspectionNode(
+            f"fragment {fragment.definition.id}({arguments})",
+            (_inspection_program_family_envelope(fragment.definition.envelope),),
+        )
     if isinstance(fragment, _ExpandedFragment):
         return _InspectionNode(
             f"fragment {fragment.definition_id}",
@@ -213,12 +218,51 @@ def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
             f"parallel_each ${fragment.entity_set.id}",
             (_inspection_node(fragment.operation),),
         )
-    if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
+    if isinstance(fragment, _ConditionalFragment):
+        cases = tuple(
+            _InspectionNode(
+                f"case {state}",
+                (_inspection_node(branch),),
+            )
+            for state, branch in fragment.cases
+        )
+        default = (
+            _InspectionNode("default (no-op)")
+            if fragment.default is None
+            else _InspectionNode("default", (_inspection_node(fragment.default),))
+        )
         return _InspectionNode(
-            f"repeat {_inspection_value(fragment.count)}",
+            f"switch ${fragment.predicate.id}",
+            (*cases, default),
+        )
+    if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
+        result_dimension = (
+            fragment.result_dimension_id
+            if isinstance(fragment, _QuantumRepeatFragment)
+            else None
+        )
+        dimension_suffix = (
+            ""
+            if result_dimension is None
+            else f" result_dimension={result_dimension!r}"
+        )
+        return _InspectionNode(
+            f"repeat {_inspection_value(fragment.count)}{dimension_suffix}",
             (_inspection_node(fragment.operation),),
         )
     raise AssertionError(f"unsupported quantum fragment {type(fragment).__name__}")
+
+
+def _inspection_program_family_envelope(
+    envelope: _ProgramFamilyEnvelope,
+) -> _InspectionNode:
+    allowed_gates = ", ".join(
+        definition.id.value for definition in envelope.gate_definitions
+    )
+    return _InspectionNode(
+        f"envelope allowed_gates=[{allowed_gates}] "
+        f"max_operations={envelope.max_operations} max_depth={envelope.max_depth}"
+    )
 
 
 def _inspection_gate_call(fragment: _GateFragment) -> str:

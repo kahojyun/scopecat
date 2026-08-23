@@ -49,6 +49,7 @@ from ._construction import (
     sequence,
     shift_phase,
     single_qubit_gate,
+    switch,
     two_qubit_gate,
 )
 from ._definitions import (
@@ -171,5 +172,6 @@ __all__ = [
     "sequence",
     "shift_phase",
     "single_qubit_gate",
+    "switch",
     "two_qubit_gate",
 ]

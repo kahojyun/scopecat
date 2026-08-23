@@ -91,7 +91,74 @@ body that escapes either surface. `max_operations` counts expanded executable
 leaves, including finite repeats, while `max_depth` bounds the longest sequential
 path and takes the longest branch of a parallel composition. The envelope is
 therefore cheap to inspect before elaborating every point, while each selected
-point is still checked exactly.
+point is still checked exactly. `Program.draw()` and the authored inspection
+layer show every family call's allowed gate IDs and size bounds without
+evaluating the family function.
+
+Bounded measurement feedback is authored explicitly and remains visible to the
+target compiler:
+
+```python
+x = authoring.single_qubit_gate("x")
+
+
+@authoring.program(id="active-reset")
+def active_reset(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+    state = authoring.measure(
+        qubit,
+        result="state",
+        contract=authoring.CLASSIFIED_STATE_RESULT,
+    )
+    return authoring.sequence(
+        state,
+        authoring.switch(state.result, {1: x(qubit)}),
+    )
+```
+
+`switch` has a finite integer case set and an optional no-op default. Its
+predicate must be a classified-state result produced earlier in the same
+sequence. Branches are result-free, so acquisition addresses and result shapes
+do not depend on the state observed at run time. Real-time control is rejected
+inside `parallel` and `parallel_each`; parallel static work may still occur
+before or after it.
+
+A fixed feedback loop can produce one result slot with a local round axis:
+
+```python
+rounds = 4
+qubit = authoring.qubit("q0")
+round_contract = authoring.CLASSIFIED_STATE_RESULT.with_dimensions(
+    authoring.QuantumResultDimension("round", "round", rounds)
+)
+state = authoring.measure(
+    qubit,
+    result="state",
+    contract=round_contract,
+)
+feedback_rounds = authoring.repeat(
+    authoring.sequence(
+        state,
+        authoring.switch(state.result, {1: x(qubit)}),
+    ),
+    rounds,
+    result_dimension="round",
+)
+```
+
+Every result in a result-producing repeat declares the named dimension with the
+same fixed count, or the same bounded integer input. The loop is retained once
+through binding and target preparation, while its target envelope reports
+worst-case duration, operations, acquisitions, and the union of resources and
+events. Ordinary result-free repeats keep the static path unless their body
+contains real-time control. `Program.draw()` exposes switches and repeat result
+dimensions alongside the pre-expansion program-family envelopes.
+
+Scopecat proves that this control flow is finite and exposes variable-duration
+branches without interpreting controller timing. The target compiler remains
+responsible for accepting or rejecting predicate support, feedback latency,
+branch-duration constraints, loop execution, and hardware resource limits. A
+fully static program is the single-scheduled-block case of the same target
+program contract.
 
 Variable-size programs use a retained `QubitSet` port and `parallel_each`:
 

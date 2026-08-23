@@ -146,6 +146,62 @@ program inspection.example
     assert filtered.layers[1].nodes == ()
 
 
+def test_program_family_envelope_is_inspectable_before_point_expansion() -> None:
+    x = authoring.single_qubit_gate("inspection.family.x")
+    y = authoring.single_qubit_gate("inspection.family.y")
+    elaborated_variants: list[int] = []
+
+    @authoring.fragment(
+        id="inspection.family",
+        envelope=authoring.ProgramFamilyEnvelope(
+            allowed_gates=(x, y),
+            max_operations=8,
+            max_depth=5,
+        ),
+    )
+    def family(
+        qubit: authoring.Qubit,
+        variant: Annotated[int, sc.IntType(minimum=0, maximum=1)],
+    ) -> authoring.QuantumFragment:
+        elaborated_variants.append(variant)
+        return x(qubit) if variant == 0 else y(qubit)
+
+    @authoring.program(id="inspection.family-program")
+    def declaration(
+        qubit: authoring.Qubit,
+        variant: Annotated[int, sc.IntType(minimum=0, maximum=1)],
+    ) -> authoring.QuantumFragment:
+        return authoring.sequence(
+            family(qubit, variant),
+            authoring.measure(qubit, result="iq"),
+        )
+
+    assert elaborated_variants == []
+    expected_envelope = (
+        "envelope allowed_gates=[inspection.family.x, inspection.family.y] "
+        "max_operations=8 max_depth=5"
+    )
+    assert declaration.draw() == "\n".join(
+        (
+            "program inspection.family-program",
+            "└─ sequence",
+            "   ├─ fragment inspection.family(qubit=qubit, variant=$variant)",
+            f"   │  └─ {expected_envelope}",
+            "   └─ measure qubit -> iq",
+        )
+    )
+    assert elaborated_variants == []
+
+    inspection = build_quantum_program_inspection_snapshot(declaration).project()
+
+    assert tuple(layer.id for layer in inspection.layers) == ("authored",)
+    envelope_nodes = tuple(
+        node for node in inspection.layers[0].nodes if node.kind == "envelope"
+    )
+    assert [node.label for node in envelope_nodes] == [expected_envelope]
+    assert elaborated_variants == []
+
+
 def test_scheduled_inspection_separates_logical_results_from_acquisitions() -> None:
     @authoring.program(id="inspection.scheduled-results")
     def program(qubit: authoring.Qubit) -> authoring.QuantumFragment:
