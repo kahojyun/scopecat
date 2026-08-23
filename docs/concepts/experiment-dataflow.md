@@ -39,12 +39,15 @@ The return type follows availability, not shape. Authors normally receive a
 not construct either type themselves. A measured array is still a
 `ProductRef`, while a precomputed array is still a `ValueRef`.
 
-Measurement-dependent feedback cannot run earlier in the same invocation. End
-the run, analyze its durable result, and start another ordinary run explicitly
-when a new instrument state or compiled program depends on that result. Owning
-that state across multiple runs belongs to a future workflow abstraction.
-Measurement-dependent extensions inside one executing run likewise require the
-explicit adaptive-domain abstraction.
+Host-side Python measurement-dependent feedback cannot run earlier in the same
+invocation. End the run, analyze its durable result, and start another ordinary
+run explicitly when a new instrument state or compiled program depends on that
+result. Procedures own that state across multiple runs. A bounded real-time
+conditional inside one domain target is different: the target compiler receives
+the closed branch/loop IR, its resource union and worst-case work are known
+before execution, and no acquired value escapes to host Python before the
+branch. Measurement-dependent extensions that add new design points inside an
+executing run use the explicit adaptive-domain abstraction instead.
 
 ## Return the result you mean to keep
 
