@@ -723,6 +723,7 @@ class ExecutorLease(_WireModel):
     """Renewable authority to report effects for one run."""
 
     lease_id: NonEmptyText
+    segment_id: NonEmptyText
     run_id: NonEmptyText
     executor_id: NonEmptyText
     issued_at: datetime
@@ -974,10 +975,53 @@ class TerminalRunCommitCommand(_FencedCommand):
     models: tuple[TerminalModelWrite, ...] = ()
 
 
+class AttentionResolutionCommand(_WireModel):
+    """Choose the run disposition after external state was reconciled."""
+
+    disposition: Literal["close", "continue"]
+    run_contract_fingerprint: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+
+    @classmethod
+    def close_run(cls) -> AttentionResolutionCommand:
+        return cls(disposition="close")
+
+    @classmethod
+    def continue_run(
+        cls,
+        *,
+        run_contract_fingerprint: str,
+    ) -> AttentionResolutionCommand:
+        return cls(
+            disposition="continue",
+            run_contract_fingerprint=run_contract_fingerprint,
+        )
+
+    @model_validator(mode="after")
+    def validate_continuation_contract(self) -> AttentionResolutionCommand:
+        if (self.disposition == "continue") != (
+            self.run_contract_fingerprint is not None
+        ):
+            raise ValueError(
+                "only continuation attention resolution requires a run contract"
+            )
+        return self
+
+
 class AttentionResolutionReceipt(_WireModel):
     run_id: NonEmptyText
-    state: Literal["closed"]
+    disposition: Literal["close", "continue"]
+    state: Literal["queued", "closed"]
     released_resource_count: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_disposition(self) -> AttentionResolutionReceipt:
+        expected_state = "queued" if self.disposition == "continue" else "closed"
+        if self.state != expected_state:
+            raise ValueError("attention disposition does not match scheduler state")
+        return self
 
 
 class RunCancellationReceipt(_WireModel):
@@ -1177,6 +1221,7 @@ __all__ = [
     "AnalysisSaveCommand",
     "AnalysisSaveReceipt",
     "AnalysisTableOutputPayload",
+    "AttentionResolutionCommand",
     "AttentionResolutionReceipt",
     "CalibrationCohortMergeRevisionSource",
     "CalibrationPublicationCommand",

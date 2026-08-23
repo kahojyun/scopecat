@@ -1294,4 +1294,7 @@ def test_projected_recording_contract_matches_bound_projection() -> None:
         run_id="stable-record-run",
         points=_scenario_value.points,
     )
-    assert first.recording_contract_fingerprint == projection.contract_fingerprint
+    assert (
+        first.recording_contract_fingerprint
+        == projection.recording_contract_fingerprint
+    )

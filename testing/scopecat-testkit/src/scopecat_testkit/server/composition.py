@@ -101,6 +101,32 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
     def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
         super().__init__(runs, run_id=run_id)
         self._active = ActiveMeasurementStore()
+        self._segment_id = f"in-process-segment:{run_id}"
+        with SQLiteControlPlane(runs.sqlite).write_transaction() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO scheduler_runs(
+                    submission_id, run_id, state, updated_at, admission_json
+                )
+                VALUES (?, ?, 'leased', ?, '{}')
+                """,
+                (f"in-process:{run_id}", run_id, datetime.now(UTC).isoformat()),
+            )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO run_execution_segments(
+                    segment_id, run_id, ordinal, executor_id,
+                    run_contract_fingerprint, started_at, start_point_count
+                )
+                VALUES (?, ?, 0, 'in-process', ?, ?, 0)
+                """,
+                (
+                    self._segment_id,
+                    run_id,
+                    "0" * 64,
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
 
     def initialize(
         self,
@@ -108,11 +134,18 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
     ) -> MeasurementDatasetReceipt:
         prepared = self.prepare_header(header)
         with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:
-            receipt, _created = self.header_prepared_in_transaction(
-                connection,
-                prepared,
+            receipt, _header_created, _fragment_created = (
+                self.header_prepared_in_transaction(
+                    connection,
+                    prepared,
+                    segment_id=self._segment_id,
+                )
             )
-            self._active.initialize(header)
+            self._active.initialize(
+                header,
+                segment_id=self._segment_id,
+                start_index=0,
+            )
             return receipt
 
     def ingest(
@@ -131,6 +164,7 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
             receipt, _created = self.append_prepared_in_transaction(
                 connection,
                 prepared,
+                segment_id=self._segment_id,
             )
             return receipt
 
@@ -140,6 +174,7 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
             receipt, _created = self.seal_prepared_in_transaction(
                 connection,
                 prepared,
+                segment_id=self._segment_id,
             )
             return receipt
 

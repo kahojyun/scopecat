@@ -72,6 +72,7 @@ from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
     AnalysisTableOutputPayload,
+    AttentionResolutionCommand,
     CandidateConfigRevisionSource,
     ConfigActivationReceipt,
     ConfigDraftCommand,
@@ -88,6 +89,7 @@ from scopecat.daemon.wire import (
     MeasurementAnalysisInputPayload,
     MeasurementFlushCommand,
     MeasurementHeaderCommand,
+    MeasurementSealCommand,
     RunAdmission,
     RunAttachmentCommand,
     RunCancellationReceipt,
@@ -145,6 +147,9 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetBatch,
     MeasurementDatasetHeader,
+    MeasurementDatasetSeal,
+    measurement_dataset_content_hash,
+    measurement_fragment_content_hash,
 )
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
@@ -167,6 +172,9 @@ from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.control_plane import (
     ControlPlaneConflict,
     SQLiteControlPlane,
+)
+from scopecat_server.storage.sqlite.execution import (
+    SQLiteMeasurementDatasetRepository,
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
@@ -264,6 +272,8 @@ def _submission(
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=point_count,
             initial_point_count=point_count,
             point_limit=point_count,
@@ -357,6 +367,8 @@ def _domain_only_submission(
         plan=RunPlanSummary(
             experiment_id="domain-only",
             experiment_kind="domain-only",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=1,
             initial_point_count=1,
             point_limit=1,
@@ -2028,6 +2040,7 @@ def test_admission_canonicalizes_domain_only_instrument_claims(
     public_control = public.control.model_dump(mode="json")
     assert set(public_control["admission"]) == {
         "run_id",
+        "run_contract_fingerprint",
         "plan",
         "display_name",
         "tags",
@@ -2037,6 +2050,8 @@ def test_admission_canonicalizes_domain_only_instrument_claims(
     assert set(public_control["admission"]["plan"]) == {
         "experiment_id",
         "experiment_kind",
+        "point_plan_fingerprint",
+        "measurement_contract_fingerprint",
         "point_count",
         "initial_point_count",
         "point_limit",
@@ -2605,6 +2620,7 @@ def test_executor_start_is_atomic_idempotent_and_quiet_when_resources_busy(
 
         started = runtime.application.executor.start_executor(first.run_id, request)
         retry = runtime.application.executor.start_executor(first.run_id, request)
+        [segment] = runtime.application.executor.execution_segments(first.run_id).items
         events_before_heartbeat = _events(runtime, run_id=first.run_id).items
         renewed = runtime.application.executor.heartbeat_executor(
             first.run_id,
@@ -2614,6 +2630,10 @@ def test_executor_start_is_atomic_idempotent_and_quiet_when_resources_busy(
         )
 
         assert retry == started
+        assert segment.segment_id == started.segment_id
+        assert segment.ordinal == 0
+        assert segment.start_point_count == 0
+        assert segment.result is None
         assert renewed.expires_at > started.expires_at
         assert _events(runtime, run_id=first.run_id).items == events_before_heartbeat
         assert (
@@ -2924,6 +2944,8 @@ def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(
             "plan": RunPlanSummary(
                 experiment_id="scratch",
                 experiment_kind="scratch",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=None,
                 initial_point_count=1,
                 point_limit=3,
@@ -3012,6 +3034,8 @@ def test_run_point_resolution_preserves_raw_input_and_makes_snap_explicit(
             "plan": RunPlanSummary(
                 experiment_id="scratch",
                 experiment_kind="scratch",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=None,
                 initial_point_count=2,
                 point_limit=4,
@@ -3128,6 +3152,8 @@ def test_selected_region_resolution_defers_to_executor_when_region_sample_is_tru
             "plan": RunPlanSummary(
                 experiment_id="scratch",
                 experiment_kind="scratch",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=None,
                 initial_point_count=0,
                 point_limit=4,
@@ -3182,6 +3208,8 @@ def test_adaptive_domain_ledger_survives_runtime_restart(tmp_path: Path) -> None
             "plan": RunPlanSummary(
                 experiment_id="scratch",
                 experiment_kind="scratch",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=None,
                 initial_point_count=1,
                 point_limit=3,
@@ -3359,6 +3387,8 @@ def test_failed_adaptive_run_abandons_pending_operator_domains(tmp_path: Path) -
             "plan": RunPlanSummary(
                 experiment_id="scratch",
                 experiment_kind="scratch",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=None,
                 initial_point_count=1,
                 point_limit=3,
@@ -3527,6 +3557,13 @@ def test_leased_run_cancellation_reaches_heartbeat_and_preserves_terminal_histor
         )
         assert _control_run(runtime, admission.run_id).state == "closed"
         assert _resource_claims(tmp_path) == ()
+        [segment] = runtime.application.executor.execution_segments(
+            admission.run_id
+        ).items
+        assert segment.segment_id == lease.segment_id
+        assert segment.result == "cancelled"
+        assert segment.certainty == "known"
+        assert segment.end_point_count == 0
 
         racing = runtime.application.submit_run(_submission("cancel-terminal-race"))
         racing_lease = runtime.application.executor.start_executor(
@@ -4156,6 +4193,8 @@ def test_restart_quarantines_executor_until_operator_reconciles(
                 "plan": RunPlanSummary(
                     experiment_id="scratch",
                     experiment_kind="scratch",
+                    point_plan_fingerprint="a" * 64,
+                    measurement_contract_fingerprint="b" * 64,
                     point_count=None,
                     initial_point_count=1,
                     point_limit=3,
@@ -4229,7 +4268,45 @@ def test_restart_quarantines_executor_until_operator_reconciles(
                 ExecutorStartRequest(executor_id="notebook-2"),
             )
 
-        resolved = reopened.application.resolve_attention(run_id)
+        with pytest.raises(BackendConflict, match="contract"):
+            reopened.application.resolve_attention(
+                run_id,
+                AttentionResolutionCommand.continue_run(
+                    run_contract_fingerprint="0" * 64,
+                ),
+            )
+        continued = reopened.application.resolve_attention(
+            run_id,
+            AttentionResolutionCommand.continue_run(
+                run_contract_fingerprint=submission.intent_content_hash,
+            ),
+        )
+        assert continued.disposition == "continue"
+        assert continued.state == "queued"
+        assert continued.released_resource_count == 1
+        assert _snapshot(reopened, run_id).outcome is None
+        continuing_lease = reopened.application.executor.start_executor(
+            run_id,
+            ExecutorStartRequest(executor_id="notebook-2"),
+        )
+        segments = reopened.application.executor.execution_segments(run_id).items
+        assert [segment.ordinal for segment in segments] == [1, 0]
+        assert segments[0].segment_id == continuing_lease.segment_id
+        assert segments[0].start_point_count == 1
+        assert segments[0].result is None
+        assert segments[1].result == "interrupted"
+        assert segments[1].reason == "daemon_restarted"
+        reopened.application.executor._control.mark_executor_unknown(
+            run_id,
+            token=continuing_lease.lease_id,
+            reason="continuation_reconciled_for_close",
+        )
+
+        resolved = reopened.application.resolve_attention(
+            run_id,
+            AttentionResolutionCommand.close_run(),
+        )
+        assert resolved.disposition == "close"
         assert resolved.state == "closed"
         assert resolved.released_resource_count == 1
         control = _control_run(reopened, run_id)
@@ -4252,3 +4329,196 @@ def test_restart_quarantines_executor_until_operator_reconciles(
                 run_id,
                 ExecutorStartRequest(executor_id="notebook-2"),
             )
+
+
+def test_continuation_appends_measurements_in_a_new_segment_fragment(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        submission = _submission("measurement-fragments", point_count=2)
+        admission = runtime.application.submit_run(submission)
+        run_id = admission.run_id
+        first_lease = runtime.application.executor.start_executor(
+            run_id,
+            ExecutorStartRequest(executor_id="notebook-1"),
+        )
+        header = MeasurementDatasetHeader(
+            run_id=run_id,
+            recording_contract_fingerprint="test.recording.v1",
+            dataset_schema=MeasurementDatasetSchema(
+                dataset_id="raw-measurements",
+                point_domain=MeasurementProductGridPointDomain(
+                    axes=[
+                        MeasurementPointDomainAxis(
+                            id="point",
+                            size=2,
+                            source=MeasurementPointDomainValuesSource(
+                                values=[
+                                    MeasurementScalar.create(
+                                        dtype="int64",
+                                        value=point_index,
+                                    )
+                                    for point_index in range(2)
+                                ]
+                            ),
+                        )
+                    ]
+                ),
+                dimensions=[MeasurementDimension(id="point", kind="point", size=2)],
+                variables=[
+                    MeasurementVariable(
+                        id="signal",
+                        role="observable",
+                        dtype="float64",
+                        unit="ratio",
+                        dims=["point"],
+                    )
+                ],
+            ),
+            expected_record_count=2,
+            record_count_limit=2,
+        )
+
+        def record(point_index: int) -> MeasurementRecord:
+            return MeasurementRecord(
+                run_id=run_id,
+                logical_point_id=f"point-{point_index}",
+                point_index=point_index,
+                coordinates={},
+                observables={
+                    "signal": MeasurementScalar.create(
+                        dtype="float64",
+                        value=point_index + 1,
+                        unit="ratio",
+                    )
+                },
+            )
+
+        def append(lease: ExecutorLease, point_index: int) -> None:
+            measurement = MeasurementDatasetAppend(
+                run_id=run_id,
+                header_content_hash=header.content_hash,
+                start_index=point_index,
+                records=(record(point_index),),
+            )
+            runtime.application.executor.ingest_measurements(
+                run_id,
+                lease_id=lease.lease_id,
+                content=encode_measurement_append(
+                    measurement,
+                    header.dataset_schema,
+                ),
+            )
+            runtime.application.executor.flush_measurements(
+                run_id,
+                MeasurementFlushCommand(lease_id=lease.lease_id),
+            )
+
+        runtime.application.executor.initialize_measurements(
+            run_id,
+            MeasurementHeaderCommand(
+                lease_id=first_lease.lease_id,
+                header=header,
+            ),
+        )
+        append(first_lease, 0)
+        runtime.application.executor._control.mark_executor_unknown(
+            run_id,
+            token=first_lease.lease_id,
+            reason="executor_disconnected",
+        )
+        runtime.application.resolve_attention(
+            run_id,
+            AttentionResolutionCommand.continue_run(
+                run_contract_fingerprint=submission.intent_content_hash,
+            ),
+        )
+        second_lease = runtime.application.executor.start_executor(
+            run_id,
+            ExecutorStartRequest(executor_id="notebook-2"),
+        )
+        runtime.application.executor.initialize_measurements(
+            run_id,
+            MeasurementHeaderCommand(
+                lease_id=second_lease.lease_id,
+                header=header,
+            ),
+        )
+        live = runtime.application.runs.measurement_live_preview(
+            run_id,
+            after_record_count=None,
+        )
+        assert live.received_record_count == 1
+        assert live.durable_record_count == 1
+        append(second_lease, 1)
+        first_append = MeasurementDatasetAppend(
+            run_id=run_id,
+            header_content_hash=header.content_hash,
+            start_index=0,
+            records=(record(0),),
+        )
+        second_append = MeasurementDatasetAppend(
+            run_id=run_id,
+            header_content_hash=header.content_hash,
+            start_index=1,
+            records=(record(1),),
+        )
+        seal_receipt = runtime.application.executor.seal_measurements(
+            run_id,
+            MeasurementSealCommand(
+                lease_id=second_lease.lease_id,
+                seal=MeasurementDatasetSeal(
+                    run_id=run_id,
+                    header_content_hash=header.content_hash,
+                    fragment_start_index=1,
+                    point_count=2,
+                    fragment_content_hash=measurement_fragment_content_hash(
+                        header_content_hash=header.content_hash,
+                        start_index=1,
+                        record_content_hashes=second_append.record_content_hashes,
+                    ),
+                ),
+            ),
+        )
+        expected_dataset_content_hash = measurement_dataset_content_hash(
+            header_content_hash=header.content_hash,
+            record_content_hashes=(
+                *first_append.record_content_hashes,
+                *second_append.record_content_hashes,
+            ),
+        )
+        assert seal_receipt.dataset_content_hash == expected_dataset_content_hash
+
+        fragments = SQLiteMeasurementDatasetRepository(
+            _run_repository(tmp_path),
+            run_id=run_id,
+        ).measurement_fragments()
+        assert [fragment.segment_id for fragment in fragments] == [
+            first_lease.segment_id,
+            second_lease.segment_id,
+        ]
+        assert [fragment.start_index for fragment in fragments] == [0, 1]
+        assert [fragment.record_count for fragment in fragments] == [1, 1]
+        assert fragments[0].fragment_content_hash == (
+            measurement_fragment_content_hash(
+                header_content_hash=header.content_hash,
+                start_index=0,
+                record_content_hashes=first_append.record_content_hashes,
+            )
+        )
+        assert fragments[0].dataset_content_hash is None
+        assert fragments[1].fragment_content_hash == (
+            measurement_fragment_content_hash(
+                header_content_hash=header.content_hash,
+                start_index=1,
+                record_content_hashes=second_append.record_content_hashes,
+            )
+        )
+        assert fragments[1].dataset_content_hash == expected_dataset_content_hash
+        table, _, _ = runtime.application.runs.measurement_arrow(
+            run_id,
+            MeasurementArrowQuery(
+                columns=(MeasurementArrowColumn(name="signal", variable_id="signal"),)
+            ),
+        )
+        assert table.column("signal").to_pylist() == [1.0, 2.0]

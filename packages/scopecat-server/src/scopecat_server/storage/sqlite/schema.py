@@ -12,7 +12,7 @@ from scopecat_server.storage.sqlite.procedure_schedule_schema import (
 )
 from scopecat_server.storage.sqlite.run_schema import RUN_TABLES_SQL
 
-PROJECT_SCHEMA_VERSION = 52
+PROJECT_SCHEMA_VERSION = 56
 
 _CONTROL_TABLES_SQL = f"""
 CREATE TABLE IF NOT EXISTS project_schema (
@@ -61,8 +61,50 @@ CREATE TABLE IF NOT EXISTS durable_events (
 CREATE INDEX IF NOT EXISTS durable_events_run_id_event_id
 ON durable_events(run_id, event_id);
 
+CREATE TABLE IF NOT EXISTS run_execution_segments (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    segment_id TEXT NOT NULL UNIQUE,
+    run_id TEXT NOT NULL REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    executor_id TEXT NOT NULL,
+    run_contract_fingerprint TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    start_point_count INTEGER NOT NULL CHECK (start_point_count >= 0),
+    ended_at TEXT,
+    end_point_count INTEGER CHECK (end_point_count >= 0),
+    result TEXT CHECK (
+        result IS NULL
+        OR result IN ('succeeded', 'failed', 'cancelled', 'interrupted')
+    ),
+    certainty TEXT CHECK (
+        certainty IS NULL OR certainty IN ('known', 'indeterminate')
+    ),
+    reason TEXT,
+    UNIQUE (run_id, ordinal),
+    CHECK (
+        (
+            ended_at IS NULL
+            AND end_point_count IS NULL
+            AND result IS NULL
+            AND certainty IS NULL
+            AND reason IS NULL
+        ) OR (
+            ended_at IS NOT NULL
+            AND end_point_count IS NOT NULL
+            AND result IS NOT NULL
+            AND certainty IS NOT NULL
+            AND (result <> 'interrupted' OR reason IS NOT NULL)
+        )
+    )
+);
+
+CREATE INDEX IF NOT EXISTS run_execution_segments_run_sequence
+ON run_execution_segments(run_id, sequence);
+
 CREATE TABLE IF NOT EXISTS executor_leases (
     run_id TEXT PRIMARY KEY REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
+    segment_id TEXT NOT NULL UNIQUE
+        REFERENCES run_execution_segments(segment_id) ON DELETE CASCADE,
     executor_id TEXT NOT NULL,
     token TEXT NOT NULL UNIQUE,
     acquired_at TEXT NOT NULL,

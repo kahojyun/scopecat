@@ -25,6 +25,7 @@ from scopecat.analysis.service import (
     MeasurementAnalysisInput,
     SavedAnalysis,
 )
+from scopecat.control.models import RunExecutionSegmentPage
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
     MeasurementArrowQuery,
@@ -79,6 +80,19 @@ class RemoteRunOperations:
 
     def load_request(self, run_id: str) -> RunRequest:
         return self.client.run_request(run_id).request
+
+    def execution_segments(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunExecutionSegmentPage:
+        return self.client.get_run_execution_segments(
+            run_id,
+            limit=limit,
+            before=before,
+        )
 
     def domain_jobs(
         self,

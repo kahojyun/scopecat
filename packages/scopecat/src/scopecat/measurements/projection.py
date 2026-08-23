@@ -178,6 +178,19 @@ class MeasurementProjection:
             point_domain_axes=self.catalog.point_contract.domain_axes,
         )
 
+    @property
+    def recording_contract_fingerprint(self) -> str:
+        """Identify the durable recording shape across equivalent replans."""
+
+        return stable_content_hash(
+            content_fingerprint(
+                {
+                    "schema": "scopecat.measurement_recording_contract.v1",
+                    "dataset_schema": self.schema,
+                }
+            )
+        )
+
 
 @dataclass(frozen=True, slots=True, init=False)
 class ProjectedMeasurementDataset:
@@ -205,7 +218,7 @@ class ProjectedMeasurementDataset:
     def recording_contract_fingerprint(self) -> str:
         """Return the pre-value contract shared by every record chunk."""
 
-        return self.projection.contract_fingerprint
+        return self.projection.recording_contract_fingerprint
 
 
 def select_measurement_projection(

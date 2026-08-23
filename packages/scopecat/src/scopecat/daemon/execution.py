@@ -115,9 +115,54 @@ def daemon_execution_session(
     if admission.snapshot.config_source != submission.config_source:
         raise ValueError("submission and admission config sources do not match")
 
+    return _daemon_execution_session(
+        client,
+        admission.snapshot,
+        executor_id=executor_id,
+        lease_supervisor=lease_supervisor,
+        has_prior_execution_segment=lambda: bool(
+            client.get_run_execution_segments(
+                admission.run_id,
+                limit=1,
+            ).items
+        ),
+    )
+
+
+def daemon_resumption_session(
+    client: DaemonClient,
+    snapshot: RunSnapshot,
+    *,
+    executor_id: str,
+    has_prior_execution_segment: bool,
+    lease_supervisor: LeaseSupervisor | None = None,
+) -> ExecutionSession:
+    """Bind a validated local program to an existing non-terminal run."""
+
+    if snapshot.outcome is not None:
+        raise ValueError("terminal run cannot resume execution")
+    return _daemon_execution_session(
+        client,
+        snapshot,
+        executor_id=executor_id,
+        lease_supervisor=lease_supervisor,
+        has_prior_execution_segment=lambda: has_prior_execution_segment,
+    )
+
+
+def _daemon_execution_session(
+    client: DaemonClient,
+    snapshot: RunSnapshot,
+    *,
+    executor_id: str,
+    lease_supervisor: LeaseSupervisor | None,
+    has_prior_execution_segment: Callable[[], bool],
+) -> ExecutionSession:
+    """Construct transport-backed execution ports after admission validation."""
+
     authority = _LeaseAuthority(
         client=client,
-        run_id=admission.snapshot.run_id,
+        run_id=snapshot.run_id,
         executor_id=executor_id,
         lease_supervisor=lease_supervisor,
     )
@@ -132,7 +177,7 @@ def daemon_execution_session(
             instruments.provision()
 
     return ExecutionSession(
-        accepted=admission.snapshot,
+        accepted=snapshot,
         begin=begin,
         commit_terminal=authority.commit_terminal,
         measurements=_DaemonMeasurementRepository(authority),
@@ -142,6 +187,10 @@ def daemon_execution_session(
         domain_proposals=domain_proposals,
         cancellation_requested=authority.cancellation_requested,
         effects_ready=lambda: instruments.provisioned,
+        durable_completed_point_count=lambda: (
+            client.get_run_coverage(authority.run_id).completed_point_count
+        ),
+        has_prior_execution_segment=has_prior_execution_segment,
     )
 
 
@@ -714,4 +763,5 @@ __all__ = [
     "ExecutorLeaseLostError",
     "LeaseSupervisor",
     "daemon_execution_session",
+    "daemon_resumption_session",
 ]

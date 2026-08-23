@@ -74,6 +74,8 @@ def _admission(
         plan=RunPlanSummary(
             experiment_id=f"scratch:{run_id}",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=3,
             initial_point_count=3,
             point_limit=3,
@@ -127,6 +129,15 @@ def _close(
     at: datetime,
 ) -> ControlRun:
     with store.write_transaction() as connection:
+        if executor_token is not None:
+            store.finish_execution_segment_in_transaction(
+                connection,
+                run_id,
+                token=executor_token,
+                result="succeeded",
+                certainty="known",
+                at=at,
+            )
         return store.close_run_in_transaction(
             connection,
             run_id,
@@ -206,6 +217,8 @@ def test_run_admission_state_and_pagination(tmp_path: Path) -> None:
             "plan": RunPlanSummary(
                 experiment_id="scratch:run-0",
                 experiment_kind="scratch",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=3,
                 initial_point_count=3,
                 point_limit=3,
@@ -251,6 +264,11 @@ def test_executor_resources_and_scheduler_close_commit_together(
     )
     assert store.get_run("run-1").state == "leased"
     assert len(_resource_claims(store)) == 2
+    [active_segment] = store.list_run_execution_segments("run-1").items
+    assert active_segment.segment_id == executor.segment_id
+    assert active_segment.ordinal == 0
+    assert active_segment.start_point_count == 0
+    assert active_segment.result is None
 
     finished_at = NOW + timedelta(seconds=2)
     closed = _close(
@@ -261,6 +279,11 @@ def test_executor_resources_and_scheduler_close_commit_together(
     )
     assert closed.state == "closed"
     assert _resource_claims(store) == ()
+    [finished_segment] = store.list_run_execution_segments("run-1").items
+    assert finished_segment.segment_id == executor.segment_id
+    assert finished_segment.result == "succeeded"
+    assert finished_segment.certainty == "known"
+    assert finished_segment.end_point_count == 0
     with pytest.raises(ExecutorLeaseNotHeld):
         _append_event(
             store,
@@ -544,6 +567,10 @@ def test_expired_leased_executor_quarantines_resources(tmp_path: Path) -> None:
     run = store.get_run("lost")
     assert run.state == "attention_required"
     assert run.attention_reason == "executor_lease_expired"
+    [segment] = store.list_run_execution_segments("lost").items
+    assert segment.result == "interrupted"
+    assert segment.certainty == "indeterminate"
+    assert segment.reason == "executor_lease_expired"
     event_kinds = {event.kind for event in store.list_events(run_id="lost").items}
     assert {
         "executor_lease_granted",
@@ -571,6 +598,63 @@ def test_expired_leased_executor_quarantines_resources(tmp_path: Path) -> None:
     )
     assert waiting.run_id == "waiting"
     assert store.get_run("lost").state == "attention_required"
+
+
+def test_reconciled_attention_can_open_a_new_execution_segment(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path / "control.sqlite3")
+    shared = ResourceKey(kind="instrument", id="scope")
+    _admit(store, _admission("run-1", shared))
+    first = _start(store, "run-1", executor_id="kernel-1", at=NOW)
+    store.mark_executor_unknown(
+        "run-1",
+        token=first.token,
+        reason="executor_disconnected",
+        at=NOW + timedelta(seconds=1),
+    )
+
+    with (
+        pytest.raises(ControlPlaneConflict, match="contract"),
+        store.write_transaction() as connection,
+    ):
+        store.continue_run_after_attention_in_transaction(
+            connection,
+            "run-1",
+            run_contract_fingerprint="0" * 64,
+            at=NOW + timedelta(seconds=2),
+        )
+    assert store.get_run("run-1").state == "attention_required"
+    [quarantined] = _resource_claims(store)
+    assert quarantined.status == "quarantined"
+
+    with store.write_transaction() as connection:
+        continued, released = store.continue_run_after_attention_in_transaction(
+            connection,
+            "run-1",
+            run_contract_fingerprint=SUBMISSION_HASH,
+            at=NOW + timedelta(seconds=2),
+        )
+
+    assert continued.state == "queued"
+    assert continued.attention_reason is None
+    assert released == 1
+    assert _resource_claims(store) == ()
+    second = _start(
+        store,
+        "run-1",
+        executor_id="kernel-2",
+        at=NOW + timedelta(seconds=3),
+    )
+    segments = store.list_run_execution_segments("run-1").items
+    assert [segment.ordinal for segment in segments] == [1, 0]
+    assert segments[0].segment_id == second.segment_id
+    assert segments[0].result is None
+    assert segments[1].segment_id == first.segment_id
+    assert segments[1].result == "interrupted"
+    assert segments[1].reason == "executor_disconnected"
+    event_kinds = {event.kind for event in store.list_events(run_id="run-1").items}
+    assert "run_continuation_authorized" in event_kinds
 
 
 def test_expire_executor_leases_skips_writer_without_candidates(

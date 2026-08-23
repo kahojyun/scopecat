@@ -78,7 +78,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
-    measurement_dataset_content_hash,
+    measurement_fragment_content_hash,
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
@@ -106,6 +106,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=None,
             initial_point_count=1,
             point_limit=3,
@@ -560,6 +562,8 @@ def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> N
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=1,
             initial_point_count=1,
             point_limit=1,
@@ -606,6 +610,8 @@ def test_initial_lease_cancellation_skips_remote_provisioning() -> None:
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=0,
             initial_point_count=0,
             point_limit=0,
@@ -712,6 +718,7 @@ def _model(model: BaseModel) -> httpx2.Response:
 def _lease() -> ExecutorLease:
     return ExecutorLease(
         lease_id="lease-1",
+        segment_id="segment-1",
         run_id="run-1",
         executor_id="notebook-1",
         issued_at=_NOW,
@@ -796,9 +803,11 @@ def _measurement_seal(
     return MeasurementDatasetSeal(
         run_id=append.run_id,
         header_content_hash=header.content_hash,
+        fragment_start_index=0,
         point_count=1,
-        dataset_content_hash=measurement_dataset_content_hash(
+        fragment_content_hash=measurement_fragment_content_hash(
             header_content_hash=header.content_hash,
+            start_index=0,
             record_content_hashes=append.record_content_hashes,
         ),
     )
@@ -809,7 +818,7 @@ def _seal_receipt(
 ) -> MeasurementDatasetReceipt:
     return MeasurementDatasetReceipt(
         operation_id=seal.operation_id,
-        dataset_content_hash=seal.dataset_content_hash,
+        dataset_content_hash="sealed-dataset-content",
     )
 
 

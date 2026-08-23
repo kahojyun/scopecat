@@ -42,10 +42,12 @@ from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementRe
 from scopecat.records.measurement_recording import (
     CANONICAL_MEASUREMENT_DATASET_REF,
     MeasurementDatasetAppend,
+    MeasurementDatasetFragment,
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
+    measurement_fragment_content_hash,
 )
 
 from scopecat_server.storage.sqlite.object_store import ObjectStoreError, StoredObject
@@ -1025,8 +1027,10 @@ class SQLiteMeasurementDatasetRepository:
         self,
         connection: sqlite3.Connection,
         prepared: PreparedExecutionRecord[MeasurementDatasetHeader],
-    ) -> tuple[MeasurementDatasetReceipt, bool]:
-        """Publish one canonical header or replay its exact durable value."""
+        *,
+        segment_id: str,
+    ) -> tuple[MeasurementDatasetReceipt, bool, bool]:
+        """Publish the run header and initialize one segment-owned fragment."""
 
         durable = prepared.durable
         try:
@@ -1040,6 +1044,7 @@ class SQLiteMeasurementDatasetRepository:
                     (self._run_id,),
                 )
             )
+            header_created = existing is None
             if existing is not None:
                 if (
                     _text(existing, "operation_id") != durable.operation_id
@@ -1048,36 +1053,41 @@ class SQLiteMeasurementDatasetRepository:
                     raise ExecutionStateConflict(
                         "measurement dataset header already has different content"
                     )
-                self._remember_measurement_schema(durable.dataset_schema)
-                return _header_receipt(durable), False
-            if _measurement_rows(connection, self._run_id) or _dataset_sealed(
-                connection, self._run_id
-            ):
-                raise ExecutionStateConflict(
-                    "measurement dataset content exists without its header"
+            else:
+                if _measurement_rows(connection, self._run_id) or _dataset_sealed(
+                    connection, self._run_id
+                ):
+                    raise ExecutionStateConflict(
+                        "measurement dataset content exists without its header"
+                    )
+                _publish_ref(connection, self._run_id, prepared.ref, prepared.stored)
+                connection.execute(
+                    """
+                    INSERT INTO execution_measurement_headers(
+                        run_id, operation_id, content_hash,
+                        contract_fingerprint, expected_record_count,
+                        record_count_limit, ref
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        self._run_id,
+                        durable.operation_id,
+                        durable.content_hash,
+                        durable.recording_contract_fingerprint,
+                        durable.expected_record_count,
+                        durable.record_count_limit,
+                        prepared.ref,
+                    ),
                 )
-            _publish_ref(connection, self._run_id, prepared.ref, prepared.stored)
-            connection.execute(
-                """
-                INSERT INTO execution_measurement_headers(
-                    run_id, operation_id, content_hash,
-                    contract_fingerprint, expected_record_count,
-                    record_count_limit, ref
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    self._run_id,
-                    durable.operation_id,
-                    durable.content_hash,
-                    durable.recording_contract_fingerprint,
-                    durable.expected_record_count,
-                    durable.record_count_limit,
-                    prepared.ref,
-                ),
+            fragment_created = _ensure_measurement_fragment(
+                connection,
+                run_id=self._run_id,
+                segment_id=segment_id,
+                header_content_hash=durable.content_hash,
             )
             self._remember_measurement_schema(durable.dataset_schema)
-            return _header_receipt(durable), True
+            return _header_receipt(durable), header_created, fragment_created
         except ExecutionStateError:
             raise
         except Exception as error:
@@ -1127,6 +1137,8 @@ class SQLiteMeasurementDatasetRepository:
         self,
         connection: sqlite3.Connection,
         prepared: PreparedExecutionRecord[MeasurementDatasetAppend],
+        *,
+        segment_id: str,
     ) -> tuple[MeasurementDatasetReceipt, bool]:
         """Publish prepared append metadata in an existing transaction."""
 
@@ -1136,7 +1148,7 @@ class SQLiteMeasurementDatasetRepository:
             existing = _one(
                 connection.execute(
                     """
-                    SELECT operation_id, content_hash, ref
+                    SELECT segment_id, operation_id, content_hash, ref
                     FROM execution_measurement_appends
                     WHERE run_id = ? AND start_index = ?
                     """,
@@ -1145,7 +1157,8 @@ class SQLiteMeasurementDatasetRepository:
             )
             if existing is not None:
                 if (
-                    _text(existing, "operation_id") != durable.operation_id
+                    _text(existing, "segment_id") != segment_id
+                    or _text(existing, "operation_id") != durable.operation_id
                     or _text(existing, "content_hash") != durable.content_hash
                 ):
                     raise ExecutionStateConflict(
@@ -1160,6 +1173,11 @@ class SQLiteMeasurementDatasetRepository:
                 )
             if _dataset_sealed(connection, self._run_id):
                 raise ExecutionStateConflict("measurement dataset is already sealed")
+            fragment = _measurement_fragment_row(connection, segment_id)
+            if fragment is None or _text(fragment, "run_id") != self._run_id:
+                raise ExecutionStateConflict(
+                    "measurement dataset append requires its execution fragment"
+                )
             header = _measurement_header_row(connection, self._run_id)
             if header is None:
                 raise ExecutionStateConflict(
@@ -1184,15 +1202,16 @@ class SQLiteMeasurementDatasetRepository:
             connection.execute(
                 """
                 INSERT INTO execution_measurement_appends(
-                    run_id, start_index, operation_id,
+                    run_id, segment_id, start_index, operation_id,
                     content_hash, header_content_hash,
                     record_content_hashes_json, record_count,
                     ref
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     self._run_id,
+                    segment_id,
                     durable.start_index,
                     durable.operation_id,
                     durable.content_hash,
@@ -1227,6 +1246,8 @@ class SQLiteMeasurementDatasetRepository:
         self,
         connection: sqlite3.Connection,
         prepared: MeasurementDatasetSeal,
+        *,
+        segment_id: str,
     ) -> tuple[MeasurementDatasetReceipt, bool]:
         """Publish prepared seal metadata in an existing transaction."""
 
@@ -1238,6 +1259,7 @@ class SQLiteMeasurementDatasetRepository:
                     connection.execute(
                         """
                         SELECT
+                            segment_id,
                             operation_id,
                             content_hash,
                             dataset_content_hash
@@ -1249,7 +1271,8 @@ class SQLiteMeasurementDatasetRepository:
                 )
                 if existing is not None:
                     if (
-                        _text(existing, "operation_id") != durable.operation_id
+                        _text(existing, "segment_id") != segment_id
+                        or _text(existing, "operation_id") != durable.operation_id
                         or _text(existing, "content_hash") != durable.content_hash
                     ):
                         raise ExecutionStateConflict(
@@ -1274,6 +1297,16 @@ class SQLiteMeasurementDatasetRepository:
                     raise ExecutionStateConflict(
                         "measurement dataset seal references a different header"
                     )
+                fragment = _measurement_fragment_row(connection, segment_id)
+                if fragment is None or _text(fragment, "run_id") != self._run_id:
+                    raise ExecutionStateConflict(
+                        "measurement dataset seal requires its execution fragment"
+                    )
+                fragment_start_index = _integer(fragment, "start_index")
+                if durable.fragment_start_index != fragment_start_index:
+                    raise ExecutionStateConflict(
+                        "measurement dataset seal starts outside its fragment"
+                    )
                 if durable.point_count > _integer(header, "record_count_limit"):
                     raise ExecutionStateConflict(
                         "measurement dataset seal exceeds its declared point count"
@@ -1285,7 +1318,24 @@ class SQLiteMeasurementDatasetRepository:
                     raise ExecutionStateConflict(
                         "measurement dataset seal point count is incomplete"
                     )
-                actual_hash = measurement_dataset_content_hash(
+                fragment_record_hashes = tuple(
+                    record_hash
+                    for row in _measurement_fragment_rows(connection, segment_id)
+                    for record_hash in cast(
+                        "list[str]",
+                        json.loads(_text(row, "record_content_hashes_json")),
+                    )
+                )
+                actual_fragment_hash = measurement_fragment_content_hash(
+                    header_content_hash=durable.header_content_hash,
+                    start_index=fragment_start_index,
+                    record_content_hashes=fragment_record_hashes,
+                )
+                if actual_fragment_hash != durable.fragment_content_hash:
+                    raise ExecutionStateConflict(
+                        "measurement fragment seal content hash does not match appends"
+                    )
+                dataset_content_hash = measurement_dataset_content_hash(
                     header_content_hash=durable.header_content_hash,
                     record_content_hashes=tuple(
                         record_hash
@@ -1296,26 +1346,29 @@ class SQLiteMeasurementDatasetRepository:
                         )
                     ),
                 )
-                if actual_hash != durable.dataset_content_hash:
-                    raise ExecutionStateConflict(
-                        "measurement dataset seal content hash does not match appends"
-                    )
                 connection.execute(
                     """
                     INSERT INTO execution_measurement_seals(
-                        run_id, operation_id, content_hash,
+                        run_id, segment_id, operation_id, content_hash,
                         dataset_content_hash
                     )
-                    VALUES (?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
                     (
                         self._run_id,
+                        segment_id,
                         durable.operation_id,
                         durable.content_hash,
-                        durable.dataset_content_hash,
+                        dataset_content_hash,
                     ),
                 )
-                return _seal_receipt(durable), True
+                return (
+                    MeasurementDatasetReceipt(
+                        operation_id=durable.operation_id,
+                        dataset_content_hash=dataset_content_hash,
+                    ),
+                    True,
+                )
 
             return commit_prepared()
         except ExecutionStateError:
@@ -1338,6 +1391,71 @@ class SQLiteMeasurementDatasetRepository:
         except Exception as error:
             raise ExecutionStateError(
                 f"failed to read measurement dataset: {error}"
+            ) from error
+
+    def measurement_fragments(self) -> tuple[MeasurementDatasetFragment, ...]:
+        """Project segment-owned ranges without opening Arrow append blobs."""
+
+        try:
+            with self._runs.sqlite.read_connection() as connection:
+                fragments = _all(
+                    connection.execute(
+                        """
+                        SELECT
+                            fragment.segment_id,
+                            fragment.run_id,
+                            fragment.header_content_hash,
+                            fragment.start_index,
+                            seal.dataset_content_hash
+                        FROM execution_measurement_fragments AS fragment
+                        JOIN run_execution_segments AS segment
+                          ON segment.segment_id = fragment.segment_id
+                        LEFT JOIN execution_measurement_seals AS seal
+                          ON seal.segment_id = fragment.segment_id
+                        WHERE fragment.run_id = ?
+                        ORDER BY segment.ordinal
+                        """,
+                        (self._run_id,),
+                    )
+                )
+                result: list[MeasurementDatasetFragment] = []
+                for fragment in fragments:
+                    record_hashes = tuple(
+                        record_hash
+                        for row in _measurement_fragment_rows(
+                            connection,
+                            _text(fragment, "segment_id"),
+                        )
+                        for record_hash in cast(
+                            "list[str]",
+                            json.loads(_text(row, "record_content_hashes_json")),
+                        )
+                    )
+                    start_index = _integer(fragment, "start_index")
+                    header_content_hash = _text(fragment, "header_content_hash")
+                    result.append(
+                        MeasurementDatasetFragment(
+                            segment_id=_text(fragment, "segment_id"),
+                            run_id=self._run_id,
+                            header_content_hash=header_content_hash,
+                            start_index=start_index,
+                            record_count=len(record_hashes),
+                            fragment_content_hash=measurement_fragment_content_hash(
+                                header_content_hash=header_content_hash,
+                                start_index=start_index,
+                                record_content_hashes=record_hashes,
+                            ),
+                            dataset_content_hash=(
+                                None
+                                if fragment["dataset_content_hash"] is None
+                                else _text(fragment, "dataset_content_hash")
+                            ),
+                        )
+                    )
+                return tuple(result)
+        except Exception as error:
+            raise ExecutionStateError(
+                f"failed to read measurement fragments: {error}"
             ) from error
 
     def measurement_schema(self) -> MeasurementDatasetSchema | None:
@@ -1572,15 +1690,6 @@ def _append_receipt(
     )
 
 
-def _seal_receipt(
-    seal: MeasurementDatasetSeal,
-) -> MeasurementDatasetReceipt:
-    return MeasurementDatasetReceipt(
-        operation_id=seal.operation_id,
-        dataset_content_hash=seal.dataset_content_hash,
-    )
-
-
 def _dataset_sealed(
     connection: sqlite3.Connection,
     run_id: str,
@@ -1613,6 +1722,85 @@ def _measurement_rows(
             (run_id,),
         )
     )
+
+
+def _measurement_fragment_rows(
+    connection: sqlite3.Connection,
+    segment_id: str,
+) -> list[sqlite3.Row]:
+    return _all(
+        connection.execute(
+            """
+            SELECT * FROM execution_measurement_appends
+            WHERE segment_id = ?
+            ORDER BY start_index
+            """,
+            (segment_id,),
+        )
+    )
+
+
+def _measurement_fragment_row(
+    connection: sqlite3.Connection,
+    segment_id: str,
+) -> sqlite3.Row | None:
+    return _one(
+        connection.execute(
+            """
+            SELECT * FROM execution_measurement_fragments
+            WHERE segment_id = ?
+            """,
+            (segment_id,),
+        )
+    )
+
+
+def _ensure_measurement_fragment(
+    connection: sqlite3.Connection,
+    *,
+    run_id: str,
+    segment_id: str,
+    header_content_hash: str,
+) -> bool:
+    existing = _measurement_fragment_row(connection, segment_id)
+    if existing is not None:
+        if (
+            _text(existing, "run_id") != run_id
+            or _text(existing, "header_content_hash") != header_content_hash
+        ):
+            raise ExecutionStateConflict(
+                "measurement fragment already has different content"
+            )
+        return False
+    segment = _one(
+        connection.execute(
+            """
+            SELECT run_id, start_point_count
+            FROM run_execution_segments
+            WHERE segment_id = ?
+            """,
+            (segment_id,),
+        )
+    )
+    if segment is None or _text(segment, "run_id") != run_id:
+        raise ExecutionStateConflict(
+            "measurement fragment requires its execution segment"
+        )
+    start_index = _integer(segment, "start_point_count")
+    if start_index != _measurement_record_count(connection, run_id):
+        raise ExecutionStateConflict(
+            "measurement fragment start differs from the durable dataset prefix"
+        )
+    connection.execute(
+        """
+        INSERT INTO execution_measurement_fragments(
+            segment_id, run_id, header_content_hash, start_index
+        )
+        VALUES (?, ?, ?, ?)
+        """,
+        (segment_id, run_id, header_content_hash, start_index),
+    )
+    return True
 
 
 def _measurement_header_row(

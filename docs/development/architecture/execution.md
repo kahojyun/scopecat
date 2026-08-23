@@ -224,6 +224,54 @@ part of the reproducible plan.
 
 ## Completion, failure, and evidence
 
+Every executor lease owns one durable execution segment. The initial execution
+creates ordinal zero; an idempotent retry of the same live executor start returns
+the same segment. A terminal run commit closes the segment with the run result
+and its completed logical-point count. Lease loss closes it as an indeterminate
+interruption before the executor token is fenced. Segment records retain the
+accepted run-contract fingerprint and the global coverage interval, so later
+continuation work has an immutable ownership boundary without adding a field to
+every measurement record.
+
+Execution segments are immutable evidence rather than transparent process
+resume. After hardware reconciliation, explicit continuation can return an
+attention-required run to the queue; the next executor lease creates a new
+segment at the durable global coverage watermark instead of reopening the
+previous process owner. The accepted run contract is checked, but Scopecat does
+not claim that the Python workspace or environment is unchanged.
+
+The canonical measurement schema remains run-owned, while durable Arrow appends
+are grouped into segment-owned fragments. Initializing a dataset in a new
+segment creates one fragment at that segment's durable global coverage
+watermark. Each existing chunk records its owning segment; individual
+measurement records gain no segment field and no extra per-point transaction.
+Run-level paging and dataset identity still concatenate all chunks by global
+point index, independent of fragment boundaries.
+
+Before acquiring instruments, the interpreter reads the durable global coverage
+watermark. A continued static local run materializes only the remaining point
+suffix and initializes its point ledger, ordering buffer, and recording counters
+at that watermark. Its seal identifies only the new segment-owned fragment; the
+daemon verifies that fragment and derives the final run-level dataset identity
+from every durable append across all segments. This avoids replaying completed
+point effects and avoids re-hashing array payloads in the executor.
+
+Automatic suffix continuation is deliberately narrower than control-plane
+continuation. Adaptive runs and domain-target runs are rejected before
+instrument acquisition because their exact program position also depends on a
+durable proposal or external-job transition. They require a future resumable
+program-position contract rather than guessing from measurement row count.
+
+`lab.resume(run, invocation)` is the user-facing re-entry boundary. It replans
+against the accepted config, requires the reconstructed request and plan summary
+to reproduce the accepted run-contract fingerprint, and compares any initialized
+measurement schema before it resolves an attention-required run or acquires a
+new executor lease. The contract contains hashes of every ordered accepted point
+and the complete durable measurement schema; the bounded point samples and
+record identifiers remain presentation fields rather than recovery evidence.
+The check is a durable shape and authority check, not a Git or environment
+reproducibility claim.
+
 Execution validates typed transitions for each consequential external
 invocation. A domain job starts with its deterministic execution key. A
 synchronous target returns terminal receipt/result evidence directly. A target
@@ -281,10 +329,10 @@ execution: `invocation_unknown`, `pending`, or `terminal`. This is a diagnostic
 projection rather than a recovery policy, so it has no `recoverable` flag and no
 resume command. An empty projection means that no invocation became durable; it
 may be the intentional result of successful `abnormal_only` jobs and does not
-prove that the client-owned program contains no domain job. Safe
-continuation still requires an exact program position, an owned instrument
-session, a reconstructed measurement sink, and any result payload needed after
-a terminal receipt.
+prove that the client-owned program contains no domain job. Safe continuation
+for non-static execution still requires an exact program position, an owned
+instrument session, a reconstructed measurement sink, and any result payload
+needed after a terminal receipt.
 
 The run-level `DomainExecutionEvidence` is only a compact terminal index: target
 ids, transition policies, and aggregate attempt, checkpoint, receipt, and status

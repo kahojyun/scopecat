@@ -58,6 +58,11 @@ from scopecat.automation import (
     ProcedureSchedulePage,
     ProcedureScheduleRegistry,
     ProcedureScheduleState,
+    ProcedureStepAttempt,
+    ProcedureStepAttemptListQuery,
+    ProcedureStepAttemptPage,
+    ProcedureStepAttentionRetryCommand,
+    ProcedureStepAttentionRetryReceipt,
     ProcedureWorkerLease,
     procedure,
     procedure_intent_hash,
@@ -1130,6 +1135,112 @@ def test_lab_procedure_operations_resume_runnable_snapshot(
 
     assert handle.id == run.procedure_run_id
     assert calls == [(run, "worker-snapshot")]
+
+
+def test_procedure_handle_retries_exact_attention_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attention_run = _run("run-attention").model_copy(
+        update={
+            "revision": 7,
+            "state": "attention_required",
+            "attention_reason": "child run outcome unknown",
+        }
+    )
+    attention_step = ProcedureStepAttempt(
+        procedure_run_id=attention_run.procedure_run_id,
+        step_key="measure",
+        attempt=1,
+        operation="run",
+        intent_hash=attention_run.intent_hash,
+        revision=3,
+        state="attention_required",
+        started_at=_CREATED_AT,
+        updated_at=_TERMINAL_AT,
+        attention_reason="child run outcome unknown",
+    )
+    ready_run = attention_run.model_copy(
+        update={
+            "revision": 8,
+            "state": "ready",
+            "attention_reason": None,
+            "updated_at": _TERMINAL_AT,
+        }
+    )
+
+    class AttentionClient:
+        def __init__(self) -> None:
+            self.retry_commands: list[ProcedureStepAttentionRetryCommand] = []
+
+        def get_procedure(self, procedure_run_id: str) -> ProcedureRun:
+            assert procedure_run_id == attention_run.procedure_run_id
+            return attention_run
+
+        def list_procedure_step_attempts(
+            self,
+            procedure_run_id: str,
+            query: object,
+        ) -> ProcedureStepAttemptPage:
+            assert procedure_run_id == attention_run.procedure_run_id
+            assert query == ProcedureStepAttemptListQuery(limit=200)
+            return ProcedureStepAttemptPage(
+                procedure_run_id=procedure_run_id,
+                items=(attention_step,),
+            )
+
+        def retry_procedure_step_attention(
+            self,
+            command: ProcedureStepAttentionRetryCommand,
+        ) -> ProcedureStepAttentionRetryReceipt:
+            self.retry_commands.append(command)
+            return ProcedureStepAttentionRetryReceipt(
+                run=ready_run,
+                step=attention_step,
+            )
+
+    resumed: list[tuple[ProcedureRun, str]] = []
+
+    class AttentionWorker:
+        def resume_snapshot(
+            self,
+            run: ProcedureRun,
+            *,
+            worker_id: str,
+        ) -> ProcedureRun:
+            resumed.append((run, worker_id))
+            return run
+
+    client = AttentionClient()
+    worker = AttentionWorker()
+
+    def attention_worker(_operations: LabProcedureOperations) -> AttentionWorker:
+        return worker
+
+    monkeypatch.setattr(LabProcedureOperations, "_worker", attention_worker)
+    operations = LabProcedureOperations(
+        client=cast("DaemonClient", cast("object", client)),
+        runner=cast("_DaemonRunner", object()),
+        config=cast("LabConfigOperations", object()),
+        session=cast("ProcedureLabSession", object()),
+        registry=ProcedureRegistry((SCHEDULED,)),
+        schedule_registry=ProcedureScheduleRegistry(),
+        worker_id="worker-retry",
+    )
+
+    handle = ProcedureHandle(operations, attention_run.procedure_run_id)
+    retried = handle.retry_attention()
+
+    assert retried.id == attention_run.procedure_run_id
+    assert client.retry_commands == [
+        ProcedureStepAttentionRetryCommand(
+            procedure_run_id=attention_run.procedure_run_id,
+            expected_run_revision=7,
+            step_key="measure",
+            attempt=1,
+            expected_step_revision=3,
+        )
+    ]
+    assert resumed == [(ready_run, "worker-retry")]
 
 
 def _schedule(

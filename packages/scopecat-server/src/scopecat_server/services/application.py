@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Literal
 
 from scopecat.daemon.health import DaemonHealth
 from scopecat.daemon.wire import (
+    AttentionResolutionCommand,
     AttentionResolutionReceipt,
     RunAdmission,
     RunCancellationReceipt,
@@ -118,8 +119,12 @@ class DaemonApplication:
     def resolve_attention(
         self,
         run_id: str,
+        command: AttentionResolutionCommand,
     ) -> AttentionResolutionReceipt:
         return self.instruments.resolve_run_attention(
             run_id,
-            self._admission.resolve_attention,
+            lambda selected_run_id: self._admission.resolve_attention(
+                selected_run_id,
+                command,
+            ),
         )

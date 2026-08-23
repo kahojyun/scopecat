@@ -112,6 +112,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
+    measurement_fragment_content_hash,
 )
 from scopecat.records.parameter_change import (
     ParameterChangeProposal,
@@ -176,6 +177,8 @@ def _submission(
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=point_count,
             initial_point_count=point_count,
             point_limit=point_count,
@@ -278,9 +281,11 @@ def _complete_signal_run(
             seal=MeasurementDatasetSeal(
                 run_id=run_id,
                 header_content_hash=header.content_hash,
+                fragment_start_index=0,
                 point_count=1,
-                dataset_content_hash=measurement_dataset_content_hash(
+                fragment_content_hash=measurement_fragment_content_hash(
                     header_content_hash=header.content_hash,
+                    start_index=0,
                     record_content_hashes=append.record_content_hashes,
                 ),
             ),

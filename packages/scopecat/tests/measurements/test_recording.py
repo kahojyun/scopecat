@@ -50,6 +50,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
+    measurement_fragment_content_hash,
     measurement_record_content_hash,
 )
 
@@ -70,6 +71,7 @@ def _seal(
     return seal_measurement_dataset(
         run_id=projected.run_id,
         header=header,
+        fragment_start_index=0,
         point_count=len(projected.records),
         record_content_hashes=tuple(
             measurement_record_content_hash(record) for record in projected.records
@@ -393,8 +395,22 @@ def test_dataset_identity_is_independent_of_append_chunk_boundaries() -> None:
             *second.record_content_hashes,
         ),
     )
+    whole_fragment_hash = measurement_fragment_content_hash(
+        header_content_hash=header.content_hash,
+        start_index=0,
+        record_content_hashes=whole.record_content_hashes,
+    )
+    split_fragment_hash = measurement_fragment_content_hash(
+        header_content_hash=header.content_hash,
+        start_index=0,
+        record_content_hashes=(
+            *first.record_content_hashes,
+            *second.record_content_hashes,
+        ),
+    )
 
     assert whole_hash == split_hash
+    assert whole_fragment_hash == split_fragment_hash
 
 
 def test_header_and_append_content_hashes_cannot_change_after_construction() -> None:
@@ -422,7 +438,7 @@ class _InvalidReceiptWriter(FakeMeasurementDatasetRepository):
     @override
     def seal(self, seal: MeasurementDatasetSeal) -> MeasurementDatasetReceipt:
         return MeasurementDatasetReceipt(
-            operation_id=seal.operation_id,
+            operation_id="wrong-seal-operation",
             dataset_content_hash="sha256:wrong",
         )
 

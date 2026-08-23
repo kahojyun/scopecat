@@ -21,9 +21,10 @@ import {
   getOlderRunAnalysisSummaries,
   getRunAnalysisSummaries,
   getRunDomainDecisions,
+  getRunExecutionSegments,
   getRunEvents,
   getRuns,
-  resolveAttention,
+  closeAttentionRun,
 } from "./run-api";
 import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
 import type {
@@ -156,6 +157,18 @@ export function RunsWorkspace({
     runsQuery.data?.items.find((run) => run.runId === selectedRunId)?.status;
   const selectedRunIsActive =
     selectedRunStatus === undefined || ["accepted", "running"].includes(selectedRunStatus);
+  const executionSegmentsQuery = useQuery({
+    queryKey: ["run-execution-segments", selectedRunId],
+    queryFn: ({ signal }) => getRunExecutionSegments(selectedRunId!, signal),
+    enabled: selectedRunId !== undefined,
+    refetchInterval: (query) =>
+      selectedRunIsActive ||
+      query.state.data?.items.some(
+        (segment) => segment.ended_at === null || segment.ended_at === undefined,
+      )
+        ? 1000
+        : false,
+  });
   const runDomainDecisionsQuery = useQuery({
     queryKey: ["run-domain-decisions", selectedRunId],
     queryFn: ({ signal }) => getRunDomainDecisions(selectedRunId!, signal),
@@ -190,7 +203,7 @@ export function RunsWorkspace({
     enabled: selectedRunId !== undefined,
   });
   const attentionMutation = useMutation({
-    mutationFn: (runId: string) => resolveAttention(runId),
+    mutationFn: (runId: string) => closeAttentionRun(runId),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["runs"] }),
@@ -523,6 +536,9 @@ export function RunsWorkspace({
               events={selectedEvents}
               eventsError={selectedEventsQuery.error}
               eventsPending={selectedEventsQuery.isPending}
+              executionSegments={executionSegmentsQuery.data}
+              executionSegmentsError={executionSegmentsQuery.error}
+              executionSegmentsPending={executionSegmentsQuery.isPending}
               domainDecisions={runDomainDecisionsQuery.data}
               domainDecisionsError={runDomainDecisionsQuery.error}
               domainDecisionsPending={runDomainDecisionsQuery.isPending}
@@ -824,10 +840,10 @@ function healthDetail(health?: ProjectHealth): string {
 
 function attentionConfirmation(): Omit<ConfirmationRequest, "onConfirm"> {
   return {
-    title: "Resolve and close this run?",
+    title: "Close without resuming this run?",
     description:
-      "Confirm the external hardware state is reconciled, release its resources, and close the run.",
-    confirmLabel: "Resolve and close",
+      "Confirm the external hardware state is reconciled. This releases its resources and makes the run terminal.",
+    confirmLabel: "Close run",
     intent: "danger",
   };
 }

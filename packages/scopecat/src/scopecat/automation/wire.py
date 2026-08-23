@@ -257,15 +257,14 @@ class ProcedureStepBeginCommand(_FencedProcedureCommand):
 def procedure_step_operation_id(
     procedure_run_id: str,
     step_key: str,
-    attempt: int,
 ) -> str:
-    """Return the stable side-effect id for one exact step attempt."""
+    """Return the stable side-effect id shared by retries of one step."""
 
     digest = stable_content_hash(
         {
+            "schema": "scopecat.procedure_step_operation.v2",
             "procedure_run_id": procedure_run_id,
             "step_key": step_key,
-            "attempt": attempt,
         }
     )
     return f"procedure-step:{digest}"
@@ -284,7 +283,6 @@ class ProcedureStepBeginReceipt(_WireModel):
         expected_operation_id = procedure_step_operation_id(
             self.step.procedure_run_id,
             self.step.step_key,
-            self.step.attempt,
         )
         if self.operation_id != expected_operation_id:
             raise ValueError("procedure step operation id must be deterministic")
@@ -354,6 +352,33 @@ class ProcedureStepAttentionReceipt(_WireModel):
         ):
             raise ValueError(
                 "procedure step attention receipt requires attention states"
+            )
+        return self
+
+
+class ProcedureStepAttentionRetryCommand(_WireModel):
+    """Authorize a new attempt of one exact quarantined step."""
+
+    procedure_run_id: _NonEmptyText
+    expected_run_revision: int = Field(ge=1)
+    step_key: _NonEmptyText
+    attempt: int = Field(ge=1)
+    expected_step_revision: int = Field(ge=1)
+
+
+class ProcedureStepAttentionRetryReceipt(_WireModel):
+    """Ready procedure state after one exact attention retry authorization."""
+
+    run: ProcedureRun
+    step: ProcedureStepAttempt
+
+    @model_validator(mode="after")
+    def validate_result(self) -> ProcedureStepAttentionRetryReceipt:
+        _validate_step_receipt_alignment(self.run, self.step)
+        if self.run.state != "ready" or self.step.state != "attention_required":
+            raise ValueError(
+                "procedure step retry requires a ready run and quarantined prior "
+                "attempt"
             )
         return self
 

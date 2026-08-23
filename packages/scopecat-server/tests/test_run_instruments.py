@@ -1954,6 +1954,8 @@ def test_analysis_candidate_run_keeps_connection_until_shutdown(
                 plan=RunPlanSummary(
                     experiment_id="candidate-source",
                     experiment_kind="scratch",
+                    point_plan_fingerprint="a" * 64,
+                    measurement_contract_fingerprint="b" * 64,
                     point_count=1,
                     initial_point_count=1,
                     point_limit=1,
@@ -2304,6 +2306,8 @@ def _start_run(
             plan=RunPlanSummary(
                 experiment_id="scratch",
                 experiment_kind="scratch",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=1,
                 initial_point_count=1,
                 point_limit=1,

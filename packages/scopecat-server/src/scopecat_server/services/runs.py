@@ -235,6 +235,7 @@ def _run_control_view(
         sequence=control.sequence,
         admission=RunAdmissionView(
             run_id=control.run_id,
+            run_contract_fingerprint=control.admission.submission_content_hash,
             admitted_at=control.admission.admitted_at,
             display_name=control.admission.display_name,
             tags=control.admission.tags,
@@ -242,6 +243,10 @@ def _run_control_view(
             plan=RunPlanView(
                 experiment_id=plan.experiment_id,
                 experiment_kind=plan.experiment_kind,
+                point_plan_fingerprint=plan.point_plan_fingerprint,
+                measurement_contract_fingerprint=(
+                    plan.measurement_contract_fingerprint
+                ),
                 point_count=plan.point_count,
                 initial_point_count=plan.initial_point_count,
                 point_limit=plan.point_limit,

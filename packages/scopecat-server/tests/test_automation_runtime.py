@@ -26,6 +26,7 @@ from scopecat.automation import (
     ProcedureRunListQuery,
     ProcedureStepAttemptListQuery,
     ProcedureStepAttentionCommand,
+    ProcedureStepAttentionRetryCommand,
     ProcedureStepBeginCommand,
     ProcedureStepCompleteCommand,
     ProcedureStepFailCommand,
@@ -436,6 +437,37 @@ def test_procedure_http_exposes_worker_state_transitions(tmp_path: Path) -> None
         )
         assert quarantined.run.state == "attention_required"
         assert quarantined.step.state == "attention_required"
+        retry_command = ProcedureStepAttentionRetryCommand(
+            procedure_run_id=quarantined_run.procedure_run_id,
+            expected_run_revision=quarantined.run.revision,
+            step_key=quarantined.step.step_key,
+            attempt=quarantined.step.attempt,
+            expected_step_revision=quarantined.step.revision,
+        )
+        retried = client.retry_procedure_step_attention(retry_command)
+        assert client.retry_procedure_step_attention(retry_command) == retried
+        assert retried.run.state == "ready"
+        assert retried.step == quarantined.step
+        retry_lease = client.acquire_procedure_worker_lease(
+            ProcedureWorkerLeaseAcquireCommand(
+                procedure_run_id=quarantined_run.procedure_run_id,
+                worker_id="step-retry-worker",
+                expected_run_revision=retried.run.revision,
+            )
+        )
+        retry_begun = client.begin_procedure_step(
+            ProcedureStepBeginCommand(
+                procedure_run_id=quarantined_run.procedure_run_id,
+                lease_token=retry_lease.lease.lease_token,
+                expected_run_revision=retry_lease.run.revision,
+                step_key=quarantined.step.step_key,
+                operation=quarantined.step.operation,
+                intent_hash=quarantined.step.intent_hash,
+                inputs=quarantined.step.inputs,
+            )
+        )
+        assert retry_begun.step.attempt == quarantined.step.attempt + 1
+        assert retry_begun.operation_id == quarantined_begun.operation_id
 
 
 def test_daemon_client_drives_core_worker_and_replays_closed_procedure(
@@ -500,7 +532,6 @@ def test_daemon_client_drives_core_worker_and_replays_closed_procedure(
         expected_operation_id = procedure_step_operation_id(
             step.procedure_run_id,
             step.step_key,
-            step.attempt,
         )
         assert operation_ids == [expected_operation_id]
 
@@ -739,7 +770,6 @@ def test_procedure_config_activation_recovers_two_lost_http_responses(
         operation_id = procedure_step_operation_id(
             step.procedure_run_id,
             step.step_key,
-            step.attempt,
         )
         activation_path = "/api/v1/config-registry/activation-operations"
         assert requests.count(("POST", activation_path)) == 2

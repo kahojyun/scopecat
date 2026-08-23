@@ -12,6 +12,7 @@ import {
   getRunContent,
   getRunContents,
   getRunEvents,
+  getRunExecutionSegments,
   getRuns,
 } from "./run-api";
 import type { MeasurementRecord } from "../../api-contract";
@@ -27,6 +28,40 @@ afterEach(() => {
 });
 
 describe("run daemon reads", () => {
+  it("loads durable execution boundaries for one run", async () => {
+    const fetchMock = vi.fn((_input: string | URL | Request) =>
+      Promise.resolve(
+        jsonResponse({
+          items: [
+            {
+              sequence: 9,
+              segment_id: "segment-2",
+              run_id: "run/1",
+              ordinal: 1,
+              executor_id: "executor-after-restart",
+              run_contract_fingerprint: "a".repeat(64),
+              started_at: "2026-08-23T04:00:00Z",
+              start_point_count: 12,
+            },
+          ],
+          next_cursor: null,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const page = await getRunExecutionSegments("run/1");
+
+    expect(page.items[0]).toMatchObject({
+      ordinal: 1,
+      start_point_count: 12,
+      executor_id: "executor-after-restart",
+    });
+    expect(requestPath(fetchMock.mock.calls[0]![0])).toBe(
+      "/api/v1/runs/run%2F1/execution-segments?limit=100",
+    );
+  });
+
   it("loads exact analysis artifact bytes for browser download", async () => {
     const fetchMock = vi.fn((_input: string | URL | Request) =>
       Promise.resolve(

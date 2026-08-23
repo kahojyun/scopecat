@@ -17,6 +17,7 @@ from scopecat.analysis.service import (
     SavedAnalysis,
     save_analysis,
 )
+from scopecat.control.models import RunExecutionSegmentPage
 from scopecat.daemon.views import (
     MeasurementArrowQuery,
     RunAnalysisPage,
@@ -78,6 +79,18 @@ class ServiceRunOperations:
 
     def load_request(self, run_id: str) -> RunRequest:
         return load_run_request(run_id=run_id, services=self.services)
+
+    def execution_segments(
+        self,
+        run_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> RunExecutionSegmentPage:
+        """The control-plane-free test runner has no executor ownership ledger."""
+
+        del run_id, limit, before
+        return RunExecutionSegmentPage()
 
     def domain_jobs(
         self,

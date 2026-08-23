@@ -151,17 +151,36 @@ Cancellation and terminal commit are serialized by the SQLite writer:
 
 If an executor disappears, its run enters `attention_required` and its resources
 stay quarantined. After externally reconciling hardware, an operator resolves
-attention through the GUI or `lab.control.resolve_attention(run_id)`. Resolution
-closes the run with an indeterminate failed outcome and releases the claims. The
-original program is not resumed because general effect replay is unsafe; another
-attempt is a new run. The daemon discards that executor's pending/live measurement
-state as soon as the lease supervisor fences it. Any already durable measurement
-prefix, coverage watermark, and domain-job transition ledger remain inspectable,
-but none authorizes appending to or resuming the failed attempt. Diagnosis can
-distinguish an invocation with no observed outcome, a pending provider
-checkpoint, and a terminal provider receipt. Invocation-only state deliberately
-does not claim that the provider received `start`, and none of the three states
-is replay authority.
+attention through the GUI or `lab.control.resolve_attention(...)` with an
+explicit disposition. `close` commits an indeterminate failed outcome, abandons
+the remaining point plan, and releases the claims. `continue` checks the exact
+accepted run-contract fingerprint, including complete ordered-point and
+measurement-schema fingerprints rather than their bounded presentation samples,
+releases the reconciled claims, and returns the same run to the queue. Its next
+executor lease creates a new execution segment at the durable global coverage
+watermark; the lost segment remains an immutable indeterminate interruption.
+
+Continuation deliberately does not claim that the Python workspace, imported
+environment, or external hardware is unchanged. Durable measurement chunks are
+attributed to their execution segment. For a static local run, a later executor
+can select and append the remaining suffix from the durable coverage watermark;
+the daemon validates the new fragment and combines all fragment appends into the
+terminal run-level dataset identity. Adaptive and domain-target execution remain
+control-plane continuation only because coverage alone does not identify their
+safe external-effect position. The daemon discards the lost executor's
+pending/live measurement state as soon as the lease supervisor fences it. Any
+already durable measurement prefix, coverage watermark, execution segment, and
+domain-job transition ledger remain inspectable, but none alone authorizes
+replaying those external effects.
+The high-level `lab.resume(...)` path reconstructs and validates the accepted
+run contract before it submits the `continue` attention disposition. Calling it
+therefore serves as the operator's explicit confirmation that external hardware
+has already been reconciled; a contract mismatch leaves the run quarantined.
+
+Diagnosis can distinguish an invocation with no observed outcome, a pending
+provider checkpoint, and a terminal provider receipt. Invocation-only state
+deliberately does not claim that the provider received `start`, and none of the
+three states is replay authority.
 
 A daemon restart immediately fences executors from the previous process rather
 than trusting their remaining lease time. Process-local measurement state is not

@@ -99,7 +99,7 @@ class RunCoverage:
 
     def __init__(
         self,
-        factory: Callable[[], Iterator[RunCoveredOperation]],
+        factory: Callable[[int], Iterator[RunCoveredOperation]],
         *,
         inspect: Callable[
             [int | PointProposalAttempt, CompiledProgramInspectionQuery | None],
@@ -121,7 +121,14 @@ class RunCoverage:
         ] = OrderedDict()
 
     def __iter__(self) -> Iterator[RunCoveredOperation]:
-        return self._factory()
+        return self._factory(0)
+
+    def suffix(self, start_point_index: int) -> Iterator[RunCoveredOperation]:
+        """Materialize operations only for the remaining static point suffix."""
+
+        if start_point_index < 0:
+            raise ValueError("coverage suffix start must be non-negative")
+        return self._factory(start_point_index)
 
     def inspect(
         self,

@@ -38,6 +38,8 @@ from scopecat.automation import (
     ProcedureStepAttemptPage,
     ProcedureStepAttentionCommand,
     ProcedureStepAttentionReceipt,
+    ProcedureStepAttentionRetryCommand,
+    ProcedureStepAttentionRetryReceipt,
     ProcedureStepBeginCommand,
     ProcedureStepBeginReceipt,
     ProcedureStepCompleteCommand,
@@ -76,6 +78,7 @@ from scopecat.automation.calibration_wire import (
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
+    RunExecutionSegmentPage,
 )
 from scopecat.daemon.hardware_receipt_wire import (
     decode_collect_receipt,
@@ -113,6 +116,7 @@ from scopecat.daemon.views import (
     InstrumentListView,
     InstrumentView,
     MeasurementArrowQuery,
+    MeasurementPreview,
     MeasurementTracePreview,
     MeasurementTracePreviewQuery,
     ParameterProposalPage,
@@ -133,6 +137,7 @@ from scopecat.daemon.views import (
 from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
+    AttentionResolutionCommand,
     AttentionResolutionReceipt,
     CalibrationPublicationCommand,
     CalibrationPublicationReceipt,
@@ -701,6 +706,16 @@ class DaemonClient:
             self._procedure_step_path(command, "attention"),
             command,
             ProcedureStepAttentionReceipt,
+        )
+
+    def retry_procedure_step_attention(
+        self,
+        command: ProcedureStepAttentionRetryCommand,
+    ) -> ProcedureStepAttentionRetryReceipt:
+        return self._post_idempotent_model(
+            self._procedure_step_path(command, "retry"),
+            command,
+            ProcedureStepAttentionRetryReceipt,
         )
 
     def require_procedure_run_attention(
@@ -1361,12 +1376,13 @@ class DaemonClient:
     def resolve_attention(
         self,
         run_id: str,
+        command: AttentionResolutionCommand,
     ) -> AttentionResolutionReceipt:
-        response = self._request(
-            "POST",
+        return self._post_model(
             f"{_API_PREFIX}/runs/{run_id}/attention",
+            command,
+            AttentionResolutionReceipt,
         )
-        return AttentionResolutionReceipt.model_validate_json(response.content)
 
     def measurement_arrow(
         self,
@@ -1385,6 +1401,18 @@ class DaemonClient:
         if encoded_snapshot_size is None:
             raise ValueError("measurement Arrow response has no snapshot size")
         return table, next_offset, int(encoded_snapshot_size)
+
+    def measurement_preview(
+        self,
+        run_id: str,
+        *,
+        limit: int = 1,
+    ) -> MeasurementPreview:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/measurements/preview",
+            MeasurementPreview,
+            params={"limit": limit},
+        )
 
     def measurement_trace_preview(
         self,
@@ -1450,6 +1478,22 @@ class DaemonClient:
         return self._get_model(
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/coverage",
             RunCoverageState,
+        )
+
+    def get_run_execution_segments(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunExecutionSegmentPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/execution-segments",
+            RunExecutionSegmentPage,
+            params=params,
         )
 
     def advance_run_coverage(
@@ -1849,7 +1893,8 @@ class DaemonClient:
     def _procedure_step_path(
         command: ProcedureStepCompleteCommand
         | ProcedureStepFailCommand
-        | ProcedureStepAttentionCommand,
+        | ProcedureStepAttentionCommand
+        | ProcedureStepAttentionRetryCommand,
         suffix: str,
     ) -> str:
         return (

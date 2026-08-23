@@ -14,12 +14,22 @@ from scopecat.compiler.frontend.resolution import (
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.kernel.errors import CheckFailed, RunCancelled, RunIndeterminate
 from scopecat.kernel.problems import ProblemPhase, problem
+from scopecat.kernel.resource_identity import DomainTargetRequirement
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.optimization import (
+    AdaptiveDomainPlan,
+    DomainOptimizerContext,
+    OptimizationComplete,
+)
 from scopecat.planning.service import plan_experiment_invocation
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     config_content_hash,
     instrument_bindings,
+)
+from scopecat.records.measurement_recording import (
+    MeasurementDatasetAppend,
+    MeasurementDatasetHeader,
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
@@ -27,6 +37,7 @@ from scopecat.runs.service import load_run_request
 from scopecat.sdk.instruments.execution import RunHardwareFinalizationReceipt
 from scopecat.sdk.instruments.provider import InstrumentProviderContext
 from scopecat_testkit.authoring import simple_experiment
+from scopecat_testkit.execution_fakes import FakeMeasurementDatasetRepository
 from scopecat_testkit.instrument_host import (
     TestRunInstrumentHost,
     compose_test_instruments,
@@ -61,6 +72,14 @@ class _IndeterminateFinalizationHost(TestRunInstrumentHost):
             )
             .model_copy(update={"indeterminate": True})
         )
+
+
+class _UnusedOptimizer:
+    id = "unused-continuation-optimizer"
+
+    def propose(self, context: DomainOptimizerContext) -> OptimizationComplete:
+        del context
+        raise AssertionError("unsupported continuation must fail before optimization")
 
 
 def test_plan_admit_and_execute_are_separate_run_phases(tmp_path: Path) -> None:
@@ -111,6 +130,169 @@ def test_plan_admit_and_execute_are_separate_run_phases(tmp_path: Path) -> None:
     assert completed.run_id == accepted.run_id
     assert completed.status == "completed"
     assert completed.config_content_hash == config_content_hash(planned.config)
+
+
+def test_static_execution_continues_only_the_durable_point_suffix(
+    tmp_path: Path,
+) -> None:
+    services = sqlite_project_services(tmp_path)
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
+    planned = plan_experiment(
+        load_invocation(),
+        config=config,
+        services=services,
+        system=composition.system,
+    )
+
+    def instruments() -> TestRunInstrumentHost:
+        return provision_test_instrument_host(
+            composition.backend,
+            context=InstrumentProviderContext(bindings=instrument_bindings(config)),
+            instrument_ids=planned.program.resource_order,
+        )
+
+    baseline = admit_test_run(
+        config=planned.config,
+        request=planned.request,
+        repository=services.runs,
+    )
+    baseline_measurements = FakeMeasurementDatasetRepository()
+    execute_admitted_run(
+        program=planned.program,
+        session=replace(
+            sqlite_execution_session(
+                tmp_path,
+                baseline.run_id,
+                instruments=instruments(),
+            ),
+            measurements=baseline_measurements,
+        ),
+    )
+    baseline_records = baseline_measurements.measurements()
+    assert [record.point_index for record in baseline_records] == [0, 1, 2]
+
+    accepted = admit_test_run(
+        config=planned.config,
+        request=planned.request,
+        repository=services.runs,
+    )
+    schema = planned.program.measurements.schema
+    assert schema is not None
+    header = MeasurementDatasetHeader(
+        run_id=accepted.run_id,
+        recording_contract_fingerprint=(
+            planned.program.measurements.recording_contract_fingerprint
+        ),
+        dataset_schema=schema,
+        expected_record_count=planned.program.points.contract.point_count,
+        record_count_limit=planned.program.points.contract.point_limit,
+    )
+    continued_measurements = FakeMeasurementDatasetRepository()
+    continued_measurements.initialize(header)
+    first_record = baseline_records[0].model_copy(update={"run_id": accepted.run_id})
+    continued_measurements.append(
+        MeasurementDatasetAppend(
+            run_id=accepted.run_id,
+            header_content_hash=header.content_hash,
+            start_index=0,
+            records=(first_record,),
+        )
+    )
+
+    completed = execute_admitted_run(
+        program=planned.program,
+        session=replace(
+            sqlite_execution_session(
+                tmp_path,
+                accepted.run_id,
+                instruments=instruments(),
+            ),
+            measurements=continued_measurements,
+            durable_completed_point_count=lambda: 1,
+        ),
+    )
+
+    assert completed.status == "completed"
+    assert [record.point_index for record in continued_measurements.measurements()] == [
+        0,
+        1,
+        2,
+    ]
+
+
+def test_non_static_continuation_fails_before_acquiring_instruments(
+    tmp_path: Path,
+) -> None:
+    services = sqlite_project_services(tmp_path)
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
+    planned = plan_experiment(
+        load_invocation(),
+        config=config,
+        services=services,
+        system=composition.system,
+    )
+    accepted = admit_test_run(
+        config=planned.config,
+        request=planned.request,
+        repository=services.runs,
+    )
+    unsupported_programs = (
+        (
+            replace(
+                planned.program,
+                adaptive_domain_plan=AdaptiveDomainPlan(
+                    optimizer=_UnusedOptimizer(),
+                    total_point_limit=3,
+                ),
+            ),
+            "adaptive runs",
+        ),
+        (
+            replace(
+                planned.program,
+                domain_target_requirement=DomainTargetRequirement(
+                    id="unsupported-target",
+                    kind="test",
+                    instrument_ids=(),
+                ),
+            ),
+            "domain-target runs",
+        ),
+    )
+
+    def unexpected_begin() -> None:
+        pytest.fail("unsupported continuation must fail before session begin")
+
+    for program, message in unsupported_programs:
+        with pytest.raises(ValueError, match=message):
+            execute_admitted_run(
+                program=program,
+                session=replace(
+                    sqlite_execution_session(
+                        tmp_path,
+                        accepted.run_id,
+                        instruments=provision_test_instrument_host(
+                            composition.backend,
+                            context=InstrumentProviderContext(
+                                bindings=instrument_bindings(config)
+                            ),
+                            instrument_ids=program.resource_order,
+                        ),
+                    ),
+                    begin=unexpected_begin,
+                    durable_completed_point_count=lambda: 0,
+                    has_prior_execution_segment=lambda: True,
+                ),
+            )
+        assert services.runs.read_snapshot(accepted.run_id) == accepted
 
 
 def test_cancel_request_commits_a_known_cancelled_terminal_outcome(

@@ -40,6 +40,8 @@ from scopecat.daemon.wire import (
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisTableOutputPayload,
+    AttentionResolutionCommand,
+    AttentionResolutionReceipt,
     CandidateConfigRevisionSource,
     ConfigActivationReceipt,
     ConfigEntryActivationCommand,
@@ -552,6 +554,8 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=2,
             initial_point_count=2,
             point_limit=2,
@@ -584,6 +588,8 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
         RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=1,
             initial_point_count=1,
             point_limit=1,
@@ -595,6 +601,8 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
     RunPlanSummary(
         experiment_id="scratch",
         experiment_kind="scratch",
+        point_plan_fingerprint="a" * 64,
+        measurement_contract_fingerprint="b" * 64,
         point_count=1,
         initial_point_count=1,
         point_limit=1,
@@ -604,6 +612,8 @@ def test_run_submission_is_closed_typed_json_without_executable_state() -> None:
         RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=1,
             initial_point_count=1,
             point_limit=1,
@@ -616,6 +626,8 @@ def test_domain_target_summary_uses_only_its_instrument_footprint() -> None:
     summary = RunPlanSummary(
         experiment_id="domain",
         experiment_kind="domain",
+        point_plan_fingerprint="a" * 64,
+        measurement_contract_fingerprint="b" * 64,
         point_count=1,
         initial_point_count=1,
         point_limit=1,
@@ -635,6 +647,8 @@ def test_domain_target_summary_requires_its_complete_instrument_footprint() -> N
         RunPlanSummary(
             experiment_id="domain",
             experiment_kind="domain",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=1,
             initial_point_count=1,
             point_limit=1,
@@ -651,6 +665,7 @@ def test_executor_lease_is_expiring_and_fenced() -> None:
     now = datetime.now(UTC)
     lease = ExecutorLease(
         lease_id="lease-1",
+        segment_id="segment-1",
         run_id="run-1",
         executor_id="notebook-kernel-1",
         issued_at=now,
@@ -755,6 +770,48 @@ def test_run_coverage_wire_models_require_a_nonempty_prefix() -> None:
             lease_id="lease-1",
             start_index=0,
             point_count=0,
+        )
+
+
+def test_attention_resolution_separates_close_from_continuation() -> None:
+    close = AttentionResolutionCommand.close_run()
+    continuation = AttentionResolutionCommand.continue_run(
+        run_contract_fingerprint="a" * 64,
+    )
+
+    assert (
+        AttentionResolutionCommand.model_validate_json(close.model_dump_json()) == close
+    )
+    assert (
+        AttentionResolutionCommand.model_validate_json(continuation.model_dump_json())
+        == continuation
+    )
+    assert (
+        AttentionResolutionReceipt(
+            run_id="run-1",
+            disposition="close",
+            state="closed",
+            released_resource_count=1,
+        ).state
+        == "closed"
+    )
+    assert (
+        AttentionResolutionReceipt(
+            run_id="run-1",
+            disposition="continue",
+            state="queued",
+            released_resource_count=1,
+        ).state
+        == "queued"
+    )
+    with pytest.raises(ValidationError, match="run contract"):
+        AttentionResolutionCommand(disposition="continue")
+    with pytest.raises(ValidationError, match="scheduler state"):
+        AttentionResolutionReceipt(
+            run_id="run-1",
+            disposition="continue",
+            state="closed",
+            released_resource_count=1,
         )
 
 

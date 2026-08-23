@@ -44,7 +44,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetHeader,
     MeasurementDatasetSeal,
-    measurement_dataset_content_hash,
+    measurement_fragment_content_hash,
 )
 from scopecat_testkit.domain import domain_execution_identity
 
@@ -661,9 +661,11 @@ def _seal(
     return MeasurementDatasetSeal(
         run_id=append.run_id,
         header_content_hash=header.content_hash,
-        point_count=len(append.records),
-        dataset_content_hash=measurement_dataset_content_hash(
+        fragment_start_index=append.start_index,
+        point_count=append.start_index + len(append.records),
+        fragment_content_hash=measurement_fragment_content_hash(
             header_content_hash=header.content_hash,
+            start_index=append.start_index,
             record_content_hashes=append.record_content_hashes,
         ),
     )
@@ -676,7 +678,11 @@ def _commit_append(
 ) -> None:
     prepared = repository.prepare_append(append)
     with _sqlite_transaction(runs) as connection:
-        repository.append_prepared_in_transaction(connection, prepared)
+        repository.append_prepared_in_transaction(
+            connection,
+            prepared,
+            segment_id=_segment_id(append.run_id),
+        )
 
 
 def _commit_header(
@@ -687,7 +693,15 @@ def _commit_header(
     prepared = repository.prepare_header(header)
     with _sqlite_transaction(runs) as connection:
         _ensure_run_owner(connection, header.run_id)
-        repository.header_prepared_in_transaction(connection, prepared)
+        repository.header_prepared_in_transaction(
+            connection,
+            prepared,
+            segment_id=_segment_id(header.run_id),
+        )
+
+
+def _segment_id(run_id: str, ordinal: int = 0) -> str:
+    return f"segment:{run_id}:{ordinal}"
 
 
 def _ensure_run_owner(connection: sqlite3.Connection, run_id: str) -> None:
@@ -698,6 +712,30 @@ def _ensure_run_owner(connection: sqlite3.Connection, run_id: str) -> None:
         """,
         (run_id, datetime.now(UTC).isoformat(), f"sha256:{'0' * 64}"),
     )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO scheduler_runs(
+            submission_id, run_id, state, updated_at, admission_json
+        )
+        VALUES (?, ?, 'leased', ?, '{}')
+        """,
+        (f"submission:{run_id}", run_id, datetime.now(UTC).isoformat()),
+    )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO run_execution_segments(
+            segment_id, run_id, ordinal, executor_id,
+            run_contract_fingerprint, started_at, start_point_count
+        )
+        VALUES (?, ?, 0, 'test-executor', ?, ?, 0)
+        """,
+        (
+            _segment_id(run_id),
+            run_id,
+            "0" * 64,
+            datetime.now(UTC).isoformat(),
+        ),
+    )
 
 
 def _commit_seal(
@@ -707,7 +745,11 @@ def _commit_seal(
 ) -> None:
     prepared = repository.prepare_seal(seal)
     with _sqlite_transaction(runs) as connection:
-        repository.seal_prepared_in_transaction(connection, prepared)
+        repository.seal_prepared_in_transaction(
+            connection,
+            prepared,
+            segment_id=_segment_id(seal.run_id),
+        )
 
 
 def test_measurement_repository_reuses_schema_hash_for_appends(
@@ -756,42 +798,53 @@ def test_in_transaction_primitives_report_created_and_replay_durable_values(
 
     with _sqlite_transaction(runs) as connection:
         _ensure_run_owner(connection, run_id)
-        header_receipt, header_created = measurements.header_prepared_in_transaction(
-            connection,
-            prepared_header,
-        )
-        header_replay, header_replay_created = (
+        header_receipt, header_created, fragment_created = (
             measurements.header_prepared_in_transaction(
                 connection,
                 prepared_header,
+                segment_id=_segment_id(run_id),
+            )
+        )
+        header_replay, header_replay_created, fragment_replay_created = (
+            measurements.header_prepared_in_transaction(
+                connection,
+                prepared_header,
+                segment_id=_segment_id(run_id),
             )
         )
         append_receipt, append_created = measurements.append_prepared_in_transaction(
             connection,
             prepared_append,
+            segment_id=_segment_id(run_id),
         )
         append_replay, append_replay_created = (
             measurements.append_prepared_in_transaction(
                 connection,
                 prepared_append,
+                segment_id=_segment_id(run_id),
             )
         )
         seal_receipt, seal_created = measurements.seal_prepared_in_transaction(
             connection,
             prepared_seal,
+            segment_id=_segment_id(run_id),
         )
         seal_replay, seal_replay_created = measurements.seal_prepared_in_transaction(
             connection,
             prepared_seal,
+            segment_id=_segment_id(run_id),
         )
         sealed_append_replay, sealed_append_created = (
             measurements.append_prepared_in_transaction(
                 connection,
                 prepared_append,
+                segment_id=_segment_id(run_id),
             )
         )
         assert header_created
+        assert fragment_created
         assert not header_replay_created
+        assert not fragment_replay_created
         assert header_replay == header_receipt
         assert append_created
         assert not append_replay_created
@@ -823,6 +876,7 @@ def test_two_measurement_connections_replay_and_conflict_by_canonical_slot(
             receipt, created = repository.append_prepared_in_transaction(
                 connection,
                 prepared,
+                segment_id=_segment_id(header.run_id),
             )
             return receipt.model_dump_json(), created
 
@@ -984,9 +1038,11 @@ def test_measurement_header_makes_an_empty_dataset_readable(tmp_path: Path) -> N
     seal = MeasurementDatasetSeal(
         run_id=header.run_id,
         header_content_hash=header.content_hash,
+        fragment_start_index=0,
         point_count=0,
-        dataset_content_hash=measurement_dataset_content_hash(
+        fragment_content_hash=measurement_fragment_content_hash(
             header_content_hash=header.content_hash,
+            start_index=0,
             record_content_hashes=(),
         ),
     )

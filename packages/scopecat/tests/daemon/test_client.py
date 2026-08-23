@@ -15,7 +15,11 @@ from scopecat.config.registry.records import (
     ConfigRegistryEntry,
     DirectConfigRegistrySource,
 )
-from scopecat.control.models import RunPlanSummary
+from scopecat.control.models import (
+    RunExecutionSegment,
+    RunExecutionSegmentPage,
+    RunPlanSummary,
+)
 from scopecat.daemon.client import (
     DaemonClient,
     DaemonConflictError,
@@ -35,6 +39,8 @@ from scopecat.daemon.views import (
 from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
+    AttentionResolutionCommand,
+    AttentionResolutionReceipt,
     ConfigActivationReceipt,
     ConfigEntryActivationCommand,
     ConfigPublishCommand,
@@ -149,6 +155,40 @@ def test_executor_start_rejects_receipt_for_another_run() -> None:
         )
 
 
+def test_execution_segments_use_bounded_run_subresource() -> None:
+    requests: list[httpx2.Request] = []
+    page = RunExecutionSegmentPage(
+        items=(
+            RunExecutionSegment(
+                sequence=2,
+                segment_id="segment-2",
+                run_id="run-1",
+                ordinal=1,
+                executor_id="notebook-2",
+                run_contract_fingerprint="a" * 64,
+                started_at=_NOW,
+                start_point_count=4,
+            ),
+        ),
+        next_cursor=1,
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(page)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.get_run_execution_segments("run-1", limit=1, before=3) == page
+    [request] = requests
+    assert request.method == "GET"
+    assert request.url.path == "/api/v1/runs/run-1/execution-segments"
+    assert dict(request.url.params) == {"limit": "1", "before": "3"}
+
+
 def test_cancel_run_posts_to_the_idempotent_operator_endpoint() -> None:
     requests: list[httpx2.Request] = []
     receipt = RunCancellationReceipt(
@@ -170,6 +210,34 @@ def test_cancel_run_posts_to_the_idempotent_operator_endpoint() -> None:
     [request] = requests
     assert request.method == "POST"
     assert request.url.path == "/api/v1/runs/run-1/cancel"
+
+
+def test_resolve_attention_posts_an_explicit_disposition() -> None:
+    requests: list[httpx2.Request] = []
+    command = AttentionResolutionCommand.continue_run(
+        run_contract_fingerprint="a" * 64,
+    )
+    receipt = AttentionResolutionReceipt(
+        run_id="run-1",
+        disposition="continue",
+        state="queued",
+        released_resource_count=1,
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        return _model(receipt)
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.resolve_attention("run-1", command) == receipt
+    [request] = requests
+    assert request.method == "POST"
+    assert request.url.path == "/api/v1/runs/run-1/attention"
+    assert AttentionResolutionCommand.model_validate_json(request.content) == command
 
 
 def test_resolve_instrument_contracts_posts_the_exact_config_snapshot() -> None:
@@ -758,9 +826,12 @@ def _control_run() -> RunControlView:
         sequence=1,
         admission=RunAdmissionView(
             run_id="run-1",
+            run_contract_fingerprint="a" * 64,
             plan=RunPlanView(
                 experiment_id="scratch",
                 experiment_kind="scratch",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=1,
                 initial_point_count=1,
                 point_limit=1,
@@ -799,6 +870,8 @@ def _submission(submission_id: str = "submission-1") -> RunSubmission:
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=1,
             initial_point_count=1,
             point_limit=1,
@@ -809,6 +882,7 @@ def _submission(submission_id: str = "submission-1") -> RunSubmission:
 def _lease() -> ExecutorLease:
     return ExecutorLease(
         lease_id="lease-1",
+        segment_id="segment-1",
         run_id="run-1",
         executor_id="notebook-1",
         issued_at=_NOW,

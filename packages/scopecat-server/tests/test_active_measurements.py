@@ -26,7 +26,7 @@ from scopecat_server.services.active_measurements import (
 def test_active_measurements_expose_latest_before_bounded_flush() -> None:
     store = ActiveMeasurementStore(record_limit=3)
     header = _header(point_count=7)
-    store.initialize(header)
+    store.initialize(header, segment_id="segment-1", start_index=0)
 
     first = _append(header, tuple(_record(index) for index in range(2)))
     store.ingest(first)
@@ -48,7 +48,7 @@ def test_active_measurements_expose_latest_before_bounded_flush() -> None:
 def test_active_measurements_bound_large_waveforms_by_array_bytes() -> None:
     store = ActiveMeasurementStore(record_limit=100, value_byte_limit=24)
     header = _header(point_count=3)
-    store.initialize(header)
+    store.initialize(header, segment_id="segment-1", start_index=0)
     records = tuple(_record(index, waveform=True) for index in range(3))
     store.ingest(_append(header, records))
 
@@ -61,7 +61,7 @@ def test_active_measurements_bound_large_waveforms_by_array_bytes() -> None:
 def test_active_measurements_reject_noncontiguous_ingest() -> None:
     store = ActiveMeasurementStore()
     header = _header(point_count=2)
-    store.initialize(header)
+    store.initialize(header, segment_id="segment-1", start_index=0)
 
     with pytest.raises(ActiveMeasurementConflict, match="contiguous"):
         store.ingest(
@@ -72,6 +72,21 @@ def test_active_measurements_reject_noncontiguous_ingest() -> None:
                 records=(_record(1),),
             )
         )
+
+
+def test_new_segment_replaces_volatile_state_at_its_durable_prefix() -> None:
+    store = ActiveMeasurementStore()
+    header = _header(point_count=3)
+    store.initialize(header, segment_id="segment-1", start_index=0)
+    store.ingest(_append(header, (_record(0),)))
+
+    store.initialize(header, segment_id="segment-2", start_index=1)
+
+    preview = store.preview("run-1")
+    assert store.segment_id("run-1") == "segment-2"
+    assert preview.received_record_count == 1
+    assert preview.durable_record_count == 1
+    assert preview.latest is None
 
 
 def _header(*, point_count: int) -> MeasurementDatasetHeader:

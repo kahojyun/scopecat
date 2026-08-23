@@ -4,6 +4,7 @@ These guides start from a working Scopecat project and help complete a specific
 task:
 
 - [Control configured instruments](control-instruments.md)
+- [Resume an interrupted static run](resume-interrupted-runs.md)
 - [Use measurement data](use-measurement-data.md)
 - [Review and publish project configuration](manage-configuration.md)
 

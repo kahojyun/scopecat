@@ -266,7 +266,6 @@ class MemoryProcedureControl:
                     operation_id=procedure_step_operation_id(
                         run.procedure_run_id,
                         existing.step_key,
-                        existing.attempt,
                     ),
                 )
             assert run.revision == command.expected_run_revision
@@ -292,7 +291,6 @@ class MemoryProcedureControl:
                 operation_id=procedure_step_operation_id(
                     run.procedure_run_id,
                     step.step_key,
-                    step.attempt,
                 ),
             )
 
@@ -450,7 +448,7 @@ def test_worker_executes_with_stable_operation_id_and_closes_successfully() -> N
     assert run.state == "closed"
     assert run.closure is not None and run.closure.status == "succeeded"
     assert operation_ids == [
-        procedure_step_operation_id(run.procedure_run_id, "measure", 1)
+        procedure_step_operation_id(run.procedure_run_id, "measure")
     ]
     assert _OUTPUTS["success"] == RunOutputRef(run_id="child-run-1")
     assert control.step(run.procedure_run_id, "measure").state == "succeeded"
@@ -662,7 +660,6 @@ def test_worker_reuses_operation_id_when_replaying_a_running_step() -> None:
     expected_operation_id = procedure_step_operation_id(
         durable.procedure_run_id,
         "measure",
-        1,
     )
     assert operation_ids == [expected_operation_id, expected_operation_id]
 

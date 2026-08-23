@@ -40,6 +40,8 @@ from scopecat.automation import (
     ProcedureStepAttemptPage,
     ProcedureStepAttentionCommand,
     ProcedureStepAttentionReceipt,
+    ProcedureStepAttentionRetryCommand,
+    ProcedureStepAttentionRetryReceipt,
     ProcedureStepBeginCommand,
     ProcedureStepBeginReceipt,
     ProcedureStepCompleteCommand,
@@ -80,6 +82,7 @@ from scopecat.automation.calibration_wire import (
 from scopecat.control.models import (
     ControlRunState,
     EventPage,
+    RunExecutionSegmentPage,
 )
 from scopecat.daemon.endpoint import (
     DAEMON_SHUTDOWN_PATH,
@@ -147,6 +150,7 @@ from scopecat.daemon.views import (
 from scopecat.daemon.wire import (
     AnalysisSaveCommand,
     AnalysisSaveReceipt,
+    AttentionResolutionCommand,
     AttentionResolutionReceipt,
     CalibrationPublicationCommand,
     CalibrationPublicationReceipt,
@@ -893,6 +897,26 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         )
         return application.automation.require_step_attention(command)
 
+    @app.post(
+        f"{_API_PREFIX}/procedures/{{procedure_run_id}}/steps/{{step_key:path}}/"
+        "attempts/{attempt}/retry"
+    )
+    def retry_procedure_step_attention(
+        procedure_run_id: str,
+        step_key: str,
+        attempt: Annotated[int, ApiPath(ge=1)],
+        command: ProcedureStepAttentionRetryCommand,
+    ) -> ProcedureStepAttentionRetryReceipt:
+        _require_procedure_step_identity(
+            procedure_run_id,
+            step_key,
+            attempt,
+            command.procedure_run_id,
+            command.step_key,
+            command.attempt,
+        )
+        return application.automation.retry_step_attention(command)
+
     @app.post(f"{_API_PREFIX}/procedures/{{procedure_run_id}}/attention")
     def require_procedure_run_attention(
         procedure_run_id: str,
@@ -1129,8 +1153,9 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/attention")
     def resolve_attention(
         run_id: str,
+        command: AttentionResolutionCommand,
     ) -> AttentionResolutionReceipt:
-        return application.resolve_attention(run_id)
+        return application.resolve_attention(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/measurements/arrow")
     def measurement_arrow(
@@ -1265,6 +1290,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/coverage")
     def get_run_coverage(run_id: str) -> RunCoverageState:
         return application.executor.run_coverage(run_id)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/execution-segments")
+    def get_run_execution_segments(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=100)] = 64,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> RunExecutionSegmentPage:
+        return application.executor.execution_segments(
+            run_id,
+            limit=limit,
+            before=before,
+        )
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/coverage/advance")
     def advance_run_coverage(
