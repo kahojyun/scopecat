@@ -154,10 +154,11 @@ stay quarantined. After externally reconciling hardware, an operator resolves
 attention through the GUI or `lab.control.resolve_attention(...)` with an
 explicit disposition. `close` commits an indeterminate failed outcome, abandons
 the remaining point plan, and releases the claims. `continue` checks the exact
-accepted run-contract fingerprint, releases the reconciled claims, and returns
-the same run to the queue. Its next executor lease creates a new execution
-segment at the durable global coverage watermark; the lost segment remains an
-immutable indeterminate interruption.
+accepted run-contract fingerprint, including complete ordered-point and
+measurement-schema fingerprints rather than their bounded presentation samples,
+releases the reconciled claims, and returns the same run to the queue. Its next
+executor lease creates a new execution segment at the durable global coverage
+watermark; the lost segment remains an immutable indeterminate interruption.
 
 Continuation deliberately does not claim that the Python workspace, imported
 environment, or external hardware is unchanged. Durable measurement chunks are

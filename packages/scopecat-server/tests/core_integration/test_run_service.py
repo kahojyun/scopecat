@@ -185,7 +185,7 @@ def test_static_execution_continues_only_the_durable_point_suffix(
     header = MeasurementDatasetHeader(
         run_id=accepted.run_id,
         recording_contract_fingerprint=(
-            planned.program.measurements.contract_fingerprint
+            planned.program.measurements.recording_contract_fingerprint
         ),
         dataset_schema=schema,
         expected_record_count=planned.program.points.contract.point_count,

@@ -4997,12 +4997,16 @@ export interface components {
             experiment_kind: string;
             /** Initial Point Count */
             initial_point_count: number;
+            /** Measurement Contract Fingerprint */
+            measurement_contract_fingerprint: string;
             /** Per Region Point Limit */
             per_region_point_limit?: number | null;
             /** Point Count */
             point_count?: number | null;
             /** Point Limit */
             point_limit: number;
+            /** Point Plan Fingerprint */
+            point_plan_fingerprint: string;
             /**
              * Record Ids
              * @default []

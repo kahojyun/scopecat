@@ -25,7 +25,9 @@ authorization to leave quarantine after that external reconciliation. Scopecat
 plans the invocation again against the run's accepted configuration snapshot.
 The reconstructed durable request, run contract, and any initialized measurement
 schema must match before attention is resolved or a new executor lease is
-acquired.
+acquired. The run contract covers every ordered point and the complete planned
+measurement schema even when the UI only shows bounded point samples and no
+dataset header was written before the interruption.
 
 Resume does not require a clean Git worktree and does not claim that source code,
 imports, packages, or the Python environment are unchanged. Contract-compatible

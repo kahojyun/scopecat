@@ -914,6 +914,8 @@ def _start_run(daemon: DaemonClient) -> tuple[str, str]:
             plan=RunPlanSummary(
                 experiment_id="payload-transport",
                 experiment_kind="payload-transport",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=1,
                 initial_point_count=1,
                 point_limit=1,

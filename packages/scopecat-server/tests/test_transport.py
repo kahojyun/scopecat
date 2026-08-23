@@ -506,6 +506,8 @@ def _submission(submission_id: str) -> dict[str, object]:
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=1,
             initial_point_count=1,
             point_limit=1,

@@ -177,6 +177,8 @@ def _submission(
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=point_count,
             initial_point_count=point_count,
             point_limit=point_count,

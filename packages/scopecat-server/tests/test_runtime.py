@@ -272,6 +272,8 @@ def _submission(
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=point_count,
             initial_point_count=point_count,
             point_limit=point_count,
@@ -365,6 +367,8 @@ def _domain_only_submission(
         plan=RunPlanSummary(
             experiment_id="domain-only",
             experiment_kind="domain-only",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=1,
             initial_point_count=1,
             point_limit=1,
@@ -2046,6 +2050,8 @@ def test_admission_canonicalizes_domain_only_instrument_claims(
     assert set(public_control["admission"]["plan"]) == {
         "experiment_id",
         "experiment_kind",
+        "point_plan_fingerprint",
+        "measurement_contract_fingerprint",
         "point_count",
         "initial_point_count",
         "point_limit",
@@ -2938,6 +2944,8 @@ def test_open_point_plan_can_succeed_below_its_limit_and_exposes_coverage(
             "plan": RunPlanSummary(
                 experiment_id="scratch",
                 experiment_kind="scratch",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=None,
                 initial_point_count=1,
                 point_limit=3,
@@ -3026,6 +3034,8 @@ def test_run_point_resolution_preserves_raw_input_and_makes_snap_explicit(
             "plan": RunPlanSummary(
                 experiment_id="scratch",
                 experiment_kind="scratch",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=None,
                 initial_point_count=2,
                 point_limit=4,
@@ -3142,6 +3152,8 @@ def test_selected_region_resolution_defers_to_executor_when_region_sample_is_tru
             "plan": RunPlanSummary(
                 experiment_id="scratch",
                 experiment_kind="scratch",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=None,
                 initial_point_count=0,
                 point_limit=4,
@@ -3196,6 +3208,8 @@ def test_adaptive_domain_ledger_survives_runtime_restart(tmp_path: Path) -> None
             "plan": RunPlanSummary(
                 experiment_id="scratch",
                 experiment_kind="scratch",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=None,
                 initial_point_count=1,
                 point_limit=3,
@@ -3373,6 +3387,8 @@ def test_failed_adaptive_run_abandons_pending_operator_domains(tmp_path: Path) -
             "plan": RunPlanSummary(
                 experiment_id="scratch",
                 experiment_kind="scratch",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=None,
                 initial_point_count=1,
                 point_limit=3,
@@ -4177,6 +4193,8 @@ def test_restart_quarantines_executor_until_operator_reconciles(
                 "plan": RunPlanSummary(
                     experiment_id="scratch",
                     experiment_kind="scratch",
+                    point_plan_fingerprint="a" * 64,
+                    measurement_contract_fingerprint="b" * 64,
                     point_count=None,
                     initial_point_count=1,
                     point_limit=3,

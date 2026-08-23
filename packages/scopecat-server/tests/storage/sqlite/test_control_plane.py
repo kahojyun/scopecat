@@ -74,6 +74,8 @@ def _admission(
         plan=RunPlanSummary(
             experiment_id=f"scratch:{run_id}",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=3,
             initial_point_count=3,
             point_limit=3,
@@ -215,6 +217,8 @@ def test_run_admission_state_and_pagination(tmp_path: Path) -> None:
             "plan": RunPlanSummary(
                 experiment_id="scratch:run-0",
                 experiment_kind="scratch",
+                point_plan_fingerprint="a" * 64,
+                measurement_contract_fingerprint="b" * 64,
                 point_count=3,
                 initial_point_count=3,
                 point_limit=3,

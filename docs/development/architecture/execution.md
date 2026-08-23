@@ -266,8 +266,11 @@ program-position contract rather than guessing from measurement row count.
 against the accepted config, requires the reconstructed request and plan summary
 to reproduce the accepted run-contract fingerprint, and compares any initialized
 measurement schema before it resolves an attention-required run or acquires a
-new executor lease. The check is a durable shape and authority check, not a Git
-or environment reproducibility claim.
+new executor lease. The contract contains hashes of every ordered accepted point
+and the complete durable measurement schema; the bounded point samples and
+record identifiers remain presentation fields rather than recovery evidence.
+The check is a durable shape and authority check, not a Git or environment
+reproducibility claim.
 
 Execution validates typed transitions for each consequential external
 invocation. A domain job starts with its deterministic execution key. A

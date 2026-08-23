@@ -106,6 +106,8 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=None,
             initial_point_count=1,
             point_limit=3,
@@ -560,6 +562,8 @@ def test_daemon_execution_rejects_provision_receipt_for_another_operation() -> N
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=1,
             initial_point_count=1,
             point_limit=1,
@@ -606,6 +610,8 @@ def test_initial_lease_cancellation_skips_remote_provisioning() -> None:
         plan=RunPlanSummary(
             experiment_id="scratch",
             experiment_kind="scratch",
+            point_plan_fingerprint="a" * 64,
+            measurement_contract_fingerprint="b" * 64,
             point_count=0,
             initial_point_count=0,
             point_limit=0,

@@ -453,7 +453,9 @@ def _initialize_dataset_header(
         return None, None
     header = MeasurementDatasetHeader(
         run_id=session.run_id,
-        recording_contract_fingerprint=program.measurements.contract_fingerprint,
+        recording_contract_fingerprint=(
+            program.measurements.recording_contract_fingerprint
+        ),
         dataset_schema=schema,
         expected_record_count=program.points.contract.point_count,
         record_count_limit=program.points.contract.point_limit,

@@ -41,6 +41,7 @@ from scopecat.daemon.wire import (
 )
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.inspection import CompiledProgramInspectionQuery
+from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 from scopecat.kernel.errors import RunCancelled, RunFailed, RunIndeterminate
 from scopecat.planning.point_selection import point_coordinate_contract
 from scopecat.planning.preview import PreviewCoordinateMode, build_run_program_preview
@@ -408,6 +409,8 @@ def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
     return RunPlanSummary(
         experiment_id=program.experiment_id,
         experiment_kind=program.points.experiment_kind,
+        point_plan_fingerprint=_point_plan_fingerprint(planned),
+        measurement_contract_fingerprint=_measurement_contract_fingerprint(planned),
         point_count=program.points.contract.point_count,
         initial_point_count=len(program.points.points),
         point_limit=program.points.contract.point_limit,
@@ -468,6 +471,31 @@ def _run_plan_summary(planned: PlannedRun) -> RunPlanSummary:
             for requirement in program.resource_requirements
         ),
     )
+
+
+def _point_plan_fingerprint(planned: PlannedRun) -> str:
+    """Identify every accepted point without expanding the durable plan view."""
+
+    return stable_content_hash(
+        content_fingerprint(
+            {
+                "schema": "scopecat.run_point_plan.v1",
+                "points": tuple(
+                    {
+                        "logical_id": point.logical_id.value,
+                        "coordinates": dict(point.coordinates),
+                    }
+                    for point in planned.program.points.points
+                ),
+            }
+        )
+    )
+
+
+def _measurement_contract_fingerprint(planned: PlannedRun) -> str:
+    """Identify the complete measurement projection and durable dataset schema."""
+
+    return planned.program.measurements.recording_contract_fingerprint
 
 
 def _prepare_run_submission(

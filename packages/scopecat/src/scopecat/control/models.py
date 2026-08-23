@@ -130,6 +130,8 @@ class RunPlanSummary(_ControlModel):
 
     experiment_id: str = Field(min_length=1)
     experiment_kind: str = Field(min_length=1)
+    point_plan_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    measurement_contract_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
     point_count: int | None = Field(default=None, ge=0)
     initial_point_count: int = Field(ge=0)
     point_limit: int = Field(ge=0)

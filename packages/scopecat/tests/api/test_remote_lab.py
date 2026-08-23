@@ -106,9 +106,13 @@ from scopecat.kernel.errors import (
     RunFailure,
     RunIndeterminate,
 )
+from scopecat.kernel.point_identity import LogicalPointId
+from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunCertainty, RunOutcome, RunResult
+from scopecat.measurements.points import RunPointCatalog
+from scopecat.measurements.projection import MeasurementProjection
 from scopecat.measurements.results import MeasurementDataset
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.preview import build_run_program_preview
@@ -237,6 +241,8 @@ def test_lab_runs_preserves_bounded_page_navigation() -> None:
                 plan=RunPlanView(
                     experiment_id="page-test",
                     experiment_kind="test",
+                    point_plan_fingerprint="a" * 64,
+                    measurement_contract_fingerprint="b" * 64,
                     point_count=1,
                     initial_point_count=1,
                     point_limit=1,
@@ -299,6 +305,8 @@ def test_remote_run_uses_full_dataset_batches_and_projected_arrow_pages() -> Non
                 plan=RunPlanView(
                     experiment_id="remote-batches",
                     experiment_kind="test",
+                    point_plan_fingerprint="a" * 64,
+                    measurement_contract_fingerprint="b" * 64,
                     point_count=3,
                     initial_point_count=3,
                     point_limit=3,
@@ -648,6 +656,10 @@ def test_lab_resume_replans_and_authorizes_a_new_execution_segment(
                 plan=RunPlanView(
                     experiment_id=summary.experiment_id,
                     experiment_kind=summary.experiment_kind,
+                    point_plan_fingerprint=summary.point_plan_fingerprint,
+                    measurement_contract_fingerprint=(
+                        summary.measurement_contract_fingerprint
+                    ),
                     point_count=summary.point_count,
                     initial_point_count=summary.initial_point_count,
                     point_limit=summary.point_limit,
@@ -691,6 +703,25 @@ def test_lab_resume_replans_and_authorizes_a_new_execution_segment(
         runner_module._validate_resumed_plan(
             planned,
             detail=incompatible_detail,
+            request=planned.request,
+        )
+    [record] = planned.program.measurements.records
+    incompatible_measurements = MeasurementProjection(
+        planned.program.measurements.catalog,
+        (replace(record, dtype="int64"),),
+    )
+    incompatible_recording = replace(
+        planned,
+        program=replace(planned.program, measurements=incompatible_measurements),
+    )
+    assert incompatible_recording.request == planned.request
+    assert tuple(
+        item.id for item in incompatible_recording.program.measurements.records
+    ) == tuple(item.id for item in planned.program.measurements.records)
+    with pytest.raises(ValueError, match="accepted run contract"):
+        runner_module._validate_resumed_plan(
+            incompatible_recording,
+            detail=detail,
             request=planned.request,
         )
     segment_page = RunExecutionSegmentPage(
@@ -805,6 +836,67 @@ def test_lab_resume_replans_and_authorizes_a_new_execution_segment(
         "/api/v1/runs/run-1/execution-segments",
         "/api/v1/runs/run-1/attention",
     ]
+
+
+def test_run_contract_identifies_points_beyond_the_bounded_plan_preview() -> None:
+    planned = _planned()
+    prototype = planned.program.points.points[0]
+    coordinate_id = planned.program.points.coordinate_ids[0]
+
+    def with_last_frequency(value: float) -> PlannedRun:
+        points = tuple(
+            AcceptedRunPoint(
+                logical_id=LogicalPointId(
+                    domain_id=prototype.logical_id.domain_id,
+                    logical_ordinal=index,
+                ),
+                coordinates={
+                    coordinate_id: Quantity(
+                        value=value if index == 256 else 5.0 + index / 1000,
+                        unit="GHz",
+                    )
+                },
+            )
+            for index in range(257)
+        )
+        catalog = RunPointCatalog(
+            contract=replace(
+                planned.program.points.contract,
+                point_count=len(points),
+                point_limit=len(points),
+            ),
+            points=points,
+        )
+        return replace(planned, program=replace(planned.program, points=catalog))
+
+    first = runner_module._run_plan_summary(with_last_frequency(5.256))
+    changed = runner_module._run_plan_summary(with_last_frequency(5.5))
+
+    assert first.sampled_points_truncated
+    assert first.sampled_points == changed.sampled_points
+    assert first.point_plan_fingerprint != changed.point_plan_fingerprint
+    assert (
+        first.measurement_contract_fingerprint
+        == changed.measurement_contract_fingerprint
+    )
+
+
+def test_equivalent_replans_have_the_same_durable_run_contract() -> None:
+    first, _ = runner_module._prepare_run_submission(
+        _planned(),
+        submission_id="first-attempt",
+    )
+    second, _ = runner_module._prepare_run_submission(
+        _planned(),
+        submission_id="second-attempt",
+    )
+
+    assert first.plan.point_plan_fingerprint == second.plan.point_plan_fingerprint
+    assert (
+        first.plan.measurement_contract_fingerprint
+        == second.plan.measurement_contract_fingerprint
+    )
+    assert first.intent_content_hash == second.intent_content_hash
 
 
 @pytest.mark.parametrize(
