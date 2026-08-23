@@ -224,6 +224,8 @@ def _run_seed(ordinal: int) -> tuple[str, str, str, str]:
         "plan": {
             "experiment_id": "historical-scan",
             "experiment_kind": "benchmark",
+            "point_plan_fingerprint": _HASH,
+            "measurement_contract_fingerprint": _HASH,
             "point_count": 1,
             "initial_point_count": 1,
             "point_limit": 1,
