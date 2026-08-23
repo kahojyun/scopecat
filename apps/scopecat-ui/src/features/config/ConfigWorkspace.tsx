@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Menu } from "@base-ui/react/menu";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -33,6 +33,7 @@ export function ConfigWorkspace({
   onOpenRun?: (runId: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const fileInput = useRef<HTMLInputElement>(null);
   const [configDraft, setConfigDraft] = useState<ConfigDraftSeed>();
   const registry = useConfigRegistry(daemonUnavailable);
   const workflow = useConfigMutationWorkflow(registry.overview);
@@ -127,7 +128,7 @@ export function ConfigWorkspace({
             />
           </label>
           <input
-            ref={workflow.fileInput}
+            ref={fileInput}
             className="sr-only"
             type="file"
             accept=".json,application/json"
@@ -148,7 +149,7 @@ export function ConfigWorkspace({
                 <Menu.Popup className="grid w-[270px] rounded-md border border-line-strong bg-panel-strong p-1.5 shadow-panel outline-0">
                   <Menu.Item
                     className="grid w-full cursor-pointer grid-cols-[18px_minmax(0,1fr)] items-start gap-[9px] rounded-sm p-[9px] text-[0.67rem] text-text-soft outline-0 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-accent-soft data-[highlighted]:text-text"
-                    onClick={() => workflow.fileInput.current?.click()}
+                    onClick={() => fileInput.current?.click()}
                   >
                     <FileUp size={15} aria-hidden="true" />
                     <span className="grid gap-[3px]">

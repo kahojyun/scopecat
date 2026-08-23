@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleDot, LoaderCircle, Plus } from "lucide-react";
 import type {
@@ -65,28 +65,11 @@ export function RunDomainQueueControl({ run }: { run: ProjectRun }) {
   const [selectedRegions, setSelectedRegions] = useState<string[]>([]);
   const [draft, setDraft] = useState<DomainDraft>({});
   const [inputError, setInputError] = useState<string>();
-
-  useEffect(() => {
-    setMode("snap");
-    setScope(run.plan.adaptiveScope === "global" ? "all" : "current");
-    setSelectedRegions([]);
-    setInputError(undefined);
-  }, [run.plan.adaptiveScope, run.runId]);
-
-  useEffect(() => {
-    if (run.plan.adaptiveRegionsTruncated && scope === "selected") {
-      setScope(run.plan.adaptiveScope === "global" ? "all" : "current");
-      setSelectedRegions([]);
-    }
-  }, [run.plan.adaptiveRegionsTruncated, run.plan.adaptiveScope, scope]);
-
-  useEffect(() => {
-    setDraft((current) =>
-      Object.fromEntries(
-        specs.map((spec) => [spec.id, current[spec.id] ?? initialAxisDraft(spec)]),
-      ),
-    );
-  }, [specs]);
+  const resolvedDraft = useMemo<DomainDraft>(
+    () =>
+      Object.fromEntries(specs.map((spec) => [spec.id, draft[spec.id] ?? initialAxisDraft(spec)])),
+    [draft, specs],
+  );
 
   const resolveCommand = useMemo<RunDomainResolveCommand | undefined>(() => {
     try {
@@ -98,13 +81,13 @@ export function RunDomainQueueControl({ run }: { run: ProjectRun }) {
         region_ids: regionIds,
         fragment: {
           layout: "grid",
-          axes: specs.map((spec) => buildAxis(spec, draft[spec.id])),
+          axes: specs.map((spec) => buildAxis(spec, resolvedDraft[spec.id])),
         },
       };
     } catch {
       return undefined;
     }
-  }, [draft, mode, scope, selectedRegions, specs]);
+  }, [mode, resolvedDraft, scope, selectedRegions, specs]);
   const resolution = useQuery({
     queryKey: ["run-domain-resolution", run.runId, resolveCommand],
     queryFn: ({ signal }) => {
@@ -200,7 +183,7 @@ export function RunDomainQueueControl({ run }: { run: ProjectRun }) {
         <div className="grid gap-2.5">
           {specs.map((spec) => (
             <AxisEditor
-              draft={draft[spec.id] ?? initialAxisDraft(spec)}
+              draft={resolvedDraft[spec.id]!}
               key={spec.id}
               onChange={(next) => setDraft((current) => ({ ...current, [spec.id]: next }))}
               runId={run.runId}

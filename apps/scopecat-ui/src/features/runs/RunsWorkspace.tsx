@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronRight,
@@ -109,17 +109,16 @@ export function RunsWorkspace({
     },
     [selectedRunId],
   );
-  const latestRunHeadCursor = useRef<number | undefined>(undefined);
   const runsQuery = useQuery({
     queryKey: ["runs"],
     queryFn: ({ signal }) => getRuns(signal),
   });
   const runHeadCursor = runsQuery.data?.nextCursor;
-  latestRunHeadCursor.current = runHeadCursor;
   const olderRunsMutation = useMutation({
     mutationFn: ({ before }: OlderRunPageRequest) => getOlderRuns(before),
     onSuccess: (page, request) => {
-      if (latestRunHeadCursor.current !== request.headCursor) return;
+      const latestHeadCursor = queryClient.getQueryData<ProjectRunPage>(["runs"])?.nextCursor;
+      if (latestHeadCursor !== request.headCursor) return;
       setOlderRunHistory((current) =>
         current?.headCursor === request.headCursor
           ? { ...current, pages: [...current.pages, page] }
@@ -332,12 +331,6 @@ export function RunsWorkspace({
     enabled: selectedRunId !== undefined && selectedTracePlan !== undefined,
   });
   const filteredRuns = useMemo(() => filterRuns(runs, filter, search), [runs, filter, search]);
-
-  useEffect(() => {
-    setOlderRunHistory((current) =>
-      current && current.headCursor !== runHeadCursor ? undefined : current,
-    );
-  }, [runHeadCursor]);
 
   useEffect(() => {
     if (runs.length > 0 && selectedRunId === undefined) {

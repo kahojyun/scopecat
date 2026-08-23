@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { CheckCircle2, CircleDot, XCircle } from "lucide-react";
 import type { RunDomainDecisionPage } from "../../api-contract";
 import { errorMessage, formatDateTime, titleCase } from "../../lib/presentation";
@@ -23,15 +23,8 @@ export function RunDomainDecisionCard({
   run: ProjectRun;
 }) {
   const items = useMemo(() => page?.items ?? [], [page?.items]);
-  const [selectedProposal, setSelectedProposal] = useState<number>();
-  useEffect(() => {
-    setSelectedProposal((current) =>
-      items.some((item) => item.proposal_index === current)
-        ? current
-        : items.at(-1)?.proposal_index,
-    );
-  }, [items]);
-  const selected = items.find((item) => item.proposal_index === selectedProposal);
+  const [requestedProposal, setRequestedProposal] = useState<number>();
+  const selected = items.find((item) => item.proposal_index === requestedProposal) ?? items.at(-1);
 
   return (
     <article
@@ -45,7 +38,10 @@ export function RunDomainDecisionCard({
         </div>
         <span className={countBadge}>{run.pointPlan?.decisionCount ?? items.length}</span>
       </div>
-      <RunDomainQueueControl run={run} />
+      <RunDomainQueueControl
+        key={`${run.runId}:${run.plan.adaptiveScope ?? "static"}:${run.plan.adaptiveRegionsTruncated}`}
+        run={run}
+      />
       {error ? (
         <EmptyDecision title="Decision history unavailable" detail={errorMessage(error)} warning />
       ) : pending && !page ? (
@@ -71,7 +67,7 @@ export function RunDomainDecisionCard({
                     "border-line-strong bg-panel-strong",
                 )}
                 key={item.proposal_index}
-                onClick={() => setSelectedProposal(item.proposal_index)}
+                onClick={() => setRequestedProposal(item.proposal_index)}
                 type="button"
               >
                 <span className="flex items-center justify-between gap-2 text-[0.62rem] font-bold">

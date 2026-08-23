@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Braces, CircleDot, GitCompareArrows, Search, Table2 } from "lucide-react";
 import {
   diffConfigParameters,
@@ -46,12 +46,6 @@ export function ConfigParameters({
   }, [diffs, search]);
   const selected = filtered.find((diff) => diff.parameterId === selectedId) ?? filtered[0];
   const changedCount = diffs.filter((diff) => diff.status !== "unchanged").length;
-
-  useEffect(() => {
-    if (selected && selected.parameterId !== selectedId) {
-      setSelectedId(selected.parameterId);
-    }
-  }, [selected, selectedId]);
 
   return (
     <section

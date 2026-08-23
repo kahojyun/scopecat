@@ -21,24 +21,26 @@ type PointMode = "exact" | "snap" | "free";
 type CoordinateDraft = Record<string, string>;
 
 export function ReviewWorkspace({ daemonUnavailable }: { daemonUnavailable: boolean }) {
-  const [selectedId, setSelectedId] = useState(reviewIdFromLocation);
+  const [requestedId, setRequestedId] = useState(reviewIdFromLocation);
   const reviews = useQuery({
     queryKey: ["reviews"],
     queryFn: ({ signal }) => getReviews(signal),
     enabled: !daemonUnavailable,
     refetchInterval: 1_000,
   });
+  const locationId = reviewIdFromLocation();
+  const selectionId = requestedId === locationId ? requestedId : locationId;
   const selected =
-    reviews.data?.items.find((session) => session.session_id === selectedId) ??
+    reviews.data?.items.find((session) => session.session_id === selectionId) ??
     reviews.data?.items.find((session) => session.active) ??
     reviews.data?.items[0];
+  const selectedId = selected?.session_id;
 
   useEffect(() => {
-    if (selected && selected.session_id !== selectedId) {
-      setSelectedId(selected.session_id);
-      replaceReviewLocation(selected.session_id);
+    if (selectedId && reviewIdFromLocation() !== selectedId) {
+      replaceReviewLocation(selectedId);
     }
-  }, [selected, selectedId]);
+  }, [selectedId]);
 
   if (reviews.isPending) return <WorkspaceMessage title="Loading reviews" pending />;
   if (reviews.isError) {
@@ -73,7 +75,7 @@ export function ReviewWorkspace({ daemonUnavailable }: { daemonUnavailable: bool
               )}
               key={session.session_id}
               onClick={() => {
-                setSelectedId(session.session_id);
+                setRequestedId(session.session_id);
                 replaceReviewLocation(session.session_id);
               }}
               type="button"
@@ -140,6 +142,7 @@ function ReviewDetail({ sessionId }: { sessionId: string }) {
       </header>
 
       <PointCompiler
+        key={pointCompilerKey(session)}
         compileError={compile.error}
         compiling={compile.isPending || session.pending_request_count > 0}
         onCompile={(command) => compile.mutate(command)}
@@ -168,10 +171,6 @@ function PointCompiler({
   const [coordinates, setCoordinates] = useState<CoordinateDraft>(() =>
     coordinateDraft(session.coordinates, selectedPoint?.coordinates),
   );
-
-  useEffect(() => {
-    setCoordinates(coordinateDraft(session.coordinates, selectedPoint?.coordinates));
-  }, [session.coordinates, selectedPoint?.coordinates, selectedPoint?.point_index]);
 
   const submit = () => {
     onCompile({
@@ -403,6 +402,14 @@ function coordinateDraft(
       coordinateInputValue(current?.[spec.id] ?? spec.sampled_values[0] ?? ""),
     ]),
   );
+}
+
+function pointCompilerKey(session: ReviewSession): string {
+  return JSON.stringify([
+    session.session_id,
+    session.coordinates,
+    session.latest_result?.point ?? null,
+  ]);
 }
 
 function SessionState({ active }: { active: boolean }) {

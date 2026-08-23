@@ -130,10 +130,7 @@ function InstrumentConfigEditor({
   const connectionSpec = driver?.connections.find(
     (candidate) => candidate.kind === connection.kind,
   );
-  const optionFields = useMemo(
-    () => connectionOptionFields(connectionSpec?.options_schema),
-    [connectionSpec?.options_schema],
-  );
+  const optionFields = connectionOptionFields(connectionSpec?.options_schema);
   const options = connection.options ?? {};
   const spec = useMemo(
     () =>

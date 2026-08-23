@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, CircleOff, LoaderCircle, Pencil, RotateCcw } from "lucide-react";
 import type {
@@ -52,20 +52,7 @@ import { InstrumentSessionPanel } from "./InstrumentSessionPanel";
 
 type DraftValue = InstrumentPropertyDraft;
 
-export function InstrumentInspector({
-  instrument,
-  session,
-  sessionError,
-  connectPending,
-  closePending,
-  configurationPending,
-  configurationUnavailable,
-  onConnect,
-  onClose,
-  onSessionLost,
-  onDisconnectOwner,
-  onConfigure,
-}: {
+interface InstrumentInspectorProps {
   instrument: InstrumentView;
   session?: InstrumentSession;
   sessionError?: string;
@@ -78,7 +65,39 @@ export function InstrumentInspector({
   onSessionLost: (message: string) => void;
   onDisconnectOwner: () => void;
   onConfigure: () => void;
-}) {
+}
+
+export function InstrumentInspector(props: InstrumentInspectorProps) {
+  const { instrument, session } = props;
+  const instrumentId = instrument.instrument_id;
+  const connected = session?.instrument_ids.includes(instrumentId) ?? false;
+  const description =
+    session?.descriptions.find((candidate) => candidate.instrument_id === instrumentId) ??
+    instrument.description ??
+    undefined;
+  const targetKey = [...instrumentStateTargets(description).keys()];
+  const inspectorKey = JSON.stringify([
+    instrumentId,
+    connected ? session?.session_id : null,
+    targetKey,
+  ]);
+  return <InstrumentInspectorContent key={inspectorKey} {...props} />;
+}
+
+function InstrumentInspectorContent({
+  instrument,
+  session,
+  sessionError,
+  connectPending,
+  closePending,
+  configurationPending,
+  configurationUnavailable,
+  onConnect,
+  onClose,
+  onSessionLost,
+  onDisconnectOwner,
+  onConfigure,
+}: InstrumentInspectorProps) {
   const queryClient = useQueryClient();
   const instrumentId = instrument.instrument_id;
   const connected = session?.instrument_ids.includes(instrumentId) ?? false;
@@ -89,7 +108,14 @@ export function InstrumentInspector({
   const synchronizedState = session?.observed_state.find(
     (snapshot) => snapshot.instrument_id === instrumentId,
   );
-  const [state, setState] = useState<InstrumentState>();
+  const [readState, setReadState] = useState<{
+    source?: InstrumentState;
+    value: InstrumentState;
+  }>();
+  const state =
+    connected && readState !== undefined && readState.source === synchronizedState
+      ? readState.value
+      : synchronizedState;
   const [drafts, setDrafts] = useState<Record<string, DraftValue>>({});
   const [applyResult, setApplyResult] = useState<string>();
   const [configuredDefaultsResult, setConfiguredDefaultsResult] =
@@ -108,22 +134,8 @@ export function InstrumentInspector({
 
   const readMutation = useMutation({
     mutationFn: () => readInstrumentState(requireSession(session), instrumentId),
-    onSuccess: setState,
+    onSuccess: (value) => setReadState({ source: synchronizedState, value }),
   });
-  const resetReadMutation = readMutation.reset;
-  useEffect(() => {
-    applyCommandIdRef.current = undefined;
-    configuredDefaultsOperationIdRef.current = undefined;
-    collectCommandIdsRef.current = {};
-    invokeCommandIdsRef.current = {};
-    setState(connected ? synchronizedState : undefined);
-    setDrafts({});
-    setApplyResult(undefined);
-    setConfiguredDefaultsResult(undefined);
-    setCollectResults({});
-    setInvokeResults({});
-    resetReadMutation();
-  }, [connected, instrumentId, resetReadMutation, session?.session_id, synchronizedState]);
   const declaredTargets = useMemo(() => instrumentStateTargets(description), [description]);
   const declaredDrafts = useMemo(
     () => filterDrafts(drafts, declaredTargets),
@@ -135,9 +147,6 @@ export function InstrumentInspector({
   );
   const stagedCount = Object.keys(declaredDrafts).length;
   const invalidDraft = Object.values(declaredDrafts).some((draft) => draft.value === undefined);
-  useEffect(() => {
-    setDrafts((current) => filterDrafts(current, declaredTargets));
-  }, [declaredTargets]);
   const applyMutation = useMutation({
     mutationFn: ({
       members,
@@ -503,7 +512,7 @@ export function InstrumentInspector({
                     connected={connected}
                     interactionDisabled={interactionDisabled}
                     state={state}
-                    drafts={drafts}
+                    drafts={declaredDrafts}
                     collectResults={collectResults}
                     invokeResults={invokeResults}
                     collectingTarget={
@@ -528,7 +537,7 @@ export function InstrumentInspector({
                   connected={connected}
                   interactionDisabled={interactionDisabled}
                   state={state}
-                  drafts={drafts}
+                  drafts={declaredDrafts}
                   onStage={(target, draft) => stage(target, draft)}
                 />
               ))}
