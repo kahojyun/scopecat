@@ -24,6 +24,10 @@ from scopecat_quantum._ids import (
     QuantumProgramId,
     QubitId,
 )
+from scopecat_quantum.acquisitions import (
+    INTEGRATED_IQ_RESULT,
+    QuantumResultContract,
+)
 from scopecat_quantum.gates import (
     GateDefinition,
     GateParameterDefinition,
@@ -56,6 +60,7 @@ from ._definitions import (
     FragmentDefinition,
     Gate,
     GateImplementationDefinition,
+    ProgramFamilyEnvelope,
     PulseTemplateDefinition,
     SingleQubitGate,
     TwoQubitGate,
@@ -66,7 +71,6 @@ from ._definitions import (
 from ._ir import (
     _RESERVED_PROGRAM_PORT_IDS,
     _RESERVED_RESULT_IDS,
-    INTEGRATED_IQ_RESULT,
     Acquisition,
     CircuitFragment,
     Coupler,
@@ -82,7 +86,6 @@ from ._ir import (
     PulseTemplateFunction,
     QuantumFragment,
     QuantumQuantity,
-    QuantumResultContract,
     Qubit,
     QubitSet,
     RepeatCount,
@@ -533,6 +536,7 @@ def fragment[**P](
     definition: Callable[P, QuantumFragment],
     /,
     *,
+    envelope: ProgramFamilyEnvelope,
     id: str | None = None,
 ) -> FragmentDefinition[P]: ...
 
@@ -542,6 +546,7 @@ def fragment[**P](
     definition: None = None,
     /,
     *,
+    envelope: ProgramFamilyEnvelope,
     id: str | None = None,
 ) -> Callable[[Callable[P, QuantumFragment]], FragmentDefinition[P]]: ...
 
@@ -550,15 +555,16 @@ def fragment[**P](
     definition: Callable[P, QuantumFragment] | None = None,
     /,
     *,
+    envelope: ProgramFamilyEnvelope,
     id: str | None = None,
 ) -> (
     FragmentDefinition[P]
     | Callable[[Callable[P, QuantumFragment]], FragmentDefinition[P]]
 ):
-    """Define a result-free fragment expanded from concrete point inputs."""
+    """Define a bounded result-free family expanded from concrete point inputs."""
 
     def decorate(fn: Callable[P, QuantumFragment]) -> FragmentDefinition[P]:
-        return _fragment_from_function(fn, id=id)
+        return _fragment_from_function(fn, envelope=envelope, id=id)
 
     return decorate(definition) if definition is not None else decorate
 
@@ -835,6 +841,7 @@ def _quantum_function_contract(
 def _fragment_from_function[**P](
     fn: Callable[P, QuantumFragment],
     *,
+    envelope: ProgramFamilyEnvelope,
     id: str | None,
 ) -> FragmentDefinition[P]:
     contract = _quantum_function_contract(fn, kind="quantum fragment")
@@ -843,6 +850,7 @@ def _fragment_from_function[**P](
         raise ValueError("quantum fragment id must be non-empty")
     return FragmentDefinition(
         id=selected_id,
+        envelope=envelope,
         _definition=fn,
         _contract=contract,
     )

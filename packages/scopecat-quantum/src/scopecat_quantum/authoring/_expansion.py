@@ -9,8 +9,10 @@ from dataclasses import replace
 from scopecat.program.value_types import ValueValidationError, coerce_literal
 
 from ._analysis import (
+    _expanded_fragment_shape,
     _program_input_type,
     _summarize_fragment,
+    _unique_gate_definitions,
 )
 from ._ir import (
     Coupler,
@@ -124,6 +126,12 @@ def _validate_expanded_fragment(
             f"{rendered}"
         )
         raise ValueError(msg)
+    if facts.entity_sets:
+        rendered = ", ".join(repr(entity_set.id) for entity_set in facts.entity_sets)
+        msg = (
+            f"quantum fragment {call.definition.id!r} captures entity sets: {rendered}"
+        )
+        raise ValueError(msg)
     allowed_elements = {
         (type(value), value.id)
         for _name, value in call.arguments
@@ -143,5 +151,50 @@ def _validate_expanded_fragment(
         msg = (
             f"quantum fragment {call.definition.id!r} captures undeclared "
             f"elements: {rendered}"
+        )
+        raise ValueError(msg)
+    envelope = call.definition.envelope
+    actual_gates = _unique_gate_definitions(facts.gate_definitions)
+    allowed_gates = {
+        definition.id.value: definition for definition in envelope.gate_definitions
+    }
+    foreign_gates = sorted(
+        definition.id.value
+        for definition in actual_gates
+        if definition.id.value not in allowed_gates
+    )
+    if foreign_gates:
+        rendered = ", ".join(repr(gate_id) for gate_id in foreign_gates)
+        msg = (
+            f"quantum fragment {call.definition.id!r} uses gates outside its "
+            f"program family envelope: {rendered}"
+        )
+        raise ValueError(msg)
+    conflicting_gates = sorted(
+        definition.id.value
+        for definition in actual_gates
+        if definition.id.value in allowed_gates
+        and allowed_gates[definition.id.value] != definition
+    )
+    if conflicting_gates:
+        rendered = ", ".join(repr(gate_id) for gate_id in conflicting_gates)
+        msg = (
+            f"quantum fragment {call.definition.id!r} uses gate definitions "
+            f"that conflict with its program family envelope: {rendered}"
+        )
+        raise ValueError(msg)
+    shape = _expanded_fragment_shape(body)
+    if shape.operation_count > envelope.max_operations:
+        msg = (
+            f"quantum fragment {call.definition.id!r} expands to "
+            f"{shape.operation_count} operations, exceeding its program family "
+            f"envelope maximum of {envelope.max_operations}"
+        )
+        raise ValueError(msg)
+    if shape.depth > envelope.max_depth:
+        msg = (
+            f"quantum fragment {call.definition.id!r} expands to depth "
+            f"{shape.depth}, exceeding its program family envelope maximum of "
+            f"{envelope.max_depth}"
         )
         raise ValueError(msg)

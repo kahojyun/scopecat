@@ -23,7 +23,7 @@ from scopecat_quantum._ids import (
     TargetCompilerId,
     TargetId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import INTEGRATED_IQ_RESULT
 from scopecat_quantum.circuits import (
     CircuitVerificationError,
     Measure,
@@ -417,13 +417,13 @@ def test_verification_aggregates_unknown_gate_and_duplicate_identities() -> None
             duplicate_operation_id,
             QubitId("q1"),
             duplicate_slot_id,
-            AcquisitionKind.INTEGRATED_IQ,
+            INTEGRATED_IQ_RESULT,
         ),
         Measure(
             CircuitOperationId("measure-2"),
             QubitId("q2"),
             duplicate_slot_id,
-            AcquisitionKind.INTEGRATED_IQ,
+            INTEGRATED_IQ_RESULT,
         ),
     )
 
@@ -442,7 +442,7 @@ def test_measure_preserves_acquisition_contract_when_verified() -> None:
         CircuitOperationId("measure-q0"),
         QubitId("q0"),
         AcquisitionSlotId("readout", scope=("experiment",)),
-        AcquisitionKind.INTEGRATED_IQ,
+        INTEGRATED_IQ_RESULT,
     )
 
     verified = verify_circuit_operations((measurement,), ())

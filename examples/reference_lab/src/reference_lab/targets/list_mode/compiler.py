@@ -1,11 +1,12 @@
 """Pure compiler for the demo list-mode AWG and segmented digitizer target.
 
-This laboratory-owned compiler translates canonical scheduled pulse programs
-into physical list entries and acquisition windows. It validates sample-grid
-alignment, signal bindings, overlap, list, and shot limits before producing an
-artifact. Retained physical buffers are amplitude-checked here; compact
-parameterized buffers are checked when they materialize at the AWG boundary.
-No instrument effect occurs here.
+This laboratory-owned compiler accepts target programs at the shared boundary
+and translates the static scheduled-block subset into physical list entries and
+acquisition windows. It rejects real-time control as a target capability choice,
+then validates sample-grid alignment, signal bindings, overlap, list, and shot
+limits before producing an artifact. Retained physical buffers are
+amplitude-checked here; compact parameterized buffers are checked when they
+materialize at the AWG boundary. No instrument effect occurs here.
 
 Physical list and segment positions are artifact layout, never logical result
 identity. Entry-qualified event and acquisition addresses survive compilation
@@ -36,6 +37,7 @@ from scopecat_quantum.pulses import (
     ScheduledPulseProgram,
     ShiftPhase,
 )
+from scopecat_quantum.realtime import ScheduledBlock
 from scopecat_quantum.targets import (
     TargetCompilationError,
     TargetCompilationIssue,
@@ -421,6 +423,7 @@ class ListModeTargetCompiler:
     ) -> ListModeArtifact:
         """Execute the layered compilation after trace counters are sampled."""
 
+        _require_static_schedules(request)
         device_snapshot = self.target.device_snapshot
         compilation_key = _compilation_key(
             self.id,
@@ -673,7 +676,7 @@ class ListModeTargetCompiler:
         decision: ListModePlacementDecision,
         issues: list[TargetCompilationIssue],
     ) -> _PlannedProgram | None:
-        program = entry.program
+        program = _scheduled_program(entry)
         placements_by_signal = {
             placement.signal: placement for placement in decision.placements
         }
@@ -1000,16 +1003,43 @@ def _compilation_key(
     )
 
 
+def _require_static_schedules(request: TargetCompileRequest) -> None:
+    issues: list[TargetCompilationIssue] = []
+    for entry in request.entries:
+        if isinstance(entry.program.body, ScheduledBlock):
+            continue
+        _entry_capability_issue(
+            issues,
+            entry.id,
+            code="list_mode_realtime_control_unsupported",
+            message=(
+                f"entry {entry.id.value!r} contains target-visible real-time "
+                "control; this list-mode target accepts one static scheduled block"
+            ),
+        )
+    if issues:
+        raise TargetCompilationError(tuple(issues))
+
+
+def _scheduled_program(entry: TargetCompileEntry) -> ScheduledPulseProgram:
+    body = entry.program.body
+    if not isinstance(body, ScheduledBlock):
+        raise AssertionError("list-mode real-time capability preflight was skipped")
+    return body.program
+
+
 def _semantic_program_plan(request: TargetCompileRequest) -> _SemanticProgramPlan:
     return _SemanticProgramPlan(
-        event_count=sum(len(entry.program.events) for entry in request.entries),
+        event_count=sum(
+            len(_scheduled_program(entry).events) for entry in request.entries
+        ),
         acquisition_count=len(request.acquisition_addresses),
         selected_signals=tuple(
             sorted(
                 {
                     signal_key(event.instruction.signal)
                     for entry in request.entries
-                    for event in entry.program.events
+                    for event in _scheduled_program(entry).events
                     if isinstance(
                         event.instruction.signal,
                         DriveSignal | ReadoutSignal | AcquireSignal,
@@ -1051,7 +1081,7 @@ def _unplaced_signal_issues(
     for entry in request.entries:
         entry_signals = {
             signal_key(event.instruction.signal)
-            for event in entry.program.events
+            for event in _scheduled_program(entry).events
             if isinstance(
                 event.instruction.signal,
                 DriveSignal | ReadoutSignal | AcquireSignal,
@@ -1222,7 +1252,7 @@ def _project_program_placement(
     candidate_counts_by_signal = dict(decision.candidate_counts_by_signal)
     events: list[ListModeEventPlacement] = []
     for entry in request.entries:
-        for event in entry.program.events:
+        for event in _scheduled_program(entry).events:
             placement = placements_by_signal[
                 signal_key(
                     cast("OutputSignal | AcquireSignal", event.instruction.signal)

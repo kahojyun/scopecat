@@ -19,6 +19,7 @@ from scopecat.program.value_types import (
     Quantity as QuantityAtomType,
 )
 
+from scopecat_quantum.acquisitions import QuantumResultDimension
 from scopecat_quantum.pulses import (
     AcquireSignal,
     AnalyticEnvelope,
@@ -147,11 +148,15 @@ def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
         return _InspectionNode(f"gate {_inspection_gate_call(fragment)}")
     if isinstance(fragment, Measurement):
         result = fragment.result
-        return _InspectionNode(f"measure {result.qubit.id} -> {result.id}")
+        return _InspectionNode(
+            f"measure {result.qubit.id} -> {result.id}"
+            f"{_inspection_result_shape(result)}"
+        )
     if isinstance(fragment, Acquisition):
         return _InspectionNode(
             f"acquire {fragment.result.qubit.id} "
             f"duration={_inspection_value(fragment.duration)} -> {fragment.result.id}"
+            f"{_inspection_result_shape(fragment.result)}"
         )
     if isinstance(fragment, _PlayFragment):
         return _InspectionNode(
@@ -301,7 +306,34 @@ def _describe_program_input(value: ProgramInput) -> str:
 def _describe_result(result: ProgramResult) -> str:
     contract = result.contract
     unit = "" if contract.unit is None else f" {contract.unit}"
+    entity_axes = ("entity",) if result.entity_set is not None else ()
+    axes = ",".join(
+        (
+            *entity_axes,
+            "shot",
+            *(
+                _describe_result_dimension(dimension)
+                for dimension in contract.dimensions
+            ),
+        )
+    )
     return (
         f"{result.acquisition_kind.value} {contract.dtype}{unit} "
-        f"on {result.qubit.id}; axes=shot"
+        f"on {result.qubit.id}; axes={axes}"
+    )
+
+
+def _describe_result_dimension(dimension: QuantumResultDimension) -> str:
+    input_id = dimension.size_input_id
+    if input_id is None:
+        return dimension.id
+    return f"{dimension.id}=${input_id}(max={dimension.maximum_size})"
+
+
+def _inspection_result_shape(result: ProgramResult) -> str:
+    dimensions = result.contract.dimensions
+    if not dimensions:
+        return ""
+    return " dimensions=" + ",".join(
+        _describe_result_dimension(dimension) for dimension in dimensions
     )

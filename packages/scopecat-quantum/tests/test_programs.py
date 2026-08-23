@@ -16,7 +16,7 @@ from scopecat_quantum._ids import (
     QuantumProgramId,
     QubitId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import INTEGRATED_IQ_RESULT
 from scopecat_quantum.circuits import CircuitVerificationError, Measure
 from scopecat_quantum.gates import GateCall, GateDefinition
 from scopecat_quantum.programs import (
@@ -304,14 +304,14 @@ def _measurement(
         id=CircuitOperationId(operation_id),
         qubit=Q0,
         acquisition_slot_id=AcquisitionSlotId("result"),
-        acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
+        contract=INTEGRATED_IQ_RESULT,
     )
 
 
 def _measurement_template() -> PulseProgram:
     slot = AcquisitionSlot(
         id=AcquisitionSlotId("template-result"),
-        kind=AcquisitionKind.INTEGRATED_IQ,
+        contract=INTEGRATED_IQ_RESULT,
         signal=AcquireSignal(Q0),
     )
     duration = Quantity(8, "ns")

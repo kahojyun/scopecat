@@ -13,7 +13,7 @@ from scopecat_quantum._ids import (
     PulseProgramId,
     QubitId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import INTEGRATED_IQ_RESULT
 from scopecat_quantum.inspection import (
     QuantumInspectionBounds,
     build_quantum_program_inspection_snapshot,
@@ -155,7 +155,7 @@ def test_scheduled_inspection_separates_logical_results_from_acquisitions() -> N
     slots = tuple(
         AcquisitionSlot(
             id=AcquisitionSlotId("iq", scope=(f"q{index}",)),
-            kind=AcquisitionKind.INTEGRATED_IQ,
+            contract=INTEGRATED_IQ_RESULT,
             signal=signal,
         )
         for index, signal in enumerate(signals)

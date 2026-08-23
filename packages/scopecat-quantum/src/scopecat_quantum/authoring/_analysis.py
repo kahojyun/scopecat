@@ -381,6 +381,59 @@ class _FragmentFacts:
     gate_definitions: tuple[GateDefinition, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class _ExpandedFragmentShape:
+    """Exact executable size of one concrete point-expanded fragment."""
+
+    operation_count: int
+    depth: int
+
+
+def _expanded_fragment_shape(fragment: QuantumFragment) -> _ExpandedFragmentShape:
+    """Count executable leaves and longest sequential path after expansion."""
+
+    if isinstance(
+        fragment,
+        _GateFragment
+        | Measurement
+        | Acquisition
+        | _PlayFragment
+        | _DelayFragment
+        | _ShiftPhaseFragment
+        | _ImplementedGateFragment,
+    ):
+        return _ExpandedFragmentShape(operation_count=1, depth=1)
+    if isinstance(fragment, _PulseTemplateCallFragment | _ExpandedFragment):
+        return _expanded_fragment_shape(fragment.body)
+    if isinstance(fragment, _FragmentCall):
+        raise AssertionError("fragment calls must expand before shape analysis")
+    if isinstance(fragment, _ParallelEachFragment):
+        raise AssertionError("program family fragments cannot contain entity sets")
+    if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
+        if isinstance(fragment.count, ProgramInput):
+            raise AssertionError("point-expanded repeat counts must be concrete")
+        child = _expanded_fragment_shape(fragment.operation)
+        return _ExpandedFragmentShape(
+            operation_count=fragment.count * child.operation_count,
+            depth=fragment.count * child.depth,
+        )
+    if isinstance(fragment, _SequenceFragment | _QuantumSequenceFragment):
+        children = tuple(
+            _expanded_fragment_shape(child) for child in fragment.operations
+        )
+        return _ExpandedFragmentShape(
+            operation_count=sum(child.operation_count for child in children),
+            depth=sum(child.depth for child in children),
+        )
+    if isinstance(fragment, _ParallelFragment | _QuantumParallelFragment):
+        children = tuple(_expanded_fragment_shape(child) for child in fragment.branches)
+        return _ExpandedFragmentShape(
+            operation_count=sum(child.operation_count for child in children),
+            depth=max(child.depth for child in children),
+        )
+    raise AssertionError(f"unsupported quantum fragment {type(fragment).__name__}")
+
+
 def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
     """Collect every closure fact in one structural fragment traversal."""
 
@@ -396,6 +449,7 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
                 for _name, value in fragment.arguments
                 if isinstance(value, ProgramInput)
             ),
+            gate_definitions=fragment.definition.envelope.gate_definitions,
         )
     if isinstance(fragment, _ExpandedFragment):
         return _summarize_fragment(fragment.body)
@@ -412,6 +466,7 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
     if isinstance(fragment, Measurement):
         return _FragmentFacts(
             element_uses=(fragment.result.qubit,),
+            inputs=_result_dimension_inputs(fragment.result),
             results=(fragment.result,),
         )
     if isinstance(fragment, Acquisition):
@@ -420,9 +475,12 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             pulse_owners=(_signal_owner(fragment.signal),),
             element_uses=(fragment.result.qubit,),
             inputs=(
-                (fragment.duration,)
-                if isinstance(fragment.duration, ProgramInput)
-                else ()
+                *(
+                    (fragment.duration,)
+                    if isinstance(fragment.duration, ProgramInput)
+                    else ()
+                ),
+                *_result_dimension_inputs(fragment.result),
             ),
             results=(fragment.result,),
         )
@@ -564,6 +622,16 @@ def _merge_fragment_facts(
         gate_definitions=tuple(
             definition for child in children for definition in child.gate_definitions
         ),
+    )
+
+
+def _result_dimension_inputs(result: ProgramResult) -> tuple[ProgramInput, ...]:
+    """Return authoring inputs used only by a result's local shape."""
+
+    return tuple(
+        dimension.size
+        for dimension in result.contract.dimensions
+        if isinstance(dimension.size, ProgramInput)
     )
 
 

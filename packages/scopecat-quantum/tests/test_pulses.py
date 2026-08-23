@@ -15,7 +15,7 @@ from scopecat_quantum._ids import (
     PulseProgramId,
     QubitId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import INTEGRATED_IQ_RESULT
 from scopecat_quantum.pulses import (
     DRAG,
     Acquire,
@@ -297,12 +297,12 @@ def test_canonical_order_uses_structural_identity_not_rendered_text() -> None:
     slots = (
         AcquisitionSlot(
             rendered_first_slot,
-            AcquisitionKind.INTEGRATED_IQ,
+            INTEGRATED_IQ_RESULT,
             q1_acquire,
         ),
         AcquisitionSlot(
             structurally_first_slot,
-            AcquisitionKind.INTEGRATED_IQ,
+            INTEGRATED_IQ_RESULT,
             q0_acquire,
         ),
     )
@@ -367,7 +367,7 @@ def test_acquisition_slots_are_closed_exactly_once() -> None:
     signal = AcquireSignal(Q0)
     slot = AcquisitionSlot(
         id=AcquisitionSlotId("iq", scope=("measure-q0",)),
-        kind=AcquisitionKind.INTEGRATED_IQ,
+        contract=INTEGRATED_IQ_RESULT,
         signal=signal,
     )
     program = PulseProgram(
@@ -392,9 +392,7 @@ def test_acquisition_slots_are_closed_exactly_once() -> None:
 @given(use_count=st.integers(min_value=0, max_value=3))
 def test_acquisition_closure_holds_for_every_use_count(use_count: int) -> None:
     signal = AcquireSignal(Q0)
-    slot = AcquisitionSlot(
-        AcquisitionSlotId("slot"), AcquisitionKind.INTEGRATED_IQ, signal
-    )
+    slot = AcquisitionSlot(AcquisitionSlotId("slot"), INTEGRATED_IQ_RESULT, signal)
     program = PulseProgram(
         id=PulseProgramId("closure"),
         body=Sequence(
@@ -427,10 +425,10 @@ def test_acquisition_closure_holds_for_every_use_count(use_count: int) -> None:
 def test_acquisition_closure_reports_missing_undeclared_and_multiple_uses() -> None:
     signal = AcquireSignal(Q0)
     declared = AcquisitionSlot(
-        AcquisitionSlotId("declared"), AcquisitionKind.INTEGRATED_IQ, signal
+        AcquisitionSlotId("declared"), INTEGRATED_IQ_RESULT, signal
     )
     used_twice = AcquisitionSlot(
-        AcquisitionSlotId("twice"), AcquisitionKind.INTEGRATED_IQ, signal
+        AcquisitionSlotId("twice"), INTEGRATED_IQ_RESULT, signal
     )
     program = PulseProgram(
         id=PulseProgramId("bad-acquisitions"),

@@ -14,7 +14,6 @@ from scopecat.authoring import (
 from scopecat.authoring import (
     ScalarType,
 )
-from scopecat.program.measurement_types import MeasurementDType
 from scopecat.program.value_types import (
     Entity as EntityAtomType,
 )
@@ -26,7 +25,10 @@ from scopecat_quantum._ids import (
     PulseProgramId,
     QubitId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import (
+    AcquisitionKind,
+    QuantumResultContract,
+)
 from scopecat_quantum.gates import (
     GateArgumentValue,
     GateDefinition,
@@ -111,22 +113,6 @@ class ProgramInput:
         """Return the stable input-port identity."""
 
         return self._id
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class QuantumResultContract:
-    """Product schema for one shot-indexed integrated-IQ result."""
-
-    acquisition_kind: AcquisitionKind
-    dtype: MeasurementDType
-    unit: str | None
-
-
-INTEGRATED_IQ_RESULT = QuantumResultContract(
-    acquisition_kind=AcquisitionKind.INTEGRATED_IQ,
-    dtype="complex128",
-    unit="ratio",
-)
 
 
 @dataclass(frozen=True, slots=True, repr=False, eq=False)
@@ -291,7 +277,7 @@ type CouplerInput = Annotated[
 QUANTUM_PROGRAM_DIALECT_ID = "scopecat.quantum.program"
 
 
-QUANTUM_PROGRAM_DIALECT_VERSION = "3"
+QUANTUM_PROGRAM_DIALECT_VERSION = "4"
 
 
 class _GateHandle(Protocol):
@@ -310,12 +296,26 @@ class _PulseTemplateHandle(Protocol):
     def id(self) -> str: ...
 
 
+class _ProgramFamilyEnvelope(Protocol):
+    @property
+    def gate_definitions(self) -> tuple[GateDefinition, ...]: ...
+
+    @property
+    def max_operations(self) -> int: ...
+
+    @property
+    def max_depth(self) -> int: ...
+
+
 class _FragmentHandle(Protocol):
     @property
     def id(self) -> str: ...
 
     @property
     def parameters(self) -> tuple[ProgramPort, ...]: ...
+
+    @property
+    def envelope(self) -> _ProgramFamilyEnvelope: ...
 
     @property
     def __wrapped__(self) -> Callable[..., QuantumFragment]: ...

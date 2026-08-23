@@ -150,8 +150,16 @@ def test_fragment_decorator_expands_from_point_bound_inputs() -> None:
     x = authoring.single_qubit_gate("x")
     y = authoring.single_qubit_gate("y")
     elaborations: list[tuple[int, int]] = []
+    envelope = authoring.ProgramFamilyEnvelope(
+        allowed_gates=(x, y),
+        max_operations=64,
+        max_depth=64,
+    )
 
-    @authoring.fragment(id="test.quantum.seeded-sequence")
+    @authoring.fragment(
+        id="test.quantum.seeded-sequence",
+        envelope=envelope,
+    )
     def seeded_sequence(
         qubit: authoring.Qubit,
         length: Annotated[int, sc.IntType(minimum=1)],
@@ -177,6 +185,12 @@ def test_fragment_decorator_expands_from_point_bound_inputs() -> None:
         )
 
     assert elaborations == []
+    assert seeded_sequence.envelope is envelope
+    assert [element.id for element in seeded_sequence.allowed_elements] == ["qubit"]
+    assert [definition.id.value for definition in envelope.gate_definitions] == [
+        "x",
+        "y",
+    ]
     assert [port.id for port in seeded_program.ports] == ["qubit", "length", "seed"]
     assert inspect.signature(seeded_sequence) == inspect.signature(
         seeded_sequence.__wrapped__
@@ -200,8 +214,102 @@ def test_fragment_decorator_expands_from_point_bound_inputs() -> None:
     )
 
 
+def test_program_family_envelope_rejects_gate_and_size_escapes() -> None:
+    x = authoring.single_qubit_gate("x")
+    y = authoring.single_qubit_gate("y")
+
+    @authoring.fragment(
+        id="test.quantum.bounded-family",
+        envelope=authoring.ProgramFamilyEnvelope(
+            allowed_gates=(x,),
+            max_operations=2,
+            max_depth=1,
+        ),
+    )
+    def bounded_family(
+        qubit: authoring.Qubit,
+        variant: Annotated[int, sc.IntType(minimum=0, maximum=2)],
+    ) -> authoring.QuantumFragment:
+        if variant == 0:
+            return y(qubit)
+        if variant == 1:
+            return authoring.repeat(x(qubit), 3)
+        return authoring.sequence(x(qubit), x(qubit))
+
+    @authoring.program(id="test.quantum.bounded-family-program")
+    def declaration(
+        qubit: authoring.Qubit,
+        variant: Annotated[int, sc.IntType(minimum=0, maximum=2)],
+    ) -> authoring.QuantumFragment:
+        return authoring.sequence(
+            bounded_family(qubit, variant),
+            authoring.measure(qubit, result="iq"),
+        )
+
+    with pytest.raises(ValueError, match="gates outside its program family envelope"):
+        authoring.bind(declaration, {"qubit": "q0", "variant": 0})
+    with pytest.raises(ValueError, match=r"3 operations.*maximum of 2"):
+        authoring.bind(declaration, {"qubit": "q0", "variant": 1})
+    with pytest.raises(ValueError, match=r"depth 2.*maximum of 1"):
+        authoring.bind(declaration, {"qubit": "q0", "variant": 2})
+
+
+def test_program_family_envelope_requires_exact_integer_bounds() -> None:
+    with pytest.raises(ValueError, match=r"max_operations.*non-negative integer"):
+        authoring.ProgramFamilyEnvelope(
+            allowed_gates=(),
+            max_operations=1.5,  # type: ignore[arg-type]
+            max_depth=1,
+        )
+
+    with pytest.raises(ValueError, match=r"max_depth.*non-negative integer"):
+        authoring.ProgramFamilyEnvelope(
+            allowed_gates=(),
+            max_operations=1,
+            max_depth=True,  # type: ignore[arg-type]
+        )
+
+
+def test_program_family_gate_catalog_participates_in_static_program_closure() -> None:
+    single = authoring.single_qubit_gate("test.quantum.shared")
+    conflicting = authoring.two_qubit_gate("test.quantum.shared")
+
+    @authoring.fragment(
+        id="test.quantum.static-gate-catalog",
+        envelope=authoring.ProgramFamilyEnvelope(
+            allowed_gates=(single,),
+            max_operations=1,
+            max_depth=1,
+        ),
+    )
+    def family(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        return single(qubit)
+
+    with pytest.raises(ValueError, match="conflicting definitions"):
+
+        @authoring.program
+        def invalid_catalog(  # pyright: ignore[reportUnusedFunction]
+            first: authoring.Qubit,
+            second: authoring.Qubit,
+        ) -> authoring.QuantumFragment:
+            return authoring.sequence(
+                family(first),
+                conflicting(first, second),
+                authoring.measure(first, result="iq"),
+            )
+
+
 def test_fragment_expansion_rejects_results_and_cycles() -> None:
-    @authoring.fragment(id="test.quantum.hidden-result")
+    empty_envelope = authoring.ProgramFamilyEnvelope(
+        allowed_gates=(),
+        max_operations=1,
+        max_depth=1,
+    )
+
+    @authoring.fragment(
+        id="test.quantum.hidden-result",
+        envelope=empty_envelope,
+    )
     def hidden_result(qubit: authoring.Qubit) -> authoring.QuantumFragment:
         return authoring.measure(qubit, result="hidden")
 
@@ -215,7 +323,10 @@ def test_fragment_expansion_rejects_results_and_cycles() -> None:
     with pytest.raises(ValueError, match="cannot produce results"):
         authoring.bind(invalid_result, {"qubit": "q0"})
 
-    @authoring.fragment(id="test.quantum.recursive")
+    @authoring.fragment(
+        id="test.quantum.recursive",
+        envelope=empty_envelope,
+    )
     def recursive(qubit: authoring.Qubit) -> authoring.QuantumFragment:
         return recursive(qubit)
 

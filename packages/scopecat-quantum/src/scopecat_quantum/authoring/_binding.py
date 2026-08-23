@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import (
     cast,
 )
@@ -21,7 +21,10 @@ from scopecat_quantum._ids import (
     PulseProgramId,
     QubitId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import (
+    QuantumResultContract,
+    QuantumResultDimension,
+)
 from scopecat_quantum.circuits import Measure
 from scopecat_quantum.gates import (
     GateArgument,
@@ -141,7 +144,7 @@ def materialize_pulse_recipe_body(
     body: QuantumFragment,
     /,
     *,
-    measurement: tuple[QubitId, AcquisitionKind] | None = None,
+    measurement: tuple[QubitId, QuantumResultContract] | None = None,
 ) -> PulseProgram:
     """Close one concrete recipe body with framework-owned local identities."""
 
@@ -161,7 +164,7 @@ def materialize_pulse_recipe_body(
             msg = "gate pulse recipes cannot acquire results"
             raise ValueError(msg)
     else:
-        qubit_id, acquisition_kind = measurement
+        qubit_id, result_contract = measurement
         if len(facts.results) != 1:
             msg = "measurement pulse recipes must acquire exactly one result"
             raise ValueError(msg)
@@ -169,13 +172,13 @@ def materialize_pulse_recipe_body(
         if result.qubit.ir_id != qubit_id:
             msg = "measurement pulse recipe result must belong to its mapped qubit"
             raise ValueError(msg)
-        if result.acquisition_kind is not acquisition_kind:
-            msg = "measurement pulse recipe result kind must match its declaration"
+        if result.contract != result_contract:
+            msg = "measurement pulse recipe result contract must match its declaration"
             raise ValueError(msg)
         slots = (
             AcquisitionSlot(
                 id=result.acquisition_slot_id,
-                kind=acquisition_kind,
+                contract=result_contract,
                 signal=AcquireSignal(qubit_id),
             ),
         )
@@ -274,7 +277,7 @@ def bind(
 
 def _bind_circuit_operation(
     fragment: _GateFragment | Measurement,
-    bindings: Mapping[str, GateArgumentValue],
+    bindings: Mapping[str, object],
     *,
     element_bindings: ElementBindings,
     path: tuple[str, ...],
@@ -290,7 +293,12 @@ def _bind_circuit_operation(
             arguments=tuple(
                 GateArgument(
                     argument_id,
-                    bindings[value.id] if isinstance(value, ProgramInput) else value,
+                    cast(
+                        "GateArgumentValue",
+                        bindings[value.id]
+                        if isinstance(value, ProgramInput)
+                        else value,
+                    ),
                 )
                 for argument_id, value in fragment.arguments
             ),
@@ -300,7 +308,7 @@ def _bind_circuit_operation(
         id=CircuitOperationId(_operation_id(path, "measure")),
         qubit=_bound_qubit_id(result.qubit, element_bindings),
         acquisition_slot_id=result.acquisition_slot_id.prefixed(*acquisition_scope),
-        acquisition_kind=result.acquisition_kind,
+        contract=_bind_result_contract(result.contract, bindings),
     )
 
 
@@ -325,7 +333,7 @@ def _bind_quantum_fragment(
     if isinstance(fragment, _GateFragment | Measurement):
         return _bind_circuit_operation(
             fragment,
-            cast("Mapping[str, GateArgumentValue]", bindings),
+            bindings,
             element_bindings=element_bindings,
             path=path,
             acquisition_scope=acquisition_scope,
@@ -335,7 +343,7 @@ def _bind_quantum_fragment(
             "GateCall",
             _bind_circuit_operation(
                 fragment.gate,
-                cast("Mapping[str, GateArgumentValue]", bindings),
+                bindings,
                 element_bindings=element_bindings,
                 path=(*path, "logical"),
                 acquisition_scope=acquisition_scope,
@@ -381,7 +389,7 @@ def _bind_quantum_fragment(
             acquisition_slots=(
                 AcquisitionSlot(
                     id=slot_id,
-                    kind=fragment.result.acquisition_kind,
+                    contract=_bind_result_contract(fragment.result.contract, bindings),
                     signal=bound_acquire.signal,
                 ),
             ),
@@ -646,6 +654,41 @@ def _bound_repeat_count(
         msg = f"repeat count{qualifier} must bind to a non-negative integer"
         raise ProgramBindingError(msg)
     return selected
+
+
+def _bind_result_contract(
+    contract: QuantumResultContract,
+    bindings: Mapping[str, object],
+) -> QuantumResultContract:
+    """Resolve symbolic local extents for one concrete program point."""
+
+    if contract.is_concrete:
+        return contract
+    dimensions: list[QuantumResultDimension] = []
+    for dimension in contract.dimensions:
+        input_id = dimension.size_input_id
+        if input_id is None:
+            dimensions.append(dimension)
+            continue
+        try:
+            selected = bindings[input_id]
+        except KeyError as error:
+            raise ProgramBindingError(
+                f"result dimension {dimension.id!r} references unbound "
+                f"input {input_id!r}"
+            ) from error
+        if (
+            not isinstance(selected, int)
+            or isinstance(selected, bool)
+            or selected <= 0
+            or selected > dimension.maximum_size
+        ):
+            raise ProgramBindingError(
+                f"result dimension {dimension.id!r} input {input_id!r} must bind "
+                f"to an integer in [1, {dimension.maximum_size}]"
+            )
+        dimensions.append(replace(dimension, size=selected))
+    return replace(contract, dimensions=tuple(dimensions))
 
 
 def _bound_qubit_set(entity_set: QubitSet, value: object) -> tuple[EntityRef, ...]:

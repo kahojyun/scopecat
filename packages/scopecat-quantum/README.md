@@ -64,6 +64,35 @@ the program call remains one domain effect rather than becoming the whole
 experiment. The
 [reference lab runner](../../examples/reference_lab/README.md) shows that path.
 
+Point-dependent Python elaboration uses an explicitly bounded program family:
+
+```python
+@authoring.fragment(
+    id="bounded-x90-family",
+    envelope=authoring.ProgramFamilyEnvelope(
+        allowed_gates=(x90,),
+        max_operations=2,
+        max_depth=2,
+    ),
+)
+def bounded_x90_family(
+    qubit: authoring.Qubit,
+    variant: Annotated[int, sc.IntType(minimum=0, maximum=1)],
+) -> authoring.QuantumFragment:
+    if variant == 0:
+        return x90(qubit)
+    return authoring.sequence(x90(qubit), x90(qubit))
+```
+
+The function is evaluated only after its point inputs bind. Its typed qubit and
+coupler ports are the complete allowed element surface; the envelope adds the
+complete semantic gate catalog and hard size bounds. Binding rejects a generated
+body that escapes either surface. `max_operations` counts expanded executable
+leaves, including finite repeats, while `max_depth` bounds the longest sequential
+path and takes the longest branch of a parallel composition. The envelope is
+therefore cheap to inspect before elaborating every point, while each selected
+point is still checked exactly.
+
 Variable-size programs use a retained `QubitSet` port and `parallel_each`:
 
 ```python

@@ -31,7 +31,7 @@ from scopecat_quantum._ids import (
     TargetCompileEntryId,
     TargetCompilerId,
 )
-from scopecat_quantum.acquisitions import AcquisitionKind
+from scopecat_quantum.acquisitions import INTEGRATED_IQ_RESULT
 from scopecat_quantum.pulses import (
     DRAG,
     Acquire,
@@ -49,6 +49,7 @@ from scopecat_quantum.pulses import (
 )
 from scopecat_quantum.pulses import Parallel as PulseParallel
 from scopecat_quantum.pulses import Sequence as PulseSequence
+from scopecat_quantum.realtime import TargetProgram
 from scopecat_quantum.targets import (
     TargetAcquisitionAddress,
     TargetCompilationError,
@@ -284,7 +285,7 @@ def _request(
         entries=tuple(
             TargetCompileEntry(
                 TargetCompileEntryId(f"entry-{index}"),
-                program,
+                TargetProgram.from_scheduled(program),
             )
             for index, program in enumerate(programs)
         ),
@@ -296,7 +297,7 @@ def _request(
 def _calibrated_acquisition() -> tuple[ScheduledPulseProgram, AcquisitionSlot]:
     slot = AcquisitionSlot(
         AcquisitionSlotId("result"),
-        AcquisitionKind.INTEGRATED_IQ,
+        INTEGRATED_IQ_RESULT,
         ACQUIRE_Q0,
     )
     scheduled = schedule(

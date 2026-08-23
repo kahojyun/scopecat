@@ -229,7 +229,7 @@ class MeasurementPulseRecipe[RowT]:
     ) -> MeasurementPulseImplementation:
         """Instantiate the recipe for one logical measurement shape."""
 
-        if measurement.acquisition_kind is not self.acquisition_kind:
+        if measurement.contract.acquisition_kind is not self.acquisition_kind:
             raise ValueError("measurement pulse recipe kind must match its operation")
         implementation_id = self.implementation_id(measurement.qubit)
         target = qubit(measurement.qubit.value)
@@ -240,7 +240,7 @@ class MeasurementPulseRecipe[RowT]:
             pulse_template=materialize_pulse_recipe_body(
                 f"{implementation_id.value}.template",
                 body,
-                measurement=(measurement.qubit, self.acquisition_kind),
+                measurement=(measurement.qubit, measurement.contract),
             ),
         )
 
@@ -394,7 +394,7 @@ class PulseRecipeMap[ParametersT, RowT]:
                         materialized_gates.add(marker)
                 continue
             for recipe in self.measurements:
-                if recipe.acquisition_kind is not operation.acquisition_kind:
+                if recipe.acquisition_kind is not operation.contract.acquisition_kind:
                     continue
                 key = MeasurementPulseImplementationKey.from_measurement(operation)
                 marker = (recipe.id, key)
