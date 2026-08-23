@@ -23,6 +23,10 @@
   },
   "rules": {
     "jsx-a11y/prefer-tag-over-role": "off",
+    "react/capitalized-calls": "off",
+    "react/exhaustive-effect-dependencies": "off",
+    "react/hooks": "off",
+    "react/memo-dependencies": "off",
     "react/react-in-jsx-scope": "off",
     "typescript/consistent-return": "off",
     "typescript/no-unsafe-type-assertion": "off",

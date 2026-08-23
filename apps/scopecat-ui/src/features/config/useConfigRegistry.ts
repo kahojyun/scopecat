@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ApiError } from "../../api-client";
 import type {
@@ -98,7 +98,6 @@ export function useConfigRegistry(daemonUnavailable: boolean) {
           : head.activation_history_next_cursor,
     };
   }, [activationHeadCursor, entryHeadCursor, olderActivations, olderEntries, registryQuery.data]);
-  const selectedId = selection.id;
   const activeEntryId = overview?.activation?.entry_id;
   const activeDetailQuery = useQuery({
     queryKey: ["config", "entry", activeEntryId],
@@ -113,27 +112,10 @@ export function useConfigRegistry(daemonUnavailable: boolean) {
       ? [activeEntry, ...entries]
       : entries;
   }, [activeDetailQuery.data?.entry, overview?.entries]);
-
-  useEffect(() => {
-    setOlderEntries((current) =>
-      current && current.headCursor !== entryHeadCursor ? undefined : current,
-    );
-  }, [entryHeadCursor]);
-
-  useEffect(() => {
-    setOlderActivations((current) =>
-      current && current.headCursor !== activationHeadCursor ? undefined : current,
-    );
-  }, [activationHeadCursor]);
-
-  useEffect(() => {
-    if (!overview) return;
-    const selectionExists = displayedEntries.some((entry) => entry.id === selectedId);
-    if (selection.userSelected && selectionExists) return;
-    const preferredId = activeEntryId ?? displayedEntries[0]?.id;
-    if (preferredId === selectedId && !selection.userSelected) return;
-    setSelection({ id: preferredId, userSelected: false });
-  }, [activeEntryId, displayedEntries, overview, selectedId, selection.userSelected]);
+  const selectedId =
+    selection.userSelected && displayedEntries.some((entry) => entry.id === selection.id)
+      ? selection.id
+      : (activeEntryId ?? displayedEntries[0]?.id);
 
   const selectEntry = useCallback((entryId: string) => {
     setSelection({ id: entryId, userSelected: true });

@@ -26,7 +26,6 @@ export function EChartRuntime({ height, option }: { height: number; option: ECha
   const elementRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ReturnType<typeof init> | null>(null);
   const heightRef = useRef(height);
-  heightRef.current = height;
 
   useEffect(() => {
     const element = elementRef.current;
@@ -62,6 +61,7 @@ export function EChartRuntime({ height, option }: { height: number; option: ECha
   }, [option]);
 
   useEffect(() => {
+    heightRef.current = height;
     chartRef.current?.resize({
       height: elementRef.current?.clientHeight || height,
       width: elementRef.current?.clientWidth || 640,

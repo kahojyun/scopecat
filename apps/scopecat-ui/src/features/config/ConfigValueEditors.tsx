@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { iconButton, secondaryButton } from "../../ui/styles";
 import { defaultTableRow } from "./config-draft";
@@ -356,8 +356,8 @@ function NumericInput({
   onChange: (value: number) => void;
   onValidityChange: (field: string, valid: boolean) => void;
 }) {
-  const [text, setText] = useState(String(value));
-  useEffect(() => setText(String(value)), [value]);
+  const [draft, setDraft] = useState(() => ({ source: value, text: String(value) }));
+  const text = Object.is(draft.source, value) ? draft.text : String(value);
   const valid = numericTextIsValid(text, {
     integer,
     minimum,
@@ -376,7 +376,7 @@ function NumericInput({
       disabled={disabled}
       onChange={(event) => {
         const nextText = event.target.value;
-        setText(nextText);
+        setDraft({ source: value, text: nextText });
         const next = Number(nextText);
         const nextValid = numericTextIsValid(nextText, {
           integer,

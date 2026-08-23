@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
@@ -497,17 +497,12 @@ export function DataCard({
   onMeasurementSliceOffsetChange: (offset: number) => void;
   onMeasurementFixedAxisIndexChange: (axisId: string, index: number) => void;
 }) {
-  const [selectedContentKey, setSelectedContentKey] = useState<string>();
-  useEffect(() => {
-    setSelectedContentKey((current) => {
-      if (run.contents.some((entry) => contentKey(entry) === current)) {
-        return current;
-      }
-      const preferred = run.contents.find(canPreviewRunContent) ?? run.contents[0];
-      return preferred ? contentKey(preferred) : undefined;
-    });
-  }, [run.runId, run.contents]);
-  const selectedContent = run.contents.find((entry) => contentKey(entry) === selectedContentKey);
+  const [requestedContentKey, setRequestedContentKey] = useState<string>();
+  const selectedContent =
+    run.contents.find((entry) => contentKey(entry) === requestedContentKey) ??
+    run.contents.find(canPreviewRunContent) ??
+    run.contents[0];
+  const selectedContentKey = selectedContent ? contentKey(selectedContent) : undefined;
   const contentQuery = useQuery({
     queryKey: [
       "run-content",
@@ -588,7 +583,7 @@ export function DataCard({
                 <button
                   className="flex w-full cursor-pointer items-center gap-[9px] border-0 bg-transparent p-[9px] text-left text-inherit [&>svg]:flex-none [&>svg]:text-text-dim"
                   type="button"
-                  onClick={() => setSelectedContentKey(contentKey(content))}
+                  onClick={() => setRequestedContentKey(contentKey(content))}
                   aria-current={contentKey(content) === selectedContentKey ? "true" : undefined}
                 >
                   <span

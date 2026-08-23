@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent } from "react";
+import { useState, type ChangeEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ConfigProfileSnapshot, ConfigRegistryOverview } from "../../api-contract";
 import { errorMessage } from "../../lib/presentation";
@@ -24,7 +24,6 @@ export interface ImportDraft {
 
 export function useConfigMutationWorkflow(overview?: ConfigRegistryOverview) {
   const queryClient = useQueryClient();
-  const fileInput = useRef<HTMLInputElement>(null);
   const [operator, setOperator] = useState("local-operator");
   const [note, setNote] = useState("");
   const [importDraft, setImportDraft] = useState<ImportDraft>();
@@ -108,7 +107,6 @@ export function useConfigMutationWorkflow(overview?: ConfigRegistryOverview) {
   };
 
   return {
-    fileInput,
     operator,
     setOperator,
     note,
