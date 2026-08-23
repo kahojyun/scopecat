@@ -17,6 +17,7 @@ import type {
   RunDomainEnqueueCommand,
   RunDomainQueue,
   RunDomainResolveCommand,
+  RunExecutionSegmentPage,
 } from "../../api-contract";
 import { ApiError, apiClient, apiData } from "../../api-client";
 import { decodeMeasurementArrowRecord } from "./measurement-arrow";
@@ -127,6 +128,18 @@ export async function getRunDomainDecisions(
   return apiData(
     apiClient.GET("/api/v1/runs/{run_id}/point-plan/decisions", {
       params: { path: { run_id: runId }, query: { limit: 64 } },
+      signal,
+    }),
+  );
+}
+
+export async function getRunExecutionSegments(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<RunExecutionSegmentPage> {
+  return apiData(
+    apiClient.GET("/api/v1/runs/{run_id}/execution-segments", {
+      params: { path: { run_id: runId }, query: { limit: 100 } },
       signal,
     }),
   );

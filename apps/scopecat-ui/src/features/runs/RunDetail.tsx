@@ -1,5 +1,9 @@
 import { AlertTriangle, Unlock } from "lucide-react";
-import type { MeasurementTracePreview, RunDomainDecisionPage } from "../../api-contract";
+import type {
+  MeasurementTracePreview,
+  RunDomainDecisionPage,
+  RunExecutionSegmentPage,
+} from "../../api-contract";
 import { errorMessage, formatDateTime, shorten } from "../../lib/presentation";
 import { classes } from "../../ui/styles";
 import type {
@@ -18,6 +22,7 @@ import type {
 import {
   AnalysisCard,
   DataCard,
+  ExecutionSegmentsCard,
   ProgressCard,
   ResourceCard,
   TimelineCard,
@@ -28,6 +33,9 @@ export function RunDetail({
   events,
   eventsError,
   eventsPending,
+  executionSegments,
+  executionSegmentsError,
+  executionSegmentsPending,
   domainDecisions,
   domainDecisionsError,
   domainDecisionsPending,
@@ -66,6 +74,9 @@ export function RunDetail({
   events: ProjectEvent[];
   eventsError: Error | null;
   eventsPending: boolean;
+  executionSegments?: RunExecutionSegmentPage;
+  executionSegmentsError: Error | null;
+  executionSegmentsPending: boolean;
   domainDecisions?: RunDomainDecisionPage;
   domainDecisionsError: Error | null;
   domainDecisionsPending: boolean;
@@ -175,8 +186,8 @@ export function RunDetail({
               {run.attentionReason ?? "The daemon has not reported a reconciliation reason."}
             </p>
             <p className="mt-1 mb-0 text-[0.71rem] leading-normal text-[#c4b994]">
-              This run cannot be resumed safely. Reconcile its external state, then submit a new
-              run.
+              Reconcile its external state, then resume this run from Python to create a new
+              execution segment, or close it here if no continuation is wanted.
             </p>
             <div className="mt-[11px] flex flex-wrap gap-[7px]">
               <button
@@ -186,7 +197,7 @@ export function RunDetail({
                 disabled={attentionPending}
               >
                 <Unlock size={15} aria-hidden="true" />
-                {attentionPending ? "Resolving…" : "Resolve and close"}
+                {attentionPending ? "Closing…" : "Close without resuming"}
               </button>
             </div>
             {attentionError && (
@@ -200,6 +211,11 @@ export function RunDetail({
 
       <div className="mt-[18px] grid grid-cols-[minmax(0,1.55fr)_minmax(250px,0.85fr)] gap-3 max-[1100px]:grid-cols-[minmax(0,1.25fr)_minmax(230px,0.9fr)] max-[680px]:grid-cols-[minmax(0,1fr)]">
         <ProgressCard run={run} events={events} measurements={measurements} />
+        <ExecutionSegmentsCard
+          page={executionSegments}
+          error={executionSegmentsError}
+          pending={executionSegmentsPending}
+        />
         <RunDomainDecisionCard
           page={domainDecisions}
           error={domainDecisionsError}

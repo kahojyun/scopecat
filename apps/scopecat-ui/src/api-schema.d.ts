@@ -752,6 +752,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/execution-segments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Execution Segments */
+        get: operations["get_run_execution_segments_api_v1_runs__run_id__execution_segments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/measurements/live": {
         parameters: {
             query?: never;
@@ -4924,6 +4941,56 @@ export interface components {
             values: components["schemas"]["RunPointCoordinateValue-Output"][];
         };
         /**
+         * RunExecutionSegment
+         * @description One immutable interval of continuous executor ownership within a run.
+         */
+        RunExecutionSegment: {
+            certainty?: components["schemas"]["RunExecutionSegmentCertainty"] | null;
+            /** End Point Count */
+            end_point_count?: number | null;
+            /** Ended At */
+            ended_at?: string | null;
+            /** Executor Id */
+            executor_id: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Reason */
+            reason?: string | null;
+            result?: components["schemas"]["RunExecutionSegmentResult"] | null;
+            /** Run Contract Fingerprint */
+            run_contract_fingerprint: string;
+            /** Run Id */
+            run_id: string;
+            /** Segment Id */
+            segment_id: string;
+            /** Sequence */
+            sequence: number;
+            /** Start Point Count */
+            start_point_count: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+        };
+        /** @enum {string} */
+        RunExecutionSegmentCertainty: "known" | "indeterminate";
+        /**
+         * RunExecutionSegmentPage
+         * @description Newest-first page of execution ownership intervals for one run.
+         */
+        RunExecutionSegmentPage: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["RunExecutionSegment"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+        };
+        /** @enum {string} */
+        RunExecutionSegmentResult: "succeeded" | "failed" | "cancelled" | "interrupted";
+        /**
          * RunMeasurementDatasetResult
          * @description Internal dataset-loading payload wrapped by the public run facade.
          */
@@ -6868,6 +6935,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunMeasurementDatasetResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_execution_segments_api_v1_runs__run_id__execution_segments_get: {
+        parameters: {
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunExecutionSegmentPage"];
                 };
             };
             /** @description Validation Error */

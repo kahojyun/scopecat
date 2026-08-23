@@ -15,8 +15,12 @@ import {
   SquareStack,
   XCircle,
 } from "lucide-react";
-import type { MeasurementTracePreview } from "../../api-contract";
-import { errorMessage, formatRelative, titleCase } from "../../lib/presentation";
+import type {
+  MeasurementTracePreview,
+  RunExecutionSegment,
+  RunExecutionSegmentPage,
+} from "../../api-contract";
+import { errorMessage, formatRelative, shorten, titleCase } from "../../lib/presentation";
 import { classes, countBadge, detailCard, secondaryButton } from "../../ui/styles";
 import type {
   ContentEntry,
@@ -189,6 +193,91 @@ export function AnalysisCard({
         </div>
       )}
     </article>
+  );
+}
+
+export function ExecutionSegmentsCard({
+  page,
+  error,
+  pending,
+}: {
+  page?: RunExecutionSegmentPage;
+  error: Error | null;
+  pending: boolean;
+}) {
+  const segments = [...(page?.items ?? [])].sort((left, right) => left.ordinal - right.ordinal);
+  return (
+    <article className={detailCard} data-testid="execution-segments-card">
+      <CardHeading
+        icon={<SquareStack size={17} />}
+        title="Execution segments"
+        accessory={
+          <span className={countBadge}>
+            {segments.length}
+            {page?.next_cursor ? "+" : ""}
+          </span>
+        }
+      />
+      {error ? (
+        <InlineEmpty title="Segments unavailable" detail={errorMessage(error)} warning />
+      ) : pending ? (
+        <InlineEmpty
+          title="Reading execution history"
+          detail="Waiting for the daemon's durable execution boundaries."
+        />
+      ) : segments.length === 0 ? (
+        <InlineEmpty
+          title="No execution segments"
+          detail="A segment appears when an executor starts this run."
+        />
+      ) : (
+        <ol className="m-0 grid list-none gap-2 p-0">
+          {segments.map((segment) => (
+            <ExecutionSegmentItem key={segment.segment_id} segment={segment} />
+          ))}
+        </ol>
+      )}
+    </article>
+  );
+}
+
+function ExecutionSegmentItem({ segment }: { segment: RunExecutionSegment }) {
+  const active = segment.ended_at === null || segment.ended_at === undefined;
+  const endPoint = active ? "active" : String(segment.end_point_count ?? "ended");
+  return (
+    <li className="grid gap-2 rounded-[8px] border border-line bg-[rgb(255_255_255_/_1.2%)] p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <strong className="text-[0.7rem] text-text-soft">Segment {segment.ordinal + 1}</strong>
+        <span
+          className={classes(
+            "rounded-[5px] border px-[5px] py-[3px] text-[0.56rem] font-extrabold uppercase",
+            active
+              ? "border-[rgb(128_163_207_/_25%)] bg-accent-soft text-accent"
+              : segment.result === "succeeded"
+                ? "border-[rgb(128_163_207_/_20%)] bg-blue-soft text-blue"
+                : "border-[rgb(237_201_111_/_20%)] bg-yellow-soft text-yellow",
+          )}
+        >
+          {active ? "Active" : titleCase(segment.result ?? "Ended")}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 max-[460px]:grid-cols-1">
+        <Fact label="Point coverage" value={`${segment.start_point_count} → ${endPoint}`} />
+        <Fact label="Certainty" value={titleCase(segment.certainty ?? "Pending")} />
+        <Fact label="Executor" value={shorten(segment.executor_id, 16)} />
+        <Fact label="Run contract" value={shorten(segment.run_contract_fingerprint, 16)} />
+      </div>
+      <p className="m-0 text-[0.61rem] leading-[1.45] text-text-dim">
+        Started <time dateTime={segment.started_at}>{formatRelative(segment.started_at)}</time>
+        {segment.ended_at ? (
+          <>
+            {" · ended "}
+            <time dateTime={segment.ended_at}>{formatRelative(segment.ended_at)}</time>
+          </>
+        ) : null}
+        {segment.reason ? ` · ${titleCase(segment.reason)}` : ""}
+      </p>
+    </li>
   );
 }
 
