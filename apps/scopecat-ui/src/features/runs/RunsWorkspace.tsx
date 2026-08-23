@@ -161,7 +161,13 @@ export function RunsWorkspace({
     queryKey: ["run-execution-segments", selectedRunId],
     queryFn: ({ signal }) => getRunExecutionSegments(selectedRunId!, signal),
     enabled: selectedRunId !== undefined,
-    refetchInterval: selectedRunIsActive ? 1000 : false,
+    refetchInterval: (query) =>
+      selectedRunIsActive ||
+      query.state.data?.items.some(
+        (segment) => segment.ended_at === null || segment.ended_at === undefined,
+      )
+        ? 1000
+        : false,
   });
   const runDomainDecisionsQuery = useQuery({
     queryKey: ["run-domain-decisions", selectedRunId],

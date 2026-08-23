@@ -131,10 +131,14 @@ test("handles naturally expired executors from the GUI", async ({ daemon, page }
 
   await selectAttentionRun(page, run);
   await assertResourceStatus(page, run, "Quarantined");
-  await expect(page.getByRole("alert")).toContainText("submit a new run");
+  await expect(page.getByRole("alert")).toContainText(
+    "resume this run from Python to create a new execution segment",
+  );
   await expect(page.getByRole("button", { name: "Requeue", exact: true })).toHaveCount(0);
+  await expect(page.getByTestId("execution-segments-card")).toContainText("Interrupted");
+  await expect(page.getByTestId("execution-segments-card")).toContainText("0 → 0");
 
-  const receipt = await resolveAttention(page, run.runId, "Resolve and close");
+  const receipt = await resolveAttention(page, run.runId, "Close without resuming", "Close run");
   expect(receipt).toMatchObject({
     state: "closed",
     released_resource_count: 1,
@@ -209,6 +213,8 @@ async function startAbandonedRun(
           point_count: 1,
           initial_point_count: 1,
           point_limit: 1,
+          point_plan_fingerprint: "a".repeat(64),
+          measurement_contract_fingerprint: "b".repeat(64),
           run_resource_requirements: [
             {
               id: resourceId,
@@ -263,6 +269,7 @@ async function resolveAttention(
   page: Page,
   runId: string,
   buttonName: string,
+  confirmName: string,
 ): Promise<AttentionResolutionReceipt> {
   const response = page.waitForResponse(
     (candidate) =>
@@ -274,7 +281,7 @@ async function resolveAttention(
   await expect(confirmation).toBeVisible();
   await confirmation
     .getByRole("button", {
-      name: buttonName,
+      name: confirmName,
       exact: true,
     })
     .click();
