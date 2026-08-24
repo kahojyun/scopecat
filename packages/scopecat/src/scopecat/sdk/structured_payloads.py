@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import enum
 import math
-import struct
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Annotated, Literal, cast
@@ -23,14 +22,18 @@ from pydantic import (
 
 from scopecat.kernel.content_identity import canonical_json
 from scopecat.kernel.numpy_storage import freeze_ndarray
+from scopecat.sdk.attachments import (
+    AttachmentBundle,
+    AttachmentBundleError,
+    AttachmentBundleLimits,
+)
 from scopecat.sdk.payloads import PayloadCodec
 
 STRUCTURED_PAYLOAD_CODEC_ID = "scopecat.pydantic-buffer-bundle"
 STRUCTURED_PAYLOAD_MEDIA_TYPE = "application/vnd.scopecat.pydantic-buffer-bundle"
+STRUCTURED_PAYLOAD_CODEC_VERSION = 2
 
-_MAGIC = b"SCPBNDL1"
-_PREFIX_SIZE = len(_MAGIC) + 8
-_MAX_HEADER_BYTES = 16 * 1024 * 1024
+_BUNDLE_LIMITS = AttachmentBundleLimits()
 _ALLOWED_ARRAY_KINDS = frozenset("buifc")
 
 type _NonNegativeInt = Annotated[int, Field(ge=0)]
@@ -67,13 +70,12 @@ class _ArrayDescriptor(BaseModel):
     index: _NonNegativeInt
     dtype: str = Field(min_length=1)
     shape: tuple[_NonNegativeInt, ...]
-    size_bytes: _NonNegativeInt
 
 
 class _BundleHeader(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    codec: Literal["scopecat.structured-payload.v1"] = "scopecat.structured-payload.v1"
+    codec: Literal["scopecat.structured-payload.v2"] = "scopecat.structured-payload.v2"
     root: JsonValue
     arrays: tuple[_ArrayDescriptor, ...] = ()
 
@@ -188,20 +190,57 @@ class _Encoder:
                 index=index,
                 dtype=wire_dtype.str,
                 shape=cast("tuple[int, ...]", frozen.shape),
-                size_bytes=len(content),
             )
         )
         return {"type": node_type, "attachment": index}
 
 
-def pydantic_buffer_bundle_codec[ValueT](
+@dataclass(frozen=True, slots=True)
+class StructuredValueCodec[ValueT]:
+    """Typed structured values independent of payload schema registration."""
+
+    _adapter: TypeAdapter[ValueT]
+    _value_name: str
+
+    def encode(self, value: ValueT, /) -> AttachmentBundle:
+        try:
+            selected = self._adapter.validate_python(value, strict=True)
+        except ValidationError as error:
+            raise StructuredPayloadError(
+                f"invalid {self._value_name} payload"
+            ) from error
+        encoder = _Encoder([], [])
+        header = _BundleHeader(
+            root=encoder.node(selected),
+            arrays=tuple(encoder.descriptors),
+        )
+        header_bytes = canonical_json(header.model_dump(mode="json")).encode("utf-8")
+        bundle = AttachmentBundle(
+            header=header_bytes,
+            attachments=tuple(encoder.attachments),
+        )
+        try:
+            bundle.validate(_BUNDLE_LIMITS)
+        except AttachmentBundleError as error:
+            raise StructuredPayloadError(str(error)) from error
+        return bundle
+
+    def decode(self, bundle: AttachmentBundle, /) -> ValueT:
+        header, attachments = _decode_bundle(bundle)
+        value = _decode_node(header.root, attachments)
+        try:
+            return self._adapter.validate_python(value, strict=True)
+        except ValidationError as error:
+            raise StructuredPayloadError(
+                f"decoded payload does not match {self._value_name}"
+            ) from error
+
+
+def pydantic_buffer_bundle_value_codec[ValueT](
     value_type: type[ValueT] | TypeAdapter[ValueT],
     /,
-    *,
-    id: str = STRUCTURED_PAYLOAD_CODEC_ID,
-    version: int = 1,
-) -> PayloadCodec[ValueT]:
-    """Build a strict Pydantic codec that keeps NumPy arrays in binary buffers."""
+) -> StructuredValueCodec[ValueT]:
+    """Build a typed array-aware codec without assigning a payload schema."""
 
     if isinstance(value_type, TypeAdapter):
         adapter = value_type
@@ -209,38 +248,32 @@ def pydantic_buffer_bundle_codec[ValueT](
     else:
         adapter = TypeAdapter(value_type)
         value_name = value_type.__qualname__
+    return StructuredValueCodec(adapter, value_name)
+
+
+def pydantic_buffer_bundle_codec[ValueT](
+    value_type: type[ValueT] | TypeAdapter[ValueT],
+    /,
+    *,
+    id: str = STRUCTURED_PAYLOAD_CODEC_ID,
+    version: int = STRUCTURED_PAYLOAD_CODEC_VERSION,
+) -> PayloadCodec[ValueT]:
+    """Build a strict Pydantic codec that keeps NumPy arrays in binary buffers."""
+
+    value_codec = pydantic_buffer_bundle_value_codec(value_type)
 
     def encode(value: ValueT) -> bytes:
         try:
-            selected = adapter.validate_python(value, strict=True)
-        except ValidationError as error:
-            raise StructuredPayloadError(f"invalid {value_name} payload") from error
-        encoder = _Encoder([], [])
-        header = _BundleHeader(
-            root=encoder.node(selected),
-            arrays=tuple(encoder.descriptors),
-        )
-        header_bytes = canonical_json(header.model_dump(mode="json")).encode("utf-8")
-        if len(header_bytes) > _MAX_HEADER_BYTES:
-            raise StructuredPayloadError("structured payload header is too large")
-        return b"".join(
-            (
-                _MAGIC,
-                struct.pack("<Q", len(header_bytes)),
-                header_bytes,
-                *encoder.attachments,
-            )
-        )
+            return value_codec.encode(value).to_bytes(_BUNDLE_LIMITS)
+        except AttachmentBundleError as error:
+            raise StructuredPayloadError(str(error)) from error
 
     def decode(content: bytes) -> ValueT:
-        header, attachments = _unpack(content)
-        value = _decode_node(header.root, attachments)
         try:
-            return adapter.validate_python(value, strict=True)
-        except ValidationError as error:
-            raise StructuredPayloadError(
-                f"decoded payload does not match {value_name}"
-            ) from error
+            bundle = AttachmentBundle.from_bytes(content, _BUNDLE_LIMITS)
+        except AttachmentBundleError as error:
+            raise StructuredPayloadError(str(error)) from error
+        return value_codec.decode(bundle)
 
     return PayloadCodec(
         id=id,
@@ -251,25 +284,26 @@ def pydantic_buffer_bundle_codec[ValueT](
     )
 
 
-def _unpack(content: bytes) -> tuple[_BundleHeader, tuple[NDArray[np.generic], ...]]:
-    if len(content) < _PREFIX_SIZE or content[: len(_MAGIC)] != _MAGIC:
-        raise StructuredPayloadError("structured payload prefix is invalid")
-    header_size = struct.unpack_from("<Q", content, len(_MAGIC))[0]
-    if header_size > _MAX_HEADER_BYTES or _PREFIX_SIZE + header_size > len(content):
-        raise StructuredPayloadError("structured payload header size is invalid")
+def _decode_bundle(
+    bundle: AttachmentBundle,
+) -> tuple[_BundleHeader, tuple[NDArray[np.generic], ...]]:
     try:
-        header = _BundleHeader.model_validate_json(
-            content[_PREFIX_SIZE : _PREFIX_SIZE + header_size]
-        )
+        header = _BundleHeader.model_validate_json(bundle.header)
     except ValidationError as error:
         raise StructuredPayloadError("structured payload header is invalid") from error
     descriptors = tuple(sorted(header.arrays, key=lambda item: item.index))
     if tuple(item.index for item in descriptors) != tuple(range(len(descriptors))):
         raise StructuredPayloadError("structured payload array indexes are invalid")
-    body = memoryview(content)[_PREFIX_SIZE + header_size :]
+    if len(descriptors) != len(bundle.attachments):
+        raise StructuredPayloadError(
+            "structured payload array count does not match its attachments"
+        )
     arrays: list[NDArray[np.generic]] = []
-    offset = 0
-    for descriptor in descriptors:
+    for descriptor, attachment in zip(
+        descriptors,
+        bundle.attachments,
+        strict=True,
+    ):
         try:
             dtype = np.dtype(descriptor.dtype)
         except TypeError as error:
@@ -282,19 +316,11 @@ def _unpack(content: bytes) -> tuple[_BundleHeader, tuple[NDArray[np.generic], .
             )
         count = math.prod(descriptor.shape)
         expected_size = count * dtype.itemsize
-        if expected_size != descriptor.size_bytes:
+        if expected_size != len(attachment):
             raise StructuredPayloadError(
                 "structured payload array shape does not match its byte size"
             )
-        end = offset + descriptor.size_bytes
-        if end > len(body):
-            raise StructuredPayloadError("structured payload array is truncated")
-        arrays.append(
-            np.frombuffer(body[offset:end], dtype=dtype).reshape(descriptor.shape)
-        )
-        offset = end
-    if offset != len(body):
-        raise StructuredPayloadError("structured payload has trailing array bytes")
+        arrays.append(np.frombuffer(attachment, dtype=dtype).reshape(descriptor.shape))
     return header, tuple(arrays)
 
 
@@ -361,8 +387,11 @@ def _decode_node(
 
 __all__ = [
     "STRUCTURED_PAYLOAD_CODEC_ID",
+    "STRUCTURED_PAYLOAD_CODEC_VERSION",
     "STRUCTURED_PAYLOAD_MEDIA_TYPE",
     "FrozenFloat64Vector",
     "StructuredPayloadError",
+    "StructuredValueCodec",
     "pydantic_buffer_bundle_codec",
+    "pydantic_buffer_bundle_value_codec",
 ]

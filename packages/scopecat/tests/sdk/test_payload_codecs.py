@@ -20,6 +20,7 @@ from scopecat.sdk.structured_payloads import (
     FrozenFloat64Vector,
     StructuredPayloadError,
     pydantic_buffer_bundle_codec,
+    pydantic_buffer_bundle_value_codec,
 )
 
 
@@ -276,6 +277,22 @@ def test_pydantic_buffer_bundle_codec_round_trips_immutable_numpy_buffers() -> N
     assert isinstance(registry.decode(payload), _ArrayProgram)
 
 
+def test_structured_value_codec_does_not_require_payload_schema_registration() -> None:
+    codec = pydantic_buffer_bundle_value_codec(_ArrayProgram)
+    value = _ArrayProgram(
+        id="standalone",
+        waveforms=(np.arange(4, dtype=np.float64),),
+        metadata={},
+    )
+
+    bundle = codec.encode(value)
+    restored = codec.decode(bundle)
+
+    assert len(bundle.attachments) == 1
+    assert bytes(bundle.attachments[0]) == value.waveforms[0].tobytes()
+    np.testing.assert_array_equal(restored.waveforms[0], value.waveforms[0])
+
+
 def test_payload_contract_rejects_mismatched_descriptor() -> None:
     contract = PayloadContract(
         schema_id="tests.array-program/v1",
@@ -354,5 +371,5 @@ def test_pydantic_buffer_bundle_codec_rejects_object_arrays_and_trailing_bytes()
             metadata={},
         )
     )
-    with pytest.raises(StructuredPayloadError, match="trailing array bytes"):
+    with pytest.raises(StructuredPayloadError, match="trailing bytes"):
         codec.decoder(encoded + b"extra")

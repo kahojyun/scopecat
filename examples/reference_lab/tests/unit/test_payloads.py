@@ -78,7 +78,7 @@ def test_awg_program_contract_keeps_samples_in_float64_binary() -> None:
 
     assert isinstance(decoded, MaterializedAwgProgramDocument)
     assert encoded.codec_id == "scopecat.pydantic-buffer-bundle"
-    assert encoded.codec_version == 1
+    assert encoded.codec_version == 2
     assert len(encoded.content) < samples.nbytes + 1024
     actual = decoded.entries[0].waveforms[0].samples
     assert np.shares_memory(actual, samples) is False
