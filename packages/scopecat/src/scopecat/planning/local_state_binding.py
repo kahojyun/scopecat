@@ -41,7 +41,7 @@ from scopecat.planning.local_resources import (
 from scopecat.planning.routing import ResourceBindingError
 from scopecat.program.expressions import ComputeResultScalarExpr, ScalarExpr
 from scopecat.program.logical import LogicalInvocation, LogicalStateAssignment
-from scopecat.records.content import CommandPayload, command_payload_from_bytes
+from scopecat.records.content import CommandPayload
 from scopecat.sdk.instruments.commands import InstrumentOperationArgument
 from scopecat.sdk.payloads import PayloadCodecRegistry
 
@@ -348,7 +348,11 @@ def bind_invocation(
                 f"{argument.id}.payload"
             )
             try:
-                encoded = payload_codecs.encode(value.schema_id, value.payload)
+                payload = payload_codecs.command_payload(
+                    payload_id,
+                    value.schema_id,
+                    value.payload,
+                )
             except Exception as error:
                 problems.append(
                     compiler_problem(
@@ -364,16 +368,7 @@ def bind_invocation(
                     )
                 )
                 continue
-            payloads.append(
-                command_payload_from_bytes(
-                    id=payload_id,
-                    schema_id=encoded.schema_id,
-                    codec_id=encoded.codec_id,
-                    codec_version=encoded.codec_version,
-                    media_type=encoded.media_type,
-                    content=encoded.content,
-                )
-            )
+            payloads.append(payload)
             selected_value = StateValue(PayloadRef(payload_id=payload_id))
         else:
             selected_value = _state_value(value)

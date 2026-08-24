@@ -268,6 +268,25 @@ class PayloadCodecRegistry(Mapping[str, PayloadCodec[object]]):
             content=content,
         )
 
+    def command_payload(
+        self,
+        id: str,
+        schema_id: str,
+        value: object,
+        /,
+    ) -> CommandPayload:
+        """Encode a dynamically selected schema into its transport envelope."""
+
+        encoded = self.encode(schema_id, value)
+        return command_payload_from_bytes(
+            id=id,
+            schema_id=encoded.schema_id,
+            codec_id=encoded.codec_id,
+            codec_version=encoded.codec_version,
+            media_type=encoded.media_type,
+            content=encoded.content,
+        )
+
     def validate_descriptor(
         self,
         payload: PayloadDescriptor,

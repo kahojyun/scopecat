@@ -8,6 +8,7 @@ from typing import Protocol, cast
 
 import numpy as np
 from numpy.typing import NDArray
+from scopecat.kernel.content_identity import sha256_json_hash
 from scopecat_quantum._ids import TargetCompileEntryId
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
@@ -15,7 +16,6 @@ from reference_lab.targets.list_mode.model import (
     DigitizerAcquisitionWindow,
     ListModeArtifact,
     acquisition_slot_identity_payload,
-    canonical_fingerprint,
 )
 
 
@@ -178,7 +178,7 @@ def run_fingerprint(
 ) -> str:
     """Identify one array-native raw result without per-shot JSON expansion."""
 
-    return canonical_fingerprint(
+    return sha256_json_hash(
         {
             "schema": "reference_lab.virtual_list_mode_run.v4",
             "artifact_id": artifact.id.value,
