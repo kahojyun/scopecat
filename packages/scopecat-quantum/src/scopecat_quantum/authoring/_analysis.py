@@ -60,6 +60,8 @@ from scopecat_quantum.pulses import (
 from ._ir import (
     Acquisition,
     Coupler,
+    CouplerSet,
+    EntitySetPort,
     Measurement,
     ProgramInput,
     ProgramPort,
@@ -69,6 +71,8 @@ from ._ir import (
     QuantumFragment,
     QuantumQuantity,
     Qubit,
+    QubitPair,
+    QubitPairSet,
     QubitSet,
     RepeatCount,
     _ConditionalFragment,
@@ -77,8 +81,10 @@ from ._ir import (
     _FragmentCall,
     _GateFragment,
     _ImplementedGateFragment,
+    _ParallelCouplerEachFragment,
     _ParallelEachFragment,
     _ParallelFragment,
+    _ParallelQubitPairEachFragment,
     _PlayFragment,
     _PulseTemplateCallFragment,
     _QuantumParallelFragment,
@@ -137,7 +143,7 @@ def program_port_type(
         return ScalarType(EntityType(entity_kind="logical_qubit"))
     if isinstance(value, Coupler):
         return ScalarType(EntityType(entity_kind="logical_coupler"))
-    if isinstance(value, QubitSet):
+    if isinstance(value, QubitSet | CouplerSet | QubitPairSet):
         return value.value_type
     return _program_input_type(
         value,
@@ -268,6 +274,20 @@ def _program_function_argument(
             _id=name,
             _item=Qubit(ir_id=QubitId(f"{name}[]")),
         )
+    if annotation is CouplerSet:
+        return CouplerSet(
+            _id=name,
+            _item=Coupler(ir_id=CouplerId(f"{name}[]")),
+        )
+    if annotation is QubitPairSet:
+        return QubitPairSet(
+            _id=name,
+            _item=QubitPair(
+                left=Qubit(ir_id=QubitId(f"{name}[].left")),
+                right=Qubit(ir_id=QubitId(f"{name}[].right")),
+                coupler=Coupler(ir_id=CouplerId(f"{name}[].coupler")),
+            ),
+        )
     if get_origin(annotation) is Annotated:
         python_type, *metadata = cast("tuple[object, ...]", get_args(annotation))
         gate_kinds = tuple(
@@ -304,6 +324,7 @@ def _program_function_argument(
         )
     raise TypeError(
         f"quantum program port {name!r} needs Qubit, QubitSet, Coupler, "
+        "CouplerSet, QubitPairSet, "
         "or Annotated scalar type"
     )
 
@@ -377,7 +398,7 @@ class _FragmentFacts:
     pulse_only: bool = False
     pulse_owners: tuple[QubitId | CouplerId, ...] = ()
     element_uses: tuple[PulseElement, ...] = ()
-    entity_sets: tuple[QubitSet, ...] = ()
+    entity_sets: tuple[EntitySetPort, ...] = ()
     inputs: tuple[ProgramInput, ...] = ()
     repeat_inputs: tuple[ProgramInput, ...] = ()
     results: tuple[ProgramResult, ...] = ()
@@ -412,7 +433,12 @@ def _expanded_fragment_shape(fragment: QuantumFragment) -> _ExpandedFragmentShap
         return _expanded_fragment_shape(fragment.body)
     if isinstance(fragment, _FragmentCall):
         raise AssertionError("fragment calls must expand before shape analysis")
-    if isinstance(fragment, _ParallelEachFragment):
+    if isinstance(
+        fragment,
+        _ParallelEachFragment
+        | _ParallelCouplerEachFragment
+        | _ParallelQubitPairEachFragment,
+    ):
         raise AssertionError("program family fragments cannot contain entity sets")
     if isinstance(fragment, _ConditionalFragment):
         branches = tuple(body for _state, body in fragment.cases)
@@ -450,6 +476,53 @@ def _expanded_fragment_shape(fragment: QuantumFragment) -> _ExpandedFragmentShap
             depth=max(child.depth for child in children),
         )
     raise AssertionError(f"unsupported quantum fragment {type(fragment).__name__}")
+
+
+def _summarize_entity_set_fragment(
+    fragment: (
+        _ParallelEachFragment
+        | _ParallelCouplerEachFragment
+        | _ParallelQubitPairEachFragment
+    ),
+) -> _FragmentFacts:
+    operation = _summarize_fragment(fragment.operation)
+    if isinstance(fragment, _ParallelEachFragment):
+        items: tuple[Qubit | Coupler, ...] = (fragment.entity_set.item,)
+        results = tuple(
+            replace(result, _entity_set=fragment.entity_set)
+            for result in operation.results
+        )
+    else:
+        if operation.results:
+            entity_kind = (
+                "couplers"
+                if isinstance(fragment, _ParallelCouplerEachFragment)
+                else "qubit pairs"
+            )
+            raise ValueError(f"parallel_each over {entity_kind} cannot produce results")
+        items = (
+            (fragment.entity_set.item,)
+            if isinstance(fragment, _ParallelCouplerEachFragment)
+            else (
+                fragment.entity_set.item.left,
+                fragment.entity_set.item.right,
+                fragment.entity_set.item.coupler,
+            )
+        )
+        results = ()
+    return _FragmentFacts(
+        pulse_only=False,
+        element_uses=tuple(
+            element for element in operation.element_uses if element not in items
+        ),
+        entity_sets=(fragment.entity_set,),
+        inputs=operation.inputs,
+        repeat_inputs=operation.repeat_inputs,
+        results=results,
+        gate_definitions=operation.gate_definitions,
+        has_realtime=operation.has_realtime,
+        result_repeat_dimension_ids=operation.result_repeat_dimension_ids,
+    )
 
 
 def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
@@ -557,27 +630,13 @@ def _summarize_fragment(fragment: QuantumFragment) -> _FragmentFacts:
             has_realtime=pulse.has_realtime,
             result_repeat_dimension_ids=pulse.result_repeat_dimension_ids,
         )
-    if isinstance(fragment, _ParallelEachFragment):
-        operation = _summarize_fragment(fragment.operation)
-        foreign_elements = tuple(
-            element
-            for element in operation.element_uses
-            if element != fragment.entity_set.item
-        )
-        return _FragmentFacts(
-            pulse_only=False,
-            element_uses=foreign_elements,
-            entity_sets=(fragment.entity_set,),
-            inputs=operation.inputs,
-            repeat_inputs=operation.repeat_inputs,
-            results=tuple(
-                replace(result, _entity_set=fragment.entity_set)
-                for result in operation.results
-            ),
-            gate_definitions=operation.gate_definitions,
-            has_realtime=operation.has_realtime,
-            result_repeat_dimension_ids=operation.result_repeat_dimension_ids,
-        )
+    if isinstance(
+        fragment,
+        _ParallelEachFragment
+        | _ParallelCouplerEachFragment
+        | _ParallelQubitPairEachFragment,
+    ):
+        return _summarize_entity_set_fragment(fragment)
     if isinstance(fragment, _ConditionalFragment):
         branches = tuple(body for _state, body in fragment.cases)
         if fragment.default is not None:
@@ -736,7 +795,12 @@ def _validate_realtime_node(
             active_result_dimensions=active_result_dimensions,
             aggregate_results=aggregate_results,
         )
-    if isinstance(fragment, _ParallelEachFragment):
+    if isinstance(
+        fragment,
+        _ParallelEachFragment
+        | _ParallelCouplerEachFragment
+        | _ParallelQubitPairEachFragment,
+    ):
         if _summarize_fragment(fragment.operation).has_realtime:
             raise ValueError("real-time control is not supported under parallel_each")
         return _validate_realtime_node(

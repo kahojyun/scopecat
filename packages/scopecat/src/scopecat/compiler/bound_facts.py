@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from scopecat.compiler.parameter_overlays import PointParameterOverlay
 from scopecat.compiler.point_domain import PointDomain
-from scopecat.compiler.topology_selection import TopologyEntitySetResolution
+from scopecat.compiler.topology_selection import TopologyTableResolution
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.instrument_members import InstrumentCapabilityRef
@@ -56,7 +56,7 @@ def _empty_value_overrides() -> dict[ValueId, ScalarExpr]:
     return {}
 
 
-def _empty_topology_entity_sets() -> dict[ValueId, TopologyEntitySetResolution]:
+def _empty_topology_entity_sets() -> dict[ValueId, TopologyTableResolution]:
     return {}
 
 
@@ -139,7 +139,7 @@ class BoundProgramFacts:
     value_overrides: Mapping[ValueId, ScalarExpr] = field(
         default_factory=_empty_value_overrides
     )
-    topology_entity_sets: Mapping[ValueId, TopologyEntitySetResolution] = field(
+    topology_entity_sets: Mapping[ValueId, TopologyTableResolution] = field(
         default_factory=_empty_topology_entity_sets
     )
     resource_requirements: tuple[LogicalResourceRequirement, ...] = ()

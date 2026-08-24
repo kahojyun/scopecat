@@ -85,6 +85,7 @@ from ._expansion import (
 )
 from ._ir import (
     Acquisition,
+    CouplerSet,
     ElementBindings,
     Measurement,
     ProgramBindingError,
@@ -94,6 +95,7 @@ from ._ir import (
     QuantumFragment,
     QuantumQuantity,
     Qubit,
+    QubitPairSet,
     QubitSet,
     RepeatCount,
     _ConditionalFragment,
@@ -102,8 +104,10 @@ from ._ir import (
     _FragmentCall,
     _GateFragment,
     _ImplementedGateFragment,
+    _ParallelCouplerEachFragment,
     _ParallelEachFragment,
     _ParallelFragment,
+    _ParallelQubitPairEachFragment,
     _PlayFragment,
     _PulseTemplateCallFragment,
     _QuantumParallelFragment,
@@ -248,10 +252,14 @@ def bind(
             else CouplerId(selected.id)
         )
     for entity_set in declaration.entity_sets:
-        concrete_bindings[entity_set.id] = _bound_qubit_set(
-            entity_set,
-            selected_bindings[entity_set.id],
-        )
+        selected = selected_bindings[entity_set.id]
+        if isinstance(entity_set, QubitSet):
+            bound_set = _bound_entity_set(entity_set, selected, column="qubit")
+        elif isinstance(entity_set, CouplerSet):
+            bound_set = _bound_entity_set(entity_set, selected, column="coupler")
+        else:
+            bound_set = _bound_qubit_pair_set(entity_set, selected)
+        concrete_bindings[entity_set.id] = bound_set
     for input_handle in declaration.inputs:
         value_type = _program_input_type(
             input_handle,
@@ -457,6 +465,46 @@ def _bind_quantum_fragment(
                 path=(*path, "parallel_each-body"),
                 acquisition_scope=acquisition_scope,
             ),
+        )
+    if isinstance(fragment, _ParallelCouplerEachFragment):
+        entities = cast("tuple[EntityRef, ...]", bindings[fragment.entity_set.id])
+        return IrQuantumParallel(
+            tuple(
+                _bind_quantum_fragment(
+                    fragment.operation,
+                    bindings,
+                    element_bindings={
+                        **element_bindings,
+                        fragment.entity_set.item.ir_id: CouplerId(entity.id),
+                    },
+                    path=(*path, f"parallel_each[{index}]"),
+                    acquisition_scope=acquisition_scope,
+                )
+                for index, entity in enumerate(entities)
+            )
+        )
+    if isinstance(fragment, _ParallelQubitPairEachFragment):
+        pairs = cast(
+            "tuple[tuple[EntityRef, EntityRef, EntityRef], ...]",
+            bindings[fragment.entity_set.id],
+        )
+        item = fragment.entity_set.item
+        return IrQuantumParallel(
+            tuple(
+                _bind_quantum_fragment(
+                    fragment.operation,
+                    bindings,
+                    element_bindings={
+                        **element_bindings,
+                        item.left.ir_id: QubitId(left.id),
+                        item.right.ir_id: QubitId(right.id),
+                        item.coupler.ir_id: CouplerId(coupler.id),
+                    },
+                    path=(*path, f"parallel_each[{index}]"),
+                    acquisition_scope=acquisition_scope,
+                )
+                for index, (left, right, coupler) in enumerate(pairs)
+            )
         )
     if isinstance(fragment, _ConditionalFragment):
         return IrQuantumConditional(
@@ -743,15 +791,20 @@ def _bind_result_contract(
     return replace(contract, dimensions=tuple(dimensions))
 
 
-def _bound_qubit_set(entity_set: QubitSet, value: object) -> tuple[EntityRef, ...]:
+def _bound_entity_set(
+    entity_set: QubitSet | CouplerSet,
+    value: object,
+    *,
+    column: str,
+) -> tuple[EntityRef, ...]:
     if not isinstance(value, Sequence) or isinstance(value, str | bytes):
         raise ProgramBindingError(
-            f"bindings.{entity_set.id}: expected a sequence of logical qubits"
+            f"bindings.{entity_set.id}: expected a sequence of logical entities"
         )
     rows = tuple(
         dict(cast("Mapping[str, object]", item))
         if isinstance(item, Mapping)
-        else {"qubit": item}
+        else {column: item}
         for item in value
     )
     try:
@@ -763,14 +816,40 @@ def _bound_qubit_set(entity_set: QubitSet, value: object) -> tuple[EntityRef, ..
     except ValueValidationError as error:
         raise ProgramBindingError(str(error)) from error
     entities = tuple(
-        cast("EntityRef", row["qubit"])
+        cast("EntityRef", row[column])
         for row in cast("tuple[dict[str, object], ...]", normalized)
     )
     if not entities:
         raise ProgramBindingError(
-            f"bindings.{entity_set.id}: qubit set must not be empty"
+            f"bindings.{entity_set.id}: entity set must not be empty"
         )
     return entities
+
+
+def _bound_qubit_pair_set(
+    entity_set: QubitPairSet,
+    value: object,
+) -> tuple[tuple[EntityRef, EntityRef, EntityRef], ...]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        raise ProgramBindingError(
+            f"bindings.{entity_set.id}: expected a sequence of qubit-pair rows"
+        )
+    try:
+        normalized = coerce_literal(
+            entity_set.value_type,
+            tuple(dict(cast("Mapping[str, object]", row)) for row in value),
+            path=("bindings", entity_set.id),
+        )
+    except ValueValidationError as error:
+        raise ProgramBindingError(str(error)) from error
+    return tuple(
+        (
+            cast("EntityRef", row["left"]),
+            cast("EntityRef", row["right"]),
+            cast("EntityRef", row["coupler"]),
+        )
+        for row in cast("tuple[dict[str, object], ...]", normalized)
+    )
 
 
 def _bound_gate_definitions(
@@ -783,7 +862,12 @@ def _bound_gate_definitions(
         return _bound_gate_definitions(fragment.body, bindings)
     if isinstance(fragment, _FragmentCall):
         raise AssertionError("quantum fragment calls must expand before binding")
-    if isinstance(fragment, _ParallelEachFragment):
+    if isinstance(
+        fragment,
+        _ParallelEachFragment
+        | _ParallelCouplerEachFragment
+        | _ParallelQubitPairEachFragment,
+    ):
         return _bound_gate_definitions(fragment.operation, bindings)
     if isinstance(fragment, _ConditionalFragment):
         branches = tuple(body for _state, body in fragment.cases)

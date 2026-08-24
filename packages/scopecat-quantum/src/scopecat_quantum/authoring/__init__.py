@@ -76,6 +76,8 @@ from ._ir import (
     CircuitFragment,
     Coupler,
     CouplerInput,
+    CouplerSet,
+    EntitySetPort,
     Measurement,
     MeasurementResult,
     ProgramBindingError,
@@ -90,6 +92,8 @@ from ._ir import (
     QuantumQuantity,
     Qubit,
     QubitInput,
+    QubitPair,
+    QubitPairSet,
     QubitSet,
     RepeatCount,
 )
@@ -98,7 +102,14 @@ from ._programs import (
     ProgramDefinition,
     QuantumProgramCall,
 )
-from ._selection import QubitSelectionIntent, select_qubits
+from ._selection import (
+    CouplerSelectionIntent,
+    QubitPairSelectionIntent,
+    QubitSelectionIntent,
+    select_couplers,
+    select_qubit_pairs,
+    select_qubits,
+)
 
 __all__ = [
     "CLASSIFIED_STATE_RESULT",
@@ -112,6 +123,9 @@ __all__ = [
     "CircuitFragment",
     "Coupler",
     "CouplerInput",
+    "CouplerSelectionIntent",
+    "CouplerSet",
+    "EntitySetPort",
     "FragmentDefinition",
     "Gate",
     "GateImplementationDefinition",
@@ -136,6 +150,9 @@ __all__ = [
     "QuantumResultDimension",
     "Qubit",
     "QubitInput",
+    "QubitPair",
+    "QubitPairSelectionIntent",
+    "QubitPairSet",
     "QubitSelectionIntent",
     "QubitSet",
     "RepeatCount",
@@ -168,6 +185,8 @@ __all__ = [
     "readout",
     "repeat",
     "scalar_input",
+    "select_couplers",
+    "select_qubit_pairs",
     "select_qubits",
     "sequence",
     "shift_phase",
