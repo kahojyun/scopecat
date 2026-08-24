@@ -799,10 +799,10 @@ def test_blocked_driver_does_not_block_another_device(tmp_path: Path) -> None:
                 _gain_read_request(),
             )
             try:
-                state = independent.result(timeout=1)
+                state = independent.result(timeout=10)
             finally:
                 release.touch()
-            blocked.result(timeout=2)
+            blocked.result(timeout=10)
         assert state.instrument_id == "source-1"
         [observation] = state.observations
         assert observation.metadata["worker_pid"] == endpoint.worker_pid

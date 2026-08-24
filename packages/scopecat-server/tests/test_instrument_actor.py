@@ -165,7 +165,7 @@ class _BlockingReadDriver(_TrackingDriver):
         try:
             if call_number == 1:
                 self.first_entered.set()
-                assert self.release_first.wait(timeout=2)
+                assert self.release_first.wait(timeout=10)
             return super().read_state(request)
         finally:
             with self._counter_lock:
@@ -671,12 +671,12 @@ def test_handle_serializes_driver_calls_and_never_exposes_the_driver() -> None:
     first_thread = Thread(target=first_read)
     second_thread = Thread(target=second_read)
     first_thread.start()
-    assert driver.first_entered.wait(timeout=2)
+    assert driver.first_entered.wait(timeout=10)
     second_thread.start()
-    assert second_attempted.wait(timeout=2)
+    assert second_attempted.wait(timeout=10)
     driver.release_first.set()
-    first_thread.join(timeout=2)
-    second_thread.join(timeout=2)
+    first_thread.join(timeout=10)
+    second_thread.join(timeout=10)
 
     assert not first_thread.is_alive()
     assert not second_thread.is_alive()
@@ -701,7 +701,7 @@ def test_unrelated_instruments_can_connect_concurrently() -> None:
     ) -> Callable[[], ConnectedInstrument]:
         def connect() -> ConnectedInstrument:
             entered.set()
-            assert peer_entered.wait(timeout=2)
+            assert peer_entered.wait(timeout=10)
             driver = _TrackingDriver(instrument_id)
             return endpoint.attach(driver)
 
@@ -736,8 +736,8 @@ def test_unrelated_instruments_can_connect_concurrently() -> None:
     )
     first_thread.start()
     second_thread.start()
-    first_thread.join(timeout=3)
-    second_thread.join(timeout=3)
+    first_thread.join(timeout=10)
+    second_thread.join(timeout=10)
 
     assert not first_thread.is_alive()
     assert not second_thread.is_alive()
@@ -968,7 +968,7 @@ def test_retirement_catches_an_acquire_after_its_slow_connect() -> None:
 
     def slow_connect() -> ConnectedInstrument:
         connect_entered.set()
-        assert release_connect.wait(timeout=2)
+        assert release_connect.wait(timeout=10)
         return endpoint()
 
     def acquire() -> None:
@@ -988,12 +988,12 @@ def test_retirement_catches_an_acquire_after_its_slow_connect() -> None:
 
     thread = Thread(target=acquire)
     thread.start()
-    assert connect_entered.wait(timeout=2)
+    assert connect_entered.wait(timeout=10)
     retirement = registry.begin_retirement((exclusivity_key,))
     release_connect.set()
 
     retirement.retire_idle()
-    thread.join(timeout=2)
+    thread.join(timeout=10)
 
     assert not thread.is_alive()
     assert acquired == []

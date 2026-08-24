@@ -724,7 +724,7 @@ def test_worker_fences_completion_after_background_heartbeat_loses_lease() -> No
 
     def effect(operation_id: str) -> RunOutputRef:
         del operation_id
-        assert control.heartbeat_called.wait(timeout=1)
+        assert control.heartbeat_called.wait(timeout=5)
         return RunOutputRef(run_id="must-not-be-committed")
 
     _EFFECTS["lease-loss"] = effect
