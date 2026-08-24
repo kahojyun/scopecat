@@ -29,6 +29,7 @@ from scopecat.project import load_instrument_backend_factory
 from scopecat.records.config import InstrumentBindingSpec
 from scopecat.records.instrument import InstrumentStateReadback
 from scopecat.sdk.instruments.backend import (
+    BackendAcquisitionPlan,
     BackendApplyRequest,
     BackendCollectRequest,
     BackendInvokeRequest,
@@ -36,6 +37,7 @@ from scopecat.sdk.instruments.backend import (
 )
 from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
+    AcquisitionPreparationReceipt,
     ApplyReceipt,
     CollectReceipt,
     InvokeReceipt,
@@ -74,6 +76,7 @@ type _Operation = Literal[
     "read_state",
     "apply_state",
     "invoke",
+    "prepare_acquisitions",
     "collect",
     "abort",
     "disconnect",
@@ -469,6 +472,21 @@ class SubprocessInstrumentBackendEndpoint:
                 ValueError("instrument worker omitted its collect receipt frames")
             )
         return received.collect_receipt
+
+    def prepare_acquisitions(
+        self,
+        handle: InstrumentHandle,
+        plan: BackendAcquisitionPlan,
+    ) -> AcquisitionPreparationReceipt:
+        received = self._rpc(
+            "prepare_acquisitions",
+            handle=handle,
+            body={"plan": _model_to_body(plan)},
+        )
+        return self._decode_response(
+            AcquisitionPreparationReceipt,
+            received.response,
+        )
 
     def abort(self, handle: InstrumentHandle) -> None:
         self._rpc("abort", handle=handle)
@@ -1004,6 +1022,15 @@ def _dispatch_request(
             ),
             collect_frames=frames,
         )
+    if operation == "prepare_acquisitions":
+        receipt = endpoint.prepare_acquisitions(
+            handle,
+            _model_from_body(
+                BackendAcquisitionPlan,
+                _require_mapping(body, "plan"),
+            ),
+        )
+        return _OutgoingResponse(response=_ok_response(request, receipt))
     if operation == "abort":
         endpoint.abort(handle)
         return _OutgoingResponse(

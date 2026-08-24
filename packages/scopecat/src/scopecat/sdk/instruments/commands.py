@@ -333,6 +333,24 @@ class InvokeReceipt(BaseModel):
         return self
 
 
+class AcquisitionPreparationReceipt(BaseModel):
+    """Outcome of preparing all acquisition demands in one hardware batch."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["prepared", "not_prepared", "unknown"] = "prepared"
+    problems: tuple[Problem, ...] = ()
+    metadata: JsonMetadata = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_outcome_truth_table(self) -> AcquisitionPreparationReceipt:
+        if self.status == "prepared" and self.problems:
+            raise ValueError("a prepared receipt cannot contain problems")
+        if self.status != "prepared" and not self.problems:
+            raise ValueError("a negative or unknown prepare receipt requires a problem")
+        return self
+
+
 class CollectReceipt(BaseModel):
     """Explicit outcome reported after one collection command.
 

@@ -17,6 +17,7 @@ from scopecat.planning.provider_validation import (
 from scopecat.records.config import InstrumentBindingSpec
 from scopecat.records.instrument import InstrumentStateReadback
 from scopecat.sdk.instruments.backend import (
+    BackendAcquisitionPlan,
     BackendApplyRequest,
     BackendCollectRequest,
     BackendInvokeRequest,
@@ -26,6 +27,7 @@ from scopecat.sdk.instruments.backend import (
 )
 from scopecat.sdk.instruments.catalog import DriverCatalog
 from scopecat.sdk.instruments.commands import (
+    AcquisitionPreparationReceipt,
     ApplyReceipt,
     CollectReceipt,
     InvokeReceipt,
@@ -33,14 +35,17 @@ from scopecat.sdk.instruments.commands import (
 from scopecat.sdk.instruments.contracts import InstrumentDescription
 from scopecat.sdk.instruments.driver_adapter import (
     lower_acquisition,
+    lower_acquisition_plan,
     lower_state_patch,
     lower_state_read_request,
+    project_acquisition_preparation_outcome,
     project_apply_outcome,
     project_collect_outcome,
     project_invoke_outcome,
     project_state_readback,
 )
 from scopecat.sdk.instruments.provider import (
+    AcquisitionPreparer,
     DriverFault,
     InstrumentConnectionContext,
     InstrumentDriver,
@@ -130,6 +135,12 @@ class InstrumentBackendEndpoint(Protocol):
         handle: InstrumentHandle,
         request: BackendCollectRequest,
     ) -> CollectReceipt: ...
+
+    def prepare_acquisitions(
+        self,
+        handle: InstrumentHandle,
+        plan: BackendAcquisitionPlan,
+    ) -> AcquisitionPreparationReceipt: ...
 
     def abort(self, handle: InstrumentHandle) -> None: ...
 
@@ -333,6 +344,19 @@ class LocalInstrumentBackendEndpoint:
             return project_collect_outcome(
                 request,
                 connection.driver.collect(lower_acquisition(request)),
+            )
+
+    def prepare_acquisitions(
+        self,
+        handle: InstrumentHandle,
+        plan: BackendAcquisitionPlan,
+    ) -> AcquisitionPreparationReceipt:
+        with self._locked_connection(handle) as connection:
+            driver = connection.driver
+            if not isinstance(driver, AcquisitionPreparer):
+                return AcquisitionPreparationReceipt()
+            return project_acquisition_preparation_outcome(
+                driver.prepare_acquisitions(lower_acquisition_plan(plan))
             )
 
     def abort(self, handle: InstrumentHandle) -> None:

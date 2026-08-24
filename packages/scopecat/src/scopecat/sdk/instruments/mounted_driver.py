@@ -11,6 +11,7 @@ from pydantic import JsonValue
 from scopecat.kernel.problems import ProblemPhase, model_location, problem
 from scopecat.sdk.instruments.authoring import (
     DriverAcquisition,
+    DriverAcquisitionPlan,
     DriverOperation,
     DriverOutcome,
     DriverReadback,
@@ -42,7 +43,7 @@ from scopecat.sdk.instruments.members import (
     PropertyRef,
     StateMemberRef,
 )
-from scopecat.sdk.instruments.provider import InstrumentDriver
+from scopecat.sdk.instruments.provider import AcquisitionPreparer, InstrumentDriver
 
 type MountPath = tuple[str, ...]
 
@@ -292,6 +293,54 @@ class MountedInstrumentRouter:
             metadata=outcome.metadata,
         )
 
+    def prepare_acquisitions(
+        self,
+        plan: DriverAcquisitionPlan,
+    ) -> DriverOutcome[None]:
+        grouped: dict[MountPath, list[DriverAcquisition]] = {}
+        try:
+            for request in plan.acquisitions:
+                mount = self._resolve(
+                    request.target.component_path,
+                    kind="acquisition",
+                )
+                grouped.setdefault(mount.path, []).append(
+                    DriverAcquisition(
+                        target=_acquisition_at(
+                            request.target,
+                            request.target.component_path[len(mount.path) :],
+                        ),
+                        results=frozenset(
+                            self._relative_result(result, mount)
+                            for result in request.results
+                        ),
+                        dimensions={
+                            self._relative_result(result, mount): dimensions
+                            for result, dimensions in request.dimensions.items()
+                        },
+                        entity_ids=request.entity_ids,
+                        channel_bindings=request.channel_bindings,
+                    )
+                )
+        except ValueError as error:
+            return _not_mounted(self.instrument_id, "acquisition", str(error))
+
+        outcome_metadata: dict[str, JsonValue] = {}
+        for mount in self._mounts:
+            acquisitions = grouped.get(mount.path)
+            if acquisitions is None or not isinstance(
+                mount.driver, AcquisitionPreparer
+            ):
+                continue
+            outcome = mount.driver.prepare_acquisitions(
+                DriverAcquisitionPlan(tuple(acquisitions))
+            )
+            if not isinstance(outcome, DriverSuccess):
+                return outcome
+            if outcome.metadata:
+                outcome_metadata[_display_path(mount.path)] = outcome.metadata
+        return DriverSuccess(None, metadata=_mounted_metadata(outcome_metadata))
+
     def _resolve(self, component_path: Sequence[str], *, kind: str) -> _Mount:
         selected = tuple(component_path)
         candidates = tuple(
@@ -376,6 +425,12 @@ class MountedInstrumentDriver(ABC):
         request: DriverAcquisition,
     ) -> DriverOutcome[DriverReadback]:
         return self._mounted_router.collect(request)
+
+    def prepare_acquisitions(
+        self,
+        plan: DriverAcquisitionPlan,
+    ) -> DriverOutcome[None]:
+        return self._mounted_router.prepare_acquisitions(plan)
 
     def _state_metadata(self) -> Mapping[str, JsonValue]:
         return {}

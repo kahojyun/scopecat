@@ -14,6 +14,7 @@ from scopecat.records.instrument import (
     state_member_target,
 )
 from scopecat.sdk.instruments import (
+    AcquisitionPreparationReceipt,
     ApplyReceipt,
     CollectReceipt,
     DriverAcquisition,
@@ -31,6 +32,7 @@ from scopecat.sdk.instruments import (
     operation,
 )
 from scopecat.sdk.instruments.backend import (
+    BackendAcquisitionPlan,
     BackendApplyRequest,
     BackendCollectRequest,
     BackendCollectResult,
@@ -291,6 +293,15 @@ class _DriverEndpoint(InstrumentBackendEndpoint):
             request,
             self._driver(handle).collect(lower_acquisition(request)),
         )
+
+    @override
+    def prepare_acquisitions(
+        self,
+        handle: InstrumentHandle,
+        plan: BackendAcquisitionPlan,
+    ) -> AcquisitionPreparationReceipt:
+        del handle, plan
+        return AcquisitionPreparationReceipt()
 
     @override
     def abort(self, handle: InstrumentHandle) -> None:

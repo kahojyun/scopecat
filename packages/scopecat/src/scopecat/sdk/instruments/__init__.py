@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from scopecat.sdk.instruments.authoring import (
         DriverAcquisition,
         DriverAcquisitionDimension,
+        DriverAcquisitionPlan,
         DriverArgument,
         DriverOperation,
         DriverOutcome,
@@ -58,6 +59,7 @@ if TYPE_CHECKING:
         InstrumentConnectionKind,
     )
     from scopecat.sdk.instruments.commands import (
+        AcquisitionPreparationReceipt,
         ApplyReceipt,
         CollectReceipt,
         InstrumentConfiguredDefaultsApplyReceipt,
@@ -146,6 +148,7 @@ if TYPE_CHECKING:
         write,
     )
     from scopecat.sdk.instruments.provider import (
+        AcquisitionPreparer,
         DriverFault,
         InstrumentConnectionContext,
         InstrumentDriver,
@@ -175,6 +178,14 @@ if TYPE_CHECKING:
 
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "AcquisitionPreparationReceipt": (
+        "scopecat.sdk.instruments.commands",
+        "AcquisitionPreparationReceipt",
+    ),
+    "AcquisitionPreparer": (
+        "scopecat.sdk.instruments.provider",
+        "AcquisitionPreparer",
+    ),
     "Change": ("scopecat.sdk.instruments.object_driver", "Change"),
     "AcquisitionAxisSize": (
         "scopecat.sdk.instruments.contracts",
@@ -223,6 +234,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "DriverAcquisitionDimension": (
         "scopecat.sdk.instruments.authoring",
         "DriverAcquisitionDimension",
+    ),
+    "DriverAcquisitionPlan": (
+        "scopecat.sdk.instruments.authoring",
+        "DriverAcquisitionPlan",
     ),
     "DriverCatalog": ("scopecat.sdk.instruments.catalog", "DriverCatalog"),
     "DriverConnectionSpec": (

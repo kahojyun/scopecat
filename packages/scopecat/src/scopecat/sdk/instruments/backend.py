@@ -138,6 +138,10 @@ class BackendCollectRequest(_BackendRequestModel):
         return self.target.result(result.result_id)
 
 
+class BackendAcquisitionPlan(_BackendRequestModel):
+    acquisitions: tuple[BackendCollectRequest, ...] = Field(min_length=1)
+
+
 @dataclass(frozen=True, slots=True)
 class InstrumentBackend:
     """Keep one provider and its driver-side payload codecs process-long."""
@@ -239,6 +243,7 @@ def lower_backend_collect_request(command: CollectCommand) -> BackendCollectRequ
 
 
 __all__ = [
+    "BackendAcquisitionPlan",
     "BackendApplyRequest",
     "BackendCollectRequest",
     "BackendCollectResult",

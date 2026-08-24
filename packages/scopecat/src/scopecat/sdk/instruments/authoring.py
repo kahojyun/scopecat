@@ -192,6 +192,17 @@ class DriverAcquisition:
 
 
 @dataclass(frozen=True, slots=True)
+class DriverAcquisitionPlan:
+    """Ordered acquisition demand visible before a hardware batch starts."""
+
+    acquisitions: tuple[DriverAcquisition, ...]
+
+    def __post_init__(self) -> None:
+        if not self.acquisitions:
+            raise ValueError("driver acquisition plans must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
 class DriverReadback:
     values: Mapping[AcquisitionResultRef, MeasurementAcquisitionValue]
     metadata: dict[str, JsonValue] = field(default_factory=dict)
@@ -221,6 +232,7 @@ type DriverOutcome[T] = DriverSuccess[T] | DriverRejected | DriverUnknown
 __all__ = [
     "DriverAcquisition",
     "DriverAcquisitionDimension",
+    "DriverAcquisitionPlan",
     "DriverArgument",
     "DriverOperation",
     "DriverOutcome",

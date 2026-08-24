@@ -21,12 +21,14 @@ from scopecat.records.instrument import (
     state_member_target,
 )
 from scopecat.sdk.instruments.backend import (
+    BackendAcquisitionPlan,
     BackendApplyRequest,
     BackendCollectRequest,
     BackendInvokeRequest,
     BackendReadRequest,
 )
 from scopecat.sdk.instruments.commands import (
+    AcquisitionPreparationReceipt,
     ApplyReceipt,
     CollectReceipt,
     InvokeReceipt,
@@ -294,6 +296,12 @@ class OwnedInstrument:
     def collect(self, request: BackendCollectRequest) -> CollectReceipt:
         return self._actor.collect(self, request)
 
+    def prepare_acquisitions(
+        self,
+        plan: BackendAcquisitionPlan,
+    ) -> AcquisitionPreparationReceipt:
+        return self._actor.prepare_acquisitions(self, plan)
+
     def abort(self) -> None:
         """Stop owner-scoped hardware work before release or fault."""
 
@@ -513,6 +521,15 @@ class _InstrumentActor:
             if receipt.status != "collected":
                 self._require_cache().mark_all_unknown("collect_outcome_unknown")
             return receipt
+
+    def prepare_acquisitions(
+        self,
+        owned: OwnedInstrument,
+        plan: BackendAcquisitionPlan,
+    ) -> AcquisitionPreparationReceipt:
+        with self._lock:
+            endpoint, handle = self._require_owned(owned)
+            return endpoint.prepare_acquisitions(handle, plan)
 
     def abort(self, owned: OwnedInstrument) -> None:
         with self._lock:
