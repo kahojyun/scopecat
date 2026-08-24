@@ -30,6 +30,7 @@ from .analysis import (
     linear_xeb_from_distribution,
     linear_xeb_from_samples,
 )
+from .datasets import analyze_parallel_rb_dataset
 from .sequences import (
     PHASED_XEB_PROTOCOL,
     SINGLE_QUBIT_RB_PROTOCOL,
@@ -73,6 +74,7 @@ __all__ = [
     "TwoQubitRbSequence",
     "XebDecayFit",
     "aggregate_seed_observations",
+    "analyze_parallel_rb_dataset",
     "analyze_parallel_rb_seeds",
     "decompose_single_qubit_clifford",
     "decompose_two_qubit_clifford",

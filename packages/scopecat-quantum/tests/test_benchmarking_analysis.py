@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import xarray as xr
 
 from scopecat_quantum.benchmarking import (
     aggregate_seed_observations,
+    analyze_parallel_rb_dataset,
     analyze_parallel_rb_seeds,
     fit_parallel_rb_decay,
     fit_rb_decay,
@@ -79,6 +81,38 @@ def test_parallel_rb_seed_analysis_aggregates_and_bootstraps_repetitions() -> No
     assert analysis.aggregate.mean.tolist() == aggregate.mean.tolist()
     assert analysis.fits[0].fit.decay == pytest.approx(0.98, abs=1e-9)
     assert analysis.fits[1].fit.decay == pytest.approx(0.95, abs=1e-9)
+
+
+def test_parallel_rb_dataset_adapter_consumes_recorded_point_layout() -> None:
+    lengths = (1, 1, 2, 2, 4, 4, 8, 8, 16, 16)
+    dataset = xr.Dataset(
+        data_vars={
+            "length": (("point",), np.asarray(lengths)),
+            "survival": (
+                ("point", "entity"),
+                np.asarray(
+                    [
+                        [
+                            0.4 * 0.98**length + 0.5,
+                            0.45 * 0.95**length + 0.48,
+                        ]
+                        for length in lengths
+                    ]
+                ),
+            ),
+        },
+        coords={"entity": ("entity", np.asarray(("q0", "q7")))},
+    )
+
+    analysis = analyze_parallel_rb_dataset(
+        dataset,
+        survival_variable="survival",
+        bootstrap_samples=64,
+    )
+
+    assert analysis.aggregate.coordinates == (1, 2, 4, 8, 16)
+    assert [fit.entity_id for fit in analysis.fits] == ["q0", "q7"]
+    assert analysis.fits[0].fit.decay == pytest.approx(0.98, abs=1e-9)
 
 
 def test_interleaved_rb_and_linear_xeb_reference_estimators() -> None:
