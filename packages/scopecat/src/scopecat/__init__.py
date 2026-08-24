@@ -165,6 +165,7 @@ if TYPE_CHECKING:
         PayloadContract,
     )
     from scopecat.sdk.structured_payloads import (
+        FrozenFloat64Vector,
         StructuredPayloadError,
         pydantic_buffer_bundle_codec,
     )
@@ -260,6 +261,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     ),
     "PayloadCodecRegistry": ("scopecat.sdk.payloads", "PayloadCodecRegistry"),
     "PayloadContract": ("scopecat.sdk.payloads", "PayloadContract"),
+    "FrozenFloat64Vector": (
+        "scopecat.sdk.structured_payloads",
+        "FrozenFloat64Vector",
+    ),
     "StructuredPayloadError": (
         "scopecat.sdk.structured_payloads",
         "StructuredPayloadError",

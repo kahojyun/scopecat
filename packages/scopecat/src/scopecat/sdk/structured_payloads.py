@@ -11,7 +11,15 @@ from typing import Annotated, Literal, cast
 
 import numpy as np
 from numpy.typing import NDArray
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    JsonValue,
+    TypeAdapter,
+    ValidationError,
+)
 
 from scopecat.kernel.content_identity import canonical_json
 from scopecat.kernel.numpy_storage import freeze_ndarray
@@ -26,6 +34,27 @@ _MAX_HEADER_BYTES = 16 * 1024 * 1024
 _ALLOWED_ARRAY_KINDS = frozenset("buifc")
 
 type _NonNegativeInt = Annotated[int, Field(ge=0)]
+
+
+def _frozen_float64_vector(value: object) -> NDArray[np.float64]:
+    try:
+        source = np.asarray(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("array value must be a numeric vector") from error
+    if source.ndim != 1:
+        raise ValueError("array value must be one-dimensional")
+    if source.dtype.kind not in "biuf":
+        raise ValueError("array value must contain real numeric values")
+    return cast(
+        "NDArray[np.float64]",
+        freeze_ndarray(np.asarray(source, dtype=np.float64)),
+    )
+
+
+type FrozenFloat64Vector = Annotated[
+    NDArray[np.float64],
+    BeforeValidator(_frozen_float64_vector),
+]
 
 
 class StructuredPayloadError(ValueError):
@@ -165,22 +194,27 @@ class _Encoder:
         return {"type": node_type, "attachment": index}
 
 
-def pydantic_buffer_bundle_codec[ModelT: BaseModel](
-    model_type: type[ModelT],
+def pydantic_buffer_bundle_codec[ValueT](
+    value_type: type[ValueT] | TypeAdapter[ValueT],
     /,
     *,
     id: str = STRUCTURED_PAYLOAD_CODEC_ID,
     version: int = 1,
-) -> PayloadCodec[ModelT]:
-    """Build a strict model codec that keeps NumPy arrays in binary buffers."""
+) -> PayloadCodec[ValueT]:
+    """Build a strict Pydantic codec that keeps NumPy arrays in binary buffers."""
 
-    def encode(value: ModelT) -> bytes:
+    if isinstance(value_type, TypeAdapter):
+        adapter = value_type
+        value_name = "adapted value"
+    else:
+        adapter = TypeAdapter(value_type)
+        value_name = value_type.__qualname__
+
+    def encode(value: ValueT) -> bytes:
         try:
-            selected = model_type.model_validate(value, strict=True)
+            selected = adapter.validate_python(value, strict=True)
         except ValidationError as error:
-            raise StructuredPayloadError(
-                f"invalid {model_type.__qualname__} payload"
-            ) from error
+            raise StructuredPayloadError(f"invalid {value_name} payload") from error
         encoder = _Encoder([], [])
         header = _BundleHeader(
             root=encoder.node(selected),
@@ -198,14 +232,14 @@ def pydantic_buffer_bundle_codec[ModelT: BaseModel](
             )
         )
 
-    def decode(content: bytes) -> ModelT:
+    def decode(content: bytes) -> ValueT:
         header, attachments = _unpack(content)
         value = _decode_node(header.root, attachments)
         try:
-            return model_type.model_validate(value, strict=True)
+            return adapter.validate_python(value, strict=True)
         except ValidationError as error:
             raise StructuredPayloadError(
-                f"decoded payload does not match {model_type.__qualname__}"
+                f"decoded payload does not match {value_name}"
             ) from error
 
     return PayloadCodec(
@@ -328,6 +362,7 @@ def _decode_node(
 __all__ = [
     "STRUCTURED_PAYLOAD_CODEC_ID",
     "STRUCTURED_PAYLOAD_MEDIA_TYPE",
+    "FrozenFloat64Vector",
     "StructuredPayloadError",
     "pydantic_buffer_bundle_codec",
 ]

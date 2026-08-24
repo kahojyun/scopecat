@@ -10,7 +10,7 @@ from typing import Protocol, cast, override
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.records.content import CommandPayload
+from scopecat.records.content import CommandPayload, command_payload_from_bytes
 
 type PayloadEncoder[ValueT] = Callable[[ValueT], bytes]
 type PayloadDecoder[ValueT] = Callable[[bytes], ValueT]
@@ -172,6 +172,24 @@ class PayloadContract[ValueT = object]:
         content = payload.inline_bytes()
         payload.verify_content(content)
         return self.decode_content(content)
+
+    def command_payload(
+        self,
+        id: str,
+        value: ValueT,
+        /,
+    ) -> CommandPayload:
+        """Build one transport payload without exposing descriptor plumbing."""
+
+        encoded = self.encode(value)
+        return command_payload_from_bytes(
+            id=id,
+            schema_id=encoded.schema_id,
+            codec_id=encoded.codec_id,
+            codec_version=encoded.codec_version,
+            media_type=encoded.media_type,
+            content=encoded.content,
+        )
 
     def registration(self) -> tuple[str, PayloadCodec[object]]:
         return self.schema_id, cast("PayloadCodec[object]", self.codec)

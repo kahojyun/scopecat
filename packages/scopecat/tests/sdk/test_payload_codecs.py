@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-from typing import assert_type
+from typing import Annotated, Literal, assert_type
 
 import numpy as np
 import pytest
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.records.content import command_payload_from_bytes
@@ -17,6 +17,7 @@ from scopecat.sdk.payloads import (
 )
 from scopecat.sdk.structured_payloads import (
     STRUCTURED_PAYLOAD_MEDIA_TYPE,
+    FrozenFloat64Vector,
     StructuredPayloadError,
     pydantic_buffer_bundle_codec,
 )
@@ -33,6 +34,37 @@ class _ArrayProgram(BaseModel):
     id: str
     waveforms: tuple[np.ndarray, ...]
     metadata: dict[str, int]
+
+
+class _FrozenVectorProgram(BaseModel):
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="forbid",
+        frozen=True,
+        strict=True,
+    )
+
+    samples: FrozenFloat64Vector
+
+
+class _LeftProgram(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["left"]
+    value: int
+
+
+class _RightProgram(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    kind: Literal["right"]
+    label: str
+
+
+type _ProgramVariant = Annotated[
+    _LeftProgram | _RightProgram,
+    Field(discriminator="kind"),
+]
 
 
 def _json_encoder(value: object) -> bytes:
@@ -239,14 +271,7 @@ def test_pydantic_buffer_bundle_codec_round_trips_immutable_numpy_buffers() -> N
     assert value.waveforms[0].tobytes() in encoded.content
     assert b"0.25" not in encoded.content
 
-    payload = command_payload_from_bytes(
-        id="array-program",
-        schema_id=encoded.schema_id,
-        codec_id=encoded.codec_id,
-        codec_version=encoded.codec_version,
-        media_type=encoded.media_type,
-        content=encoded.content,
-    )
+    payload = contract.command_payload("array-program", value)
     assert contract.decode(payload).id == value.id
     assert isinstance(registry.decode(payload), _ArrayProgram)
 
@@ -268,6 +293,28 @@ def test_payload_contract_rejects_mismatched_descriptor() -> None:
 
     with pytest.raises(ValueError, match="schema mismatch"):
         contract.decode(payload)
+
+
+def test_frozen_float64_vector_snapshots_numeric_input() -> None:
+    source = np.arange(4, dtype=np.int64)
+
+    value = _FrozenVectorProgram.model_validate({"samples": source})
+    source[0] = 99
+
+    assert value.samples.dtype == np.dtype(np.float64)
+    assert not value.samples.flags.writeable
+    np.testing.assert_array_equal(value.samples, np.arange(4, dtype=np.float64))
+
+
+def test_pydantic_buffer_bundle_codec_supports_discriminated_type_adapters() -> None:
+    adapter = TypeAdapter[_ProgramVariant](_ProgramVariant)
+    codec = pydantic_buffer_bundle_codec(adapter)
+    value = _RightProgram(kind="right", label="selected")
+
+    decoded = assert_type(codec.decoder(codec.encoder(value)), _ProgramVariant)
+
+    assert isinstance(decoded, _RightProgram)
+    assert decoded == value
 
 
 def test_pydantic_buffer_bundle_codec_is_deterministic_for_mapping_order() -> None:
