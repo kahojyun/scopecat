@@ -66,6 +66,7 @@ from scopecat_quantum.realtime import (
     RealtimeConditional,
     RealtimeInstruction,
     RealtimeNoOp,
+    RealtimeParallel,
     RealtimeRepeat,
     RealtimeSequence,
     ScheduledBlock,
@@ -1266,17 +1267,6 @@ def _verify_quantum_realtime_dataflow(
         return _merge_parallel_availability(available, tuple(parallel_outputs))
     if isinstance(node, ParallelEach):
         has_realtime = _node_requires_realtime_target(node.operation)
-        if has_realtime:
-            issues.append(
-                QuantumProgramIssue(
-                    code="quantum_realtime_parallel_unsupported",
-                    message=(
-                        "parallel_each bodies cannot contain target-visible "
-                        "real-time control"
-                    ),
-                    path=(*path, "operation"),
-                )
-            )
         if not has_realtime and not _node_has_acquisitions(node.operation):
             return available
         mapped_outputs = tuple(
@@ -1794,6 +1784,18 @@ def _lower_target_node(
                 )
             ),
         )
+    if isinstance(node, ParallelEach) and _node_requires_realtime_target(node):
+        branches = tuple(
+            _lower_target_node(
+                instantiate_parallel_each_operation(node, entity_id),
+                source_program_id=source_program_id,
+                output_id=output_id,
+                bindings=bindings,
+                block_indices=block_indices,
+            )
+            for entity_id in node.entity_ids
+        )
+        return branches[0] if len(branches) == 1 else RealtimeParallel(branches)
     if isinstance(node, Repeat) and _node_requires_realtime_target(node):
         if node.count == 0:
             return RealtimeNoOp()

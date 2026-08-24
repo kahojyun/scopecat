@@ -801,13 +801,11 @@ def _validate_realtime_node(
         | _ParallelCouplerEachFragment
         | _ParallelQubitPairEachFragment,
     ):
-        if _summarize_fragment(fragment.operation).has_realtime:
-            raise ValueError("real-time control is not supported under parallel_each")
         return _validate_realtime_node(
             fragment.operation,
             available=available,
             active_result_dimensions=active_result_dimensions,
-            aggregate_results=True,
+            aggregate_results=not isinstance(fragment, _ParallelEachFragment),
             inside_conditional_branch=inside_conditional_branch,
         )
     if isinstance(fragment, _ParallelFragment | _QuantumParallelFragment):

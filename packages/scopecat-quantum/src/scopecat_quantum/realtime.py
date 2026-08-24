@@ -85,6 +85,17 @@ class RealtimeSequence:
 
 
 @dataclass(frozen=True, slots=True)
+class RealtimeParallel:
+    """Execute independent bounded real-time branches concurrently."""
+
+    branches: tuple[RealtimeInstruction, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.branches) < 2:
+            raise ValueError("real-time parallel requires at least two branches")
+
+
+@dataclass(frozen=True, slots=True)
 class RealtimeRepeat:
     """Repeat one bounded instruction a fixed positive number of times.
 
@@ -112,6 +123,7 @@ type RealtimeInstruction = (
     | RealtimeNoOp
     | RealtimeConditional
     | RealtimeSequence
+    | RealtimeParallel
     | RealtimeRepeat
 )
 
@@ -328,6 +340,12 @@ def _profile(
             for index, child in enumerate(instruction.instructions)
         )
         return _sequence_profile(profiles)
+    if isinstance(instruction, RealtimeParallel):
+        profiles = tuple(
+            _profile(child, path=(*path, "parallel", index))
+            for index, child in enumerate(instruction.branches)
+        )
+        return _parallel_profile(profiles)
     if isinstance(instruction, RealtimeRepeat):
         profile = _profile(instruction.instruction, path=(*path, "repeat"))
         return _Profile(
@@ -385,6 +403,30 @@ def _sequence_profile(profiles: tuple[_Profile, ...]) -> _Profile:
         worst_case_duration_seconds=sum(
             (profile.worst_case_duration_seconds for profile in profiles),
             start=Decimal(0),
+        ),
+        worst_case_operation_count=sum(
+            profile.worst_case_operation_count for profile in profiles
+        ),
+        worst_case_acquisition_count=sum(
+            profile.worst_case_acquisition_count for profile in profiles
+        ),
+        acquisition_slots=tuple(
+            slot for profile in profiles for slot in profile.acquisition_slots
+        ),
+        logical_signals=tuple(
+            signal for profile in profiles for signal in profile.logical_signals
+        ),
+        events=tuple(event for profile in profiles for event in profile.events),
+    )
+
+
+def _parallel_profile(profiles: tuple[_Profile, ...]) -> _Profile:
+    return _Profile(
+        minimum_duration_seconds=max(
+            profile.minimum_duration_seconds for profile in profiles
+        ),
+        worst_case_duration_seconds=max(
+            profile.worst_case_duration_seconds for profile in profiles
         ),
         worst_case_operation_count=sum(
             profile.worst_case_operation_count for profile in profiles
@@ -585,6 +627,23 @@ def _validate_dataflow(
                 inside_conditional_branch=inside_conditional_branch,
             )
         return selected
+    if isinstance(instruction, RealtimeParallel):
+        outputs = tuple(
+            _validate_dataflow(
+                branch,
+                path=(*path, "parallel", index),
+                available=dict(available),
+                active_result_dimensions=active_result_dimensions,
+                slot_index=slot_index,
+                issues=issues,
+                inside_conditional_branch=inside_conditional_branch,
+            )
+            for index, branch in enumerate(instruction.branches)
+        )
+        selected = dict(available)
+        for output in outputs:
+            selected.update(output)
+        return selected
     if isinstance(instruction, RealtimeRepeat):
         profile = _profile(instruction.instruction, path=(*path, "repeat"))
         nested_dimensions = _validate_repeat_shape(
@@ -653,6 +712,7 @@ __all__ = [
     "RealtimeEvent",
     "RealtimeInstruction",
     "RealtimeNoOp",
+    "RealtimeParallel",
     "RealtimeProgramIssue",
     "RealtimeProgramValidationError",
     "RealtimeRepeat",

@@ -523,10 +523,10 @@ def parallel_each(
     """Retain one parallel operation over a variable-size entity set."""
 
     body = operation(entity_set.item)
-    if _summarize_fragment(body).has_realtime:
-        raise ValueError("real-time control is not supported under parallel_each")
     if isinstance(entity_set, QubitSet):
         return _ParallelEachFragment(entity_set=entity_set, operation=body)
+    if _summarize_fragment(body).has_realtime:
+        raise ValueError("real-time control is supported only for qubit parallel_each")
     if isinstance(entity_set, CouplerSet):
         return _ParallelCouplerEachFragment(entity_set=entity_set, operation=body)
     return _ParallelQubitPairEachFragment(entity_set=entity_set, operation=body)
