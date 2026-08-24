@@ -234,6 +234,11 @@ class MemoryProcedureControl:
             self._leases[run.procedure_run_id] = renewed
             return ProcedureWorkerLeaseHeartbeatReceipt(run=run, lease=renewed)
 
+    def arm_heartbeat_failure(self, failure: Exception) -> None:
+        with self._lock:
+            self.heartbeat_called.clear()
+            self.heartbeat_failure = failure
+
     def release_procedure_worker_lease(
         self,
         command: ProcedureWorkerLeaseReleaseCommand,
@@ -720,10 +725,11 @@ def test_worker_records_atomic_step_attention_without_closing() -> None:
 
 def test_worker_fences_completion_after_background_heartbeat_loses_lease() -> None:
     control = MemoryProcedureControl(heartbeat_interval=0.001)
-    control.heartbeat_failure = RuntimeError("lease token is stale")
+    failure = RuntimeError("lease token is stale")
 
     def effect(operation_id: str) -> RunOutputRef:
         del operation_id
+        control.arm_heartbeat_failure(failure)
         assert control.heartbeat_called.wait(timeout=5)
         return RunOutputRef(run_id="must-not-be-committed")
 
