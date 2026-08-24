@@ -162,6 +162,11 @@ if TYPE_CHECKING:
         PayloadCodecCatalog,
         PayloadCodecDescription,
         PayloadCodecRegistry,
+        PayloadContract,
+    )
+    from scopecat.sdk.structured_payloads import (
+        StructuredPayloadError,
+        pydantic_buffer_bundle_codec,
     )
 
 _EXPORTS: dict[str, tuple[str, str]] = {
@@ -254,6 +259,15 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "PayloadCodecDescription",
     ),
     "PayloadCodecRegistry": ("scopecat.sdk.payloads", "PayloadCodecRegistry"),
+    "PayloadContract": ("scopecat.sdk.payloads", "PayloadContract"),
+    "StructuredPayloadError": (
+        "scopecat.sdk.structured_payloads",
+        "StructuredPayloadError",
+    ),
+    "pydantic_buffer_bundle_codec": (
+        "scopecat.sdk.structured_payloads",
+        "pydantic_buffer_bundle_codec",
+    ),
     "EntityRef": ("scopecat.kernel.entity", "EntityRef"),
     "entity_ref": ("scopecat.kernel.entity", "entity_ref"),
     "delete_parameter_rows": ("scopecat.config.parameters", "delete_parameter_rows"),

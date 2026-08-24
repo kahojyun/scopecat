@@ -5,21 +5,33 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Protocol, override
+from typing import Protocol, cast, override
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from scopecat.kernel.payloads import PayloadValue
 from scopecat.records.content import CommandPayload
 
-type PayloadEncoder = Callable[[object], bytes]
-type PayloadDecoder = Callable[[bytes], object]
+type PayloadEncoder[ValueT] = Callable[[ValueT], bytes]
+type PayloadDecoder[ValueT] = Callable[[bytes], ValueT]
 
 
 class PayloadDescriptor(Protocol):
-    schema_id: str
-    codec_id: str
-    codec_version: int
-    media_type: str
+    @property
+    def schema_id(self) -> str: ...
+
+    @property
+    def codec_id(self) -> str: ...
+
+    @property
+    def codec_version(self) -> int: ...
+
+    @property
+    def media_type(self) -> str: ...
+
+
+class PayloadContractRegistration(Protocol):
+    def registration(self) -> tuple[str, PayloadCodec[object]]: ...
 
 
 class PayloadCodecDescription(BaseModel):
@@ -73,14 +85,14 @@ class PayloadCodecCatalog(BaseModel):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class PayloadCodec:
+class PayloadCodec[ValueT = object]:
     """Bidirectional byte codec registered for one or more payload schemas."""
 
     id: str
     version: int
     media_type: str
-    encoder: PayloadEncoder = field(repr=False, compare=False)
-    decoder: PayloadDecoder = field(repr=False, compare=False)
+    encoder: PayloadEncoder[ValueT] = field(repr=False, compare=False)
+    decoder: PayloadDecoder[ValueT] = field(repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -102,19 +114,45 @@ class EncodedPayload:
     content: bytes = field(repr=False)
 
 
-class PayloadCodecRegistry(Mapping[str, PayloadCodec]):
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PayloadContract[ValueT = object]:
+    """One typed payload contract shared by authoring and worker adapters."""
+
+    schema_id: str
+    codec: PayloadCodec[ValueT] = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if not self.schema_id:
+            raise ValueError("payload contract schema_id must not be empty")
+
+    def value(self, value: ValueT, /) -> PayloadValue:
+        """Tag a typed local value without repeating its schema at call sites."""
+
+        return PayloadValue(schema_id=self.schema_id, payload=value)
+
+    def __call__(self, value: ValueT, /) -> PayloadValue:
+        return self.value(value)
+
+    def registration(self) -> tuple[str, PayloadCodec[object]]:
+        return self.schema_id, cast("PayloadCodec[object]", self.codec)
+
+
+class PayloadCodecRegistry(Mapping[str, PayloadCodec[object]]):
     """Immutable schema-to-codec registry shared by compute and driver workers."""
 
     __slots__ = ("_catalog", "_codecs")
 
     _catalog: PayloadCodecCatalog
-    _codecs: Mapping[str, PayloadCodec]
+    _codecs: Mapping[str, PayloadCodec[object]]
 
-    def __init__(
+    def __init__[ValueT](
         self,
-        codecs: Mapping[str, PayloadCodec] | None = None,
+        codecs: Mapping[str, PayloadCodec[ValueT]] | None = None,
     ) -> None:
-        selected = dict(codecs or {})
+        selected = {
+            schema_id: cast("PayloadCodec[object]", codec)
+            for schema_id, codec in (codecs or {}).items()
+        }
         if any(not schema_id for schema_id in selected):
             raise ValueError("payload codec schema id must not be empty")
         self._codecs = MappingProxyType(selected)
@@ -134,8 +172,23 @@ class PayloadCodecRegistry(Mapping[str, PayloadCodec]):
     def catalog(self) -> PayloadCodecCatalog:
         return self._catalog
 
+    @classmethod
+    def from_contracts(
+        cls,
+        *contracts: PayloadContractRegistration,
+    ) -> PayloadCodecRegistry:
+        """Build a registry from declarations that already own schema identity."""
+
+        codecs: dict[str, PayloadCodec[object]] = {}
+        for contract in contracts:
+            schema_id, codec = contract.registration()
+            if schema_id in codecs:
+                raise ValueError(f"duplicate payload contract schema {schema_id!r}")
+            codecs[schema_id] = codec
+        return cls(codecs)
+
     @override
-    def __getitem__(self, schema_id: str) -> PayloadCodec:
+    def __getitem__(self, schema_id: str) -> PayloadCodec[object]:
         return self._codecs[schema_id]
 
     @override
@@ -157,7 +210,10 @@ class PayloadCodecRegistry(Mapping[str, PayloadCodec]):
             content=content,
         )
 
-    def validate_descriptor(self, payload: PayloadDescriptor) -> PayloadCodec:
+    def validate_descriptor(
+        self,
+        payload: PayloadDescriptor,
+    ) -> PayloadCodec[object]:
         """Resolve and validate the codec declared by a payload descriptor."""
 
         codec = self._require(payload.schema_id)
@@ -178,7 +234,7 @@ class PayloadCodecRegistry(Mapping[str, PayloadCodec]):
         payload.verify_content(content)
         return self.decode_content(payload, content)
 
-    def _require(self, schema_id: str) -> PayloadCodec:
+    def _require(self, schema_id: str) -> PayloadCodec[object]:
         try:
             return self._codecs[schema_id]
         except KeyError as error:
@@ -197,6 +253,8 @@ __all__ = [
     "PayloadCodecCatalog",
     "PayloadCodecDescription",
     "PayloadCodecRegistry",
+    "PayloadContract",
+    "PayloadContractRegistration",
     "PayloadDecoder",
     "PayloadDescriptor",
     "PayloadEncoder",
