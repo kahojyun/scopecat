@@ -6,8 +6,7 @@ clients expose them to notebooks and experiments, and drivers implement the
 capability without receiving run or dataset concepts.
 
 An interface author declares portable members directly on a Python `Protocol`
-or abstract base class. A distinct acquisition adds one decorated result
-dataclass:
+or abstract base class. A distinct acquisition names an explicit result schema:
 
 ```python
 from typing import Protocol
@@ -16,22 +15,20 @@ from scopecat import Quantity
 from scopecat.sdk.instruments import Member
 from scopecat.sdk.instruments.declarations import (
     acquisition,
+    array_result,
     axis,
     instrument_interface,
-    instrument_result,
     member,
-    result_field,
+    result_schema,
 )
 
 
-@instrument_result
+@result_schema
 class NetworkSweepResults:
-    frequency: list[float] = result_field(
-        role="coordinate", dtype="float64", unit="Hz", axes=("frequency",)
+    frequency = array_result(
+        dtype="float64", role="coordinate", unit="Hz", axes=("frequency",)
     )
-    s_parameter: list[complex] = result_field(
-        dtype="complex128", unit="ratio", axes=("frequency",)
-    )
+    s_parameter = array_result(dtype="complex128", unit="ratio", axes=("frequency",))
 
 
 @instrument_interface("example.network_sweep/v1")
@@ -45,15 +42,19 @@ class NetworkSweep(Protocol):
     points: Member[int] = member(access="read_write", restore=True, minimum=2)
     s_parameter: Member[str] = member(access="read_write", restore=True)
 
-    @acquisition(axes={"frequency": axis(size=points, unit="Hz")})
-    def sweep(self) -> NetworkSweepResults: ...
+    @acquisition(
+        results=NetworkSweepResults,
+        axes={"frequency": axis(size=points, unit="Hz")},
+    )
+    def sweep(self) -> None: ...
 ```
 
 Members are independently queryable and cacheable state facts. Generated sparse
-patch and target carriers represent omission. Result declarations own
-measurement roles and axes. Generation produces the wire contract, typed
-clients, member references, state projections, and measurement-valued driver
-observation carriers.
+patch and target carriers represent omission. `scalar_result(...)` and
+`array_result(...)` explicitly own measurement dtype, role, unit, and axes;
+the schema class is a declaration namespace rather than a runtime value carrier.
+Generation produces the wire contract, typed clients, member references, state
+projections, and measurement-valued driver observation carriers.
 
 An acknowledged setting that the device cannot query is the narrow exception:
 declare it with `write_only_member(...)`. It remains an independently
@@ -70,9 +71,21 @@ operation or acquisition is attached to its interface declaration with
 `scopecat_instruments.driver_observations`. Class creation rejects missing,
 duplicate, or signature-incompatible behavior bindings.
 
+When requested results affect hardware setup, override
+`prepare_acquisitions(plan: DriverAcquisitionPlan)`. Scopecat calls this hook
+before each hardware batch, and every `DriverAcquisition` exposes its selected
+`results`. The driver can therefore enable raw retention, choose a capture
+mode, or allocate buffers only when the experiment requests the corresponding
+result. Aggregate demand across every acquisition sharing a physical resource
+in the plan—for example, raw retention remains enabled if any acquisition on a
+channel requests raw samples. `collect(...)` must return only the selected
+results; preparation is batch-scoped and must not depend on the order of later
+collection calls. Drivers that need no demand-dependent setup inherit the
+no-op implementation.
+
 When the values to record are already members, declare an `observation(...)`
-on those members instead of repeating their schema in a result dataclass. The
-framework performs a fresh coherent state read and records it as acquisition
+on those members instead of repeating their schema. The framework performs a
+fresh coherent state read and records it as acquisition
 products. Reserve `@acquisition` for a distinct measurement procedure, arrays,
 or acquisition-specific failure and evidence.
 

@@ -265,8 +265,8 @@ aggregate state. A driver overrides a worker method only for routing or a
 failure model that these bindings cannot express.
 
 Use a member-derived observation when an acquisition only records a fresh read
-of independently queryable state. It does not need a result dataclass or a
-driver method:
+of independently queryable state. It does not need a result schema or a driver
+method:
 
 ```python
 @instrument_interface("example.dc_bias/v1")
@@ -278,10 +278,11 @@ class DCBias(Protocol):
 ```
 
 `ObjectInstrumentDriver.collect` reads those members coherently through the
-normal state bindings. Use `@acquisition` with an `@instrument_result`
-dataclass instead when the device performs a distinct measurement, produces an
-array, or has acquisition-specific failure and evidence. After generation, the
-driver returns the corresponding class from
+normal state bindings. Use `@acquisition(results=...)` with a named
+`@result_schema` of `scalar_result(...)` and `array_result(...)` declarations
+instead when the device performs a distinct measurement, produces an array, or
+has acquisition-specific failure and evidence. After generation, the driver
+returns the corresponding class from
 `scopecat_instruments.driver_observations`:
 
 ```python

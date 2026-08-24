@@ -4,21 +4,20 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Protocol
 
-import numpy as np
-from numpy.typing import NDArray
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
     Member,
     acquisition,
     argument,
+    array_result,
     axis,
     instrument_interface,
-    instrument_result,
     linear_coordinates,
     member,
     observation,
     operation,
-    result_field,
+    result_schema,
+    scalar_result,
 )
 
 type ReferenceSource = Literal["internal", "external"]
@@ -92,14 +91,14 @@ class DCSourceInterface(Protocol):
     ) -> None: ...
 
 
-@instrument_result
+@result_schema
 class DCMonitorCurrentResults:
-    current: float = result_field(id="monitored_current", dtype="float64", unit="A")
+    current = scalar_result(id="monitored_current", dtype="float64", unit="A")
 
 
-@instrument_result
+@result_schema
 class DCMonitorVoltageResults:
-    voltage: float = result_field(id="monitored_voltage", dtype="float64", unit="V")
+    voltage = scalar_result(id="monitored_voltage", dtype="float64", unit="V")
 
 
 @instrument_interface(
@@ -122,17 +121,17 @@ class DCMonitorInterface(Protocol):
         label="Measurement delay",
     )
 
-    @acquisition(label="Measure current")
-    def measure_current(self) -> DCMonitorCurrentResults: ...
+    @acquisition(results=DCMonitorCurrentResults, label="Measure current")
+    def measure_current(self) -> None: ...
 
-    @acquisition(label="Measure voltage")
-    def measure_voltage(self) -> DCMonitorVoltageResults: ...
+    @acquisition(results=DCMonitorVoltageResults, label="Measure voltage")
+    def measure_voltage(self) -> None: ...
 
 
-@instrument_result
+@result_schema
 class TemperatureSampleResults:
-    temperature: float = result_field(dtype="float64", unit="K")
-    resistance: float = result_field(dtype="float64", unit="Ohm")
+    temperature = scalar_result(dtype="float64", unit="K")
+    resistance = scalar_result(dtype="float64", unit="Ohm")
 
 
 @instrument_interface(
@@ -146,8 +145,8 @@ class TemperatureReadoutInterface(Protocol):
     )
     autoscan_enabled: Member[bool] = member(access="read_only", label="Autoscan")
 
-    @acquisition(label="Sample sensor")
-    def sample(self) -> TemperatureSampleResults: ...
+    @acquisition(results=TemperatureSampleResults, label="Sample sensor")
+    def sample(self) -> None: ...
 
 
 @instrument_interface(
@@ -178,14 +177,12 @@ class ReferenceClockInterface(Protocol):
     )
 
 
-@instrument_result
+@result_schema
 class NetworkSweepResults:
-    frequency: NDArray[np.float64] = result_field(
-        role="coordinate", unit="Hz", axes=("frequency",)
+    frequency = array_result(
+        dtype="float64", role="coordinate", unit="Hz", axes=("frequency",)
     )
-    s_parameter: NDArray[np.complex128] = result_field(
-        unit="ratio", axes=("frequency",)
-    )
+    s_parameter = array_result(dtype="complex128", unit="ratio", axes=("frequency",))
 
 
 @instrument_interface(
@@ -214,6 +211,7 @@ class NetworkSweepInterface(Protocol):
     )
 
     @acquisition(
+        results=NetworkSweepResults,
         label="Acquire sweep",
         axes={
             "frequency": axis(
@@ -228,7 +226,7 @@ class NetworkSweepInterface(Protocol):
             )
         },
     )
-    def sweep(self) -> NetworkSweepResults: ...
+    def sweep(self) -> None: ...
 
 
 __all__ = [

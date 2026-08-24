@@ -98,8 +98,21 @@ sidecar.
 An acquisition axis with no fixed extent is ragged:
 
 ```python
-@acquisition(axes={"sample": axis()})
-def capture_until_trigger(self) -> CaptureResults: ...
+from scopecat.sdk.instruments.declarations import (
+    acquisition,
+    array_result,
+    axis,
+    result_schema,
+)
+
+
+@result_schema
+class CaptureResults:
+    samples = array_result(dtype="float64", axes=("sample",))
+
+
+@acquisition(results=CaptureResults, axes={"sample": axis()})
+def capture_until_trigger(self) -> None: ...
 ```
 
 Each point may return a different number of samples. Scopecat still validates

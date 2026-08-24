@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Protocol
 
-import numpy as np
-from numpy.typing import NDArray
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
     Member,
     acquisition,
     argument,
+    array_result,
     axis,
     compile_interface,
     declared_acquisition_ref,
@@ -18,10 +17,9 @@ from scopecat.sdk.instruments.declarations import (
     declared_operation_ref,
     declared_property_ref,
     instrument_interface,
-    instrument_result,
     member,
     operation,
-    result_field,
+    result_schema,
 )
 
 from reference_lab.payloads import (
@@ -143,14 +141,16 @@ class OscilloscopeControlInterface(Protocol):
     def arm(self) -> None: ...
 
 
-@instrument_result
+@result_schema
 class OscilloscopeFetchResults:
-    time: NDArray[np.float64] = result_field(
+    time = array_result(
+        dtype="float64",
         role="coordinate",
         unit="s",
         axes=("sample",),
     )
-    voltage: NDArray[np.float64] = result_field(
+    voltage = array_result(
+        dtype="float64",
         unit="V",
         axes=("sample",),
     )
@@ -191,6 +191,7 @@ class OscilloscopeInputInterface(Protocol):
     )
 
     @acquisition(
+        results=OscilloscopeFetchResults,
         label="Fetch captured waveform",
         axes={
             "sample": axis(
@@ -204,7 +205,7 @@ class OscilloscopeInputInterface(Protocol):
             )
         },
     )
-    def fetch(self) -> OscilloscopeFetchResults: ...
+    def fetch(self) -> None: ...
 
 
 @instrument_interface(
@@ -246,17 +247,19 @@ class DigitizerControlInterface(Protocol):
     def arm_program(self) -> None: ...
 
 
-@instrument_result
+@result_schema
 class DigitizerProgramResults:
-    value: NDArray[np.float64] = result_field(
+    value = array_result(
+        dtype="float64",
         unit="V",
         axes=("sample",),
     )
 
 
-@instrument_result
+@result_schema
 class DigitizerProgramIqResults:
-    value: NDArray[np.complex128] = result_field(
+    value = array_result(
+        dtype="complex128",
         unit="V",
         axes=("demodulator",),
     )
@@ -284,16 +287,18 @@ class DigitizerInputInterface(Protocol):
     coupling: Member[Coupling] = member(access="read_write", label="Coupling")
 
     @acquisition(
+        results=DigitizerProgramResults,
         label="Fetch one flattened segmented raw-capture block",
         axes={"sample": axis(kind="time", unit="s")},
     )
-    def fetch_program(self) -> DigitizerProgramResults: ...
+    def fetch_program(self) -> None: ...
 
     @acquisition(
+        results=DigitizerProgramIqResults,
         label="Fetch one flattened segmented integrated-IQ block",
         axes={"demodulator": axis(kind="index")},
     )
-    def fetch_program_iq(self) -> DigitizerProgramIqResults: ...
+    def fetch_program_iq(self) -> None: ...
 
 
 @instrument_interface(

@@ -1112,7 +1112,7 @@ def _operation_bindings(
 
 def _acquisition_bindings(
     interfaces: Sequence[type[object]],
-) -> dict[AcquisitionRef, DeclaredAcquisition[object]]:
+) -> dict[AcquisitionRef, DeclaredAcquisition]:
     return {
         acquisition.ref: acquisition
         for layout in _layouts(interfaces)
@@ -1120,7 +1120,7 @@ def _acquisition_bindings(
     }
 
 
-type _DeclaredDriverImplementation = DeclaredOperation | DeclaredAcquisition[object]
+type _DeclaredDriverImplementation = DeclaredOperation | DeclaredAcquisition
 
 
 @dataclass(frozen=True, slots=True)

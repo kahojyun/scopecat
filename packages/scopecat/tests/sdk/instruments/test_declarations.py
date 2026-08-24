@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Protocol
 
-import numpy as np
 import pytest
-from numpy.typing import NDArray
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Int, Payload, Scalar, String
@@ -16,6 +14,7 @@ from scopecat.sdk.instruments.declarations import (
     MemberProjectionLayout,
     acquisition,
     argument,
+    array_result,
     axis,
     compile_interface,
     declared_acquisition_ref,
@@ -27,25 +26,27 @@ from scopecat.sdk.instruments.declarations import (
     instrument_component,
     instrument_interface,
     instrument_member_projection,
-    instrument_result,
     member,
     member_projection_assignments,
     member_projection_field,
     observation,
     operation,
     precondition,
-    result_field,
+    result_schema,
+    scalar_result,
 )
 
 
-@instrument_result
+@result_schema
 class SweepResults:
-    frequency: NDArray[np.float64] = result_field(
+    frequency = array_result(
+        dtype="float64",
         role="coordinate",
         unit="Hz",
         axes=("frequency",),
     )
-    response: NDArray[np.complex128] = result_field(
+    response = array_result(
+        dtype="complex128",
         id="s_parameter",
         unit="ratio",
         axes=("frequency",),
@@ -71,6 +72,7 @@ class Source(Protocol):
     ) -> None: ...
 
     @acquisition(
+        results=SweepResults,
         axes={
             "frequency": axis(
                 size="point_count",
@@ -87,7 +89,7 @@ class Source(Protocol):
             ),
         ),
     )
-    def sweep(self) -> SweepResults: ...
+    def sweep(self) -> None: ...
 
 
 def test_members_compile_from_explicit_attribute_declarations() -> None:
@@ -150,37 +152,58 @@ def test_acquisition_axes_preconditions_and_results_resolve_members() -> None:
     assert declared_result_ref(Source, "sweep", "response").result_id == "s_parameter"
 
 
-def test_result_annotations_are_the_authoritative_shape_and_dtype() -> None:
-    @instrument_result
-    class InvalidListResults:
-        values: list[float] = result_field(axes=("sample",))
+def test_result_declarations_are_authoritative_without_value_annotations() -> None:
+    @result_schema
+    class ExplicitResults:
+        count = scalar_result(dtype="int64")
+        values = array_result(dtype="complex128", axes=("sample",))
 
-    @instrument_interface("test.invalid_list_result/v1")
-    class InvalidListInterface(Protocol):
-        @acquisition(axes={"sample": axis(size=2)})
-        def sample(self) -> object: ...
+    @instrument_interface("test.explicit_results/v1")
+    class ExplicitInterface(Protocol):
+        @acquisition(results=ExplicitResults, axes={"sample": axis(size=2)})
+        def sample(self) -> None: ...
 
-    InvalidListInterface.sample.__annotations__["return"] = InvalidListResults
+    [sample] = compile_interface(ExplicitInterface).spec.acquisitions
+    assert [(item.id, item.dtype, bool(item.axes)) for item in sample.results] == [
+        ("count", "int64", False),
+        ("values", "complex128", True),
+    ]
 
-    with pytest.raises(TypeError, match="must be declared as an NDArray"):
-        compile_interface(InvalidListInterface)
 
-    @instrument_result
-    class InvalidDtypeResults:
-        values: NDArray[np.float64] = result_field(
-            dtype="complex128",
-            axes=("sample",),
-        )
+def test_result_schema_rejects_schema_inheritance() -> None:
+    @result_schema
+    class BaseResults:
+        value = scalar_result(dtype="float64")
 
-    @instrument_interface("test.invalid_dtype_result/v1")
-    class InvalidDtypeInterface(Protocol):
-        @acquisition(axes={"sample": axis(size=2)})
-        def sample(self) -> object: ...
+    class DerivedResults(BaseResults):
+        other = scalar_result(dtype="float64")
 
-    InvalidDtypeInterface.sample.__annotations__["return"] = InvalidDtypeResults
+    with pytest.raises(TypeError, match="must not inherit another result schema"):
+        result_schema(DerivedResults)
 
-    with pytest.raises(TypeError, match="annotation implies float64, not complex128"):
-        compile_interface(InvalidDtypeInterface)
+
+def test_result_schema_rejects_unknown_axes_and_non_none_method_returns() -> None:
+    @result_schema
+    class UnknownAxisResults:
+        values = array_result(dtype="float64", axes=("missing",))
+
+    @instrument_interface("test.unknown_result_axis/v1")
+    class UnknownAxisInterface(Protocol):
+        @acquisition(results=UnknownAxisResults)
+        def sample(self) -> None: ...
+
+    with pytest.raises(ValueError, match="unknown axes"):
+        compile_interface(UnknownAxisInterface)
+
+    @instrument_interface("test.invalid_acquisition_return/v1")
+    class InvalidReturnInterface(Protocol):
+        @acquisition(results=SweepResults, axes={"frequency": axis(size=2)})
+        def sample(self) -> None: ...
+
+    InvalidReturnInterface.sample.__annotations__["return"] = SweepResults
+
+    with pytest.raises(TypeError, match="must return None"):
+        compile_interface(InvalidReturnInterface)
 
 
 def test_declared_layout_keeps_interface_as_member_source() -> None:
@@ -258,6 +281,7 @@ def test_explicit_cross_interface_member_refs_resolve() -> None:
         ready: Member[bool] = member(access="read_only")
 
         @acquisition(
+            results=SweepResults,
             axes={"frequency": axis(size=2, kind="frequency")},
             preconditions=(
                 precondition(
@@ -267,7 +291,7 @@ def test_explicit_cross_interface_member_refs_resolve() -> None:
                 ),
             ),
         )
-        def sample(self) -> SweepResults: ...
+        def sample(self) -> None: ...
 
     [sample] = compile_interface(Monitor).spec.acquisitions
     assert sample.preconditions[0].property == StatePropertyRef(

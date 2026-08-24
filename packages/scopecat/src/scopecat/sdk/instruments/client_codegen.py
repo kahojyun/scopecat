@@ -307,7 +307,6 @@ _SCALAR_PRODUCT_ANNOTATIONS: dict[MeasurementDType, str] = {
 class _AcquisitionResultModel:
     python_name: str
     spec: AcquisitionResultSpec
-    annotation: object
 
     @property
     def product_value_annotation(self) -> str:
@@ -2255,7 +2254,7 @@ def _operation_model(
 
 
 def _acquisition_model(
-    acquisition: DeclaredAcquisition[object],
+    acquisition: DeclaredAcquisition,
     *,
     constant_prefix: str,
     public_names: AcquisitionPublicNames | None,
@@ -2276,7 +2275,6 @@ def _acquisition_model(
             _AcquisitionResultModel(
                 python_name=field.python_name,
                 spec=field.spec,
-                annotation=field.annotation,
             )
             for field in acquisition.result_fields
         ),
@@ -2584,7 +2582,7 @@ def _append_client_scope_descriptors(
 
 def _render_client_acquisition(
     name: str,
-    acquisition: DeclaredAcquisition[object],
+    acquisition: DeclaredAcquisition,
     *,
     root_ref_name: str,
 ) -> str:
