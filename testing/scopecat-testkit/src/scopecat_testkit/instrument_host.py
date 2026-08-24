@@ -65,7 +65,11 @@ from scopecat.sdk.instruments.provider import (
     InstrumentProvider,
     InstrumentProviderContext,
 )
-from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
+from scopecat.sdk.payloads import (
+    EMPTY_PAYLOAD_CODECS,
+    EncodedPayloadContent,
+    PayloadCodecRegistry,
+)
 from scopecat.sdk.runtime_problems import runtime_problem
 
 
@@ -376,7 +380,11 @@ def _materialize_backend_payloads(
             codec_id=payload.codec_id,
             codec_version=payload.codec_version,
             media_type=payload.media_type,
-            content=content,
+            content_format=payload.content_format,
+            content=EncodedPayloadContent.from_flat_bytes(
+                content,
+                payload.content_format,
+            ),
         )
     return materialized
 

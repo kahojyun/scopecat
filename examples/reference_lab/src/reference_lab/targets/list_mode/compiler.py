@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, replace
 from time import perf_counter
 from typing import cast
 
-from scopecat.kernel.content_identity import content_fingerprint
+from scopecat.kernel.content_identity import content_fingerprint, sha256_json_hash
 from scopecat_quantum._ids import (
     TargetArtifactId,
     TargetCompileEntryId,
@@ -97,7 +97,6 @@ from reference_lab.targets.list_mode.model import (
     acquisition_slot_identity_payload,
     awg_phase_template_identity_payload,
     awg_waveform_identity_payload,
-    canonical_fingerprint,
     compilation_budget_payload,
     compilation_key_payload,
     device_snapshot_payload,
@@ -620,7 +619,7 @@ class ListModeTargetCompiler:
             phase_templates,
             waveform_bytes=waveform_bytes,
         )
-        artifact_fingerprint = canonical_fingerprint(
+        artifact_fingerprint = sha256_json_hash(
             _artifact_payload(
                 compiler_id=self.id,
                 target=self.target,
@@ -965,16 +964,16 @@ def _compilation_key(
     request: TargetCompileRequest,
 ) -> ListModeCompilationKey:
     scheduled_program_fingerprints = tuple(
-        canonical_fingerprint(content_fingerprint(entry.program))
+        sha256_json_hash(content_fingerprint(entry.program))
         for entry in request.entries
     )
-    semantic_program_fingerprint = canonical_fingerprint(
+    semantic_program_fingerprint = sha256_json_hash(
         {
             "schema": "reference_lab.list_mode_semantic_program.v1",
             "scheduled_program_fingerprints": scheduled_program_fingerprints,
         }
     )
-    placement_fingerprint = canonical_fingerprint(
+    placement_fingerprint = sha256_json_hash(
         {
             "schema": "reference_lab.list_mode_placement_key.v2",
             "semantic_program_fingerprint": semantic_program_fingerprint,
@@ -982,7 +981,7 @@ def _compilation_key(
             "placement_provider_fingerprint": placement_provider_fingerprint,
         }
     )
-    artifact_layout_fingerprint = canonical_fingerprint(
+    artifact_layout_fingerprint = sha256_json_hash(
         {
             "schema": "reference_lab.list_mode_artifact_layout_key.v1",
             "compiler_id": compiler_id.value,

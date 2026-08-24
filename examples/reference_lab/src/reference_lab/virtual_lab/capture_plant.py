@@ -8,7 +8,6 @@ from typing import Annotated, Protocol, cast, override
 import numpy as np
 from numpy.typing import NDArray
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.records.content import command_payload_from_bytes
 from scopecat.sdk.domain import (
     DomainInstrumentExecutor,
 )
@@ -24,7 +23,6 @@ from scopecat.sdk.instruments.declarations import (
 from scopecat.sdk.instruments.execution import RunHardwareBatch, RunHardwareInvoke
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
-from reference_lab.payloads import reference_lab_payload_codecs
 from reference_lab.targets.list_mode.execution_model import (
     AcquisitionResponse,
     DigitizerResultBatch,
@@ -41,7 +39,11 @@ from reference_lab.targets.list_mode.model import (
     ListModeArtifact,
 )
 from reference_lab.virtual_lab.capture_payload import (
+    VIRTUAL_CAPTURE_QUEUE_PAYLOAD,
     VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID,
+    VirtualCaptureDocument,
+    VirtualCaptureQueueDocument,
+    VirtualCaptureTraceDocument,
 )
 
 
@@ -163,7 +165,7 @@ def _virtual_plant_preparation(
             response_blocks[address] = block
             available[row_by_address[address]] = block.available
 
-    captures: list[dict[str, object]] = []
+    captures: list[VirtualCaptureDocument] = []
     for shot_index in range(artifact.repetitions):
         for entry in artifact.entries:
             windows_by_input: dict[
@@ -171,7 +173,7 @@ def _virtual_plant_preparation(
             ] = {}
             for window in entry.acquisitions:
                 windows_by_input.setdefault(window.input_id, []).append(window)
-            traces: list[dict[str, object]] = []
+            traces: list[VirtualCaptureTraceDocument] = []
             for input_id, windows in windows_by_input.items():
                 desired = tuple(
                     _block_value(
@@ -186,31 +188,23 @@ def _virtual_plant_preparation(
                     for window in windows
                 )
                 traces.append(
-                    {
-                        "instrument_id": input_id.instrument_id,
-                        "component_path": list(input_id.component_path),
-                        "samples": _synthesize_trace(
+                    VirtualCaptureTraceDocument(
+                        instrument_id=input_id.instrument_id,
+                        component_path=input_id.component_path,
+                        samples=_synthesize_trace(
                             sample_count=entry.sample_count,
                             sample_rate_hz=artifact.sample_rate_hz,
                             windows=tuple(windows),
                             desired=desired,
                         ),
-                    }
+                    )
                 )
-            captures.append({"traces": traces})
+            captures.append(VirtualCaptureDocument(traces=tuple(traces)))
 
-    encoded = reference_lab_payload_codecs().encode(
-        VIRTUAL_CAPTURE_QUEUE_SCHEMA_ID,
-        {"captures": captures},
-    )
     payload_id = f"virtual-captures-{artifact.id.value}"
-    payload = command_payload_from_bytes(
-        id=payload_id,
-        schema_id=encoded.schema_id,
-        codec_id=encoded.codec_id,
-        codec_version=encoded.codec_version,
-        media_type=encoded.media_type,
-        content=encoded.content,
+    payload = VIRTUAL_CAPTURE_QUEUE_PAYLOAD.command_payload(
+        payload_id,
+        VirtualCaptureQueueDocument(captures=tuple(captures)),
     )
     timing_id = artifact.preparation.timing.trigger_instrument_id
     prefix = f"target:{execution_id}:{artifact.id.value}"

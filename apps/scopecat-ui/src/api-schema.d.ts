@@ -1691,6 +1691,11 @@ export interface components {
             codec_id: components["schemas"]["_NonEmptyText"];
             /** Codec Version */
             codec_version: number;
+            /**
+             * Content Format
+             * @enum {string}
+             */
+            content_format: "bytes" | "attachment_bundle";
             content_hash: components["schemas"]["Sha256ContentHash"];
             id: components["schemas"]["_NonEmptyText"];
             media_type: components["schemas"]["_NonEmptyText"];
@@ -6238,7 +6243,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/vnd.scopecat.hardware-receipt.v1": string;
+                    "application/vnd.scopecat.hardware-receipt.v2": string;
                 };
             };
             /** @description Validation Error */

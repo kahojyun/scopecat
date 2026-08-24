@@ -35,18 +35,20 @@ from scopecat.records.measurement import (
     MeasurementUnavailable,
 )
 from scopecat.records.metadata import JsonMetadata
+from scopecat.sdk.attachments import ImmutableBuffer
 from scopecat.sdk.instruments.backend import (
     BackendInvokeRequest,
     BackendOperationArgument,
     BackendPayload,
 )
 from scopecat.sdk.instruments.commands import CollectReceipt
+from scopecat.sdk.payloads import EncodedPayloadContent, PayloadContentFormat
 
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 type _Sha256Hex = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 type _ArrayExtent = Annotated[int, Field(ge=0)]
 
-INVOKE_WIRE_VERSION = 1
+INVOKE_WIRE_VERSION = 2
 COLLECT_WIRE_VERSION = 2
 _MAX_ARRAY_RANK = 16
 _MAX_ARRAY_CONTAINERS = 1_000_000
@@ -63,7 +65,7 @@ class _SizedAttachment(Protocol):
 @dataclass(frozen=True, slots=True)
 class WireLimits:
     max_header_bytes: int = 1 * 1024 * 1024
-    max_attachments: int = 256
+    max_attachments: int = 4096
     max_attachment_bytes: int = 128 * 1024 * 1024
     max_total_attachment_bytes: int = 512 * 1024 * 1024
 
@@ -83,7 +85,7 @@ DEFAULT_WIRE_LIMITS = WireLimits()
 @dataclass(frozen=True, slots=True)
 class InvokeFrames:
     header: bytes
-    attachments: tuple[bytes, ...]
+    attachments: tuple[ImmutableBuffer, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,17 +118,20 @@ class _PayloadDescriptor(_WireModel):
     codec_id: _NonEmptyText
     codec_version: int = Field(ge=1)
     media_type: _NonEmptyText
+    content_format: PayloadContentFormat
+    part_count: int = Field(ge=1)
 
 
 class _AttachmentManifest(_WireModel):
     index: int = Field(ge=0)
     payload_id: _NonEmptyText
+    part_index: int = Field(ge=0)
     size_bytes: int = Field(ge=0)
     sha256: _Sha256Hex
 
 
 class _InvokeHeader(_WireModel):
-    protocol_version: Literal[1]
+    protocol_version: Literal[2]
     request: _InvokeDescriptor
     payloads: tuple[_PayloadDescriptor, ...] = ()
     attachments: tuple[_AttachmentManifest, ...] = ()
@@ -136,10 +141,23 @@ class _InvokeHeader(_WireModel):
         payload_ids = tuple(payload.id for payload in self.payloads)
         if len(payload_ids) != len(set(payload_ids)):
             raise ValueError("worker payload ids must be unique")
-        expected = tuple(range(len(self.payloads)))
+        if any(
+            payload.content_format == "bytes" and payload.part_count != 1
+            for payload in self.payloads
+        ):
+            raise ValueError("worker raw payloads require exactly one attachment")
+        expected_parts = tuple(
+            (payload.id, part_index)
+            for payload in self.payloads
+            for part_index in range(payload.part_count)
+        )
+        expected = tuple(range(len(expected_parts)))
         if tuple(item.index for item in self.attachments) != expected:
             raise ValueError("worker attachment indexes are out of order")
-        if tuple(item.payload_id for item in self.attachments) != payload_ids:
+        if (
+            tuple((item.payload_id, item.part_index) for item in self.attachments)
+            != expected_parts
+        ):
             raise ValueError("worker attachment order does not match payloads")
         return self
 
@@ -250,9 +268,10 @@ def split_invoke_request(
     selected = tuple(sorted(request.payloads.items()))
     payloads: list[_PayloadDescriptor] = []
     manifests: list[_AttachmentManifest] = []
-    attachments: list[bytes] = []
-    for index, (_, payload) in enumerate(selected):
+    attachments: list[ImmutableBuffer] = []
+    for _, payload in selected:
         content = payload.content
+        parts = content.parts
         payloads.append(
             _PayloadDescriptor(
                 id=payload.id,
@@ -260,17 +279,21 @@ def split_invoke_request(
                 codec_id=payload.codec_id,
                 codec_version=payload.codec_version,
                 media_type=payload.media_type,
+                content_format=payload.content_format,
+                part_count=len(parts),
             )
         )
-        manifests.append(
-            _AttachmentManifest(
-                index=index,
-                payload_id=payload.id,
-                size_bytes=len(content),
-                sha256=sha256(content).hexdigest(),
+        for part_index, part in enumerate(parts):
+            manifests.append(
+                _AttachmentManifest(
+                    index=len(attachments),
+                    payload_id=payload.id,
+                    part_index=part_index,
+                    size_bytes=len(part),
+                    sha256=sha256(part).hexdigest(),
+                )
             )
-        )
-        attachments.append(content)
+            attachments.append(part)
 
     header = _InvokeHeader(
         protocol_version=INVOKE_WIRE_VERSION,
@@ -311,7 +334,7 @@ def split_invoke_request(
 
 def join_invoke_request(
     header: bytes,
-    attachments: Sequence[bytes],
+    attachments: Sequence[ImmutableBuffer],
     *,
     limits: WireLimits = DEFAULT_WIRE_LIMITS,
 ) -> BackendInvokeRequest:
@@ -327,28 +350,39 @@ def join_invoke_request(
         raise WorkerWireError("worker attachment count does not match its manifest")
 
     payloads: dict[str, BackendPayload] = {}
-    for payload, manifest, content in zip(
-        descriptor.payloads,
-        descriptor.attachments,
-        frames.attachments,
-        strict=True,
-    ):
-        if len(content) != manifest.size_bytes:
-            raise WorkerWireError(
-                f"worker attachment length mismatch for payload {payload.id!r}"
+    offset = 0
+    for payload in descriptor.payloads:
+        end = offset + payload.part_count
+        manifests = descriptor.attachments[offset:end]
+        parts = frames.attachments[offset:end]
+        for manifest, content in zip(manifests, parts, strict=True):
+            if len(content) != manifest.size_bytes:
+                raise WorkerWireError(
+                    f"worker attachment length mismatch for payload {payload.id!r}"
+                )
+            if sha256(content).hexdigest() != manifest.sha256:
+                raise WorkerWireError(
+                    f"worker attachment hash mismatch for payload {payload.id!r}"
+                )
+        try:
+            encoded_content = EncodedPayloadContent.from_parts(
+                payload.content_format,
+                parts,
             )
-        if sha256(content).hexdigest() != manifest.sha256:
+        except ValueError as error:
             raise WorkerWireError(
-                f"worker attachment hash mismatch for payload {payload.id!r}"
-            )
+                f"worker payload parts are invalid for payload {payload.id!r}"
+            ) from error
         payloads[payload.id] = BackendPayload(
             id=payload.id,
             schema_id=payload.schema_id,
             codec_id=payload.codec_id,
             codec_version=payload.codec_version,
             media_type=payload.media_type,
-            content=content,
+            content_format=payload.content_format,
+            content=encoded_content,
         )
+        offset = end
 
     try:
         return BackendInvokeRequest(

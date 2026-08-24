@@ -92,18 +92,18 @@ from reference_lab.interfaces import (
     CLOCK_TIMING_SPEC,
 )
 from reference_lab.payloads import (
-    DecodedAwgEntry,
-    DecodedAwgProgram,
-    DecodedDigitizerProgram,
-    DecodedMaterializedAwgProgram,
-    DecodedSampledWaveform,
-    DecodedTriggerProgram,
+    AwgEntryDocument,
+    AwgProgramDocument,
+    DigitizerProgramDocument,
+    MaterializedAwgProgramDocument,
+    SampledWaveformDocument,
+    TriggerProgramDocument,
     materialize_awg_program,
 )
 from reference_lab.targets.list_mode.iq_semantics import (
     integrate_rectangular_iq,
 )
-from reference_lab.virtual_lab.capture_payload import DecodedVirtualCaptureQueue
+from reference_lab.virtual_lab.capture_payload import VirtualCaptureQueueDocument
 from reference_lab.virtual_lab.capture_plant import VirtualCaptureSourceInterface
 
 AWG_OUTPUT_COMPONENT_IDS = tuple(f"ch{index}" for index in range(1, 9))
@@ -208,7 +208,7 @@ class BenchSignalWorld:
     armed_awg_programs: dict[str, tuple[tuple[ArmedAwgWaveform, ...], ...]] = field(
         default_factory=dict
     )
-    armed_digitizer_programs: dict[str, DecodedDigitizerProgram] = field(
+    armed_digitizer_programs: dict[str, DigitizerProgramDocument] = field(
         default_factory=dict
     )
     digitizer_program_captures: dict[
@@ -285,14 +285,14 @@ class BenchSignalWorld:
     def arm_digitizer_program(
         self,
         instrument_id: str,
-        program: DecodedDigitizerProgram,
+        program: DigitizerProgramDocument,
     ) -> None:
         self.armed_digitizer_programs[instrument_id] = program
 
     def is_digitizer_program_armed(self, instrument_id: str) -> bool:
         return instrument_id in self.armed_digitizer_programs
 
-    def load_capture_queue(self, queue: DecodedVirtualCaptureQueue) -> None:
+    def load_capture_queue(self, queue: VirtualCaptureQueueDocument) -> None:
         self.capture_queue = [
             {
                 (trace.instrument_id, trace.component_path): trace.samples
@@ -303,7 +303,7 @@ class BenchSignalWorld:
 
     def run_program(
         self,
-        program: DecodedTriggerProgram,
+        program: TriggerProgramDocument,
     ) -> tuple[int, int]:
         expected_awgs = tuple(
             sorted(
@@ -446,7 +446,7 @@ class VirtualAwg:
         self._output_component_ids = tuple(
             f"ch{index}" for index in range(1, output_count + 1)
         )
-        self._loaded_program: DecodedMaterializedAwgProgram | None = None
+        self._loaded_program: MaterializedAwgProgramDocument | None = None
         self._state: dict[PropertyRef, DriverScalar] = {
             AWG_SAMPLE_RATE: sc.Quantity(1.0e9, "Hz"),
             AWG_RUN_MODE: "once",
@@ -559,7 +559,7 @@ class VirtualAwg:
     ) -> DriverOutcome[DriverStateReadback | None]:
         if request.target.operation_id == AWG_LOAD_PROGRAM.operation_id:
             decoded = cast(
-                "DecodedAwgProgram",
+                "AwgProgramDocument",
                 cast("DriverPayload", request.arguments[AWG_PROGRAM.argument_id]).value,
             )
             self._loaded_program = materialize_awg_program(decoded)
@@ -619,7 +619,7 @@ class VirtualAwg:
                 metadata={"operation_id": ANALOG_WAVEFORM_OUTPUT_RESET.operation_id},
             )
         waveform = cast(
-            "DecodedSampledWaveform",
+            "SampledWaveformDocument",
             cast(
                 "DriverPayload",
                 request.arguments[ANALOG_WAVEFORM_OUTPUT_WAVEFORM.argument_id],
@@ -647,7 +647,7 @@ class VirtualAwg:
 
     def _armed_waveforms(
         self,
-        entry: DecodedAwgEntry,
+        entry: AwgEntryDocument,
     ) -> tuple[ArmedAwgWaveform, ...]:
         sample_rate = _quantity_value(self._state[AWG_SAMPLE_RATE], "Hz")
         run_mode = cast("str", self._state[AWG_RUN_MODE])
@@ -692,7 +692,7 @@ class VirtualAwg:
         self,
         *,
         component_path: tuple[str, ...],
-        samples: tuple[float, ...],
+        samples: NDArray[np.float64],
     ) -> tuple[bool, bool]:
         sample_rate = _quantity_value(self._state[AWG_SAMPLE_RATE], "Hz")
         amplitude = _quantity_value(
@@ -756,7 +756,7 @@ class VirtualDigitizer:
     ) -> None:
         self.instrument_id = instrument_id
         self._world = world
-        self._loaded_program: DecodedDigitizerProgram | None = None
+        self._loaded_program: DigitizerProgramDocument | None = None
         self._input_component_ids = tuple(
             f"ch{index}" for index in range(1, input_count + 1)
         )
@@ -855,7 +855,7 @@ class VirtualDigitizer:
     ) -> DriverOutcome[DriverStateReadback | None]:
         if request.target.operation_id == DIGITIZER_LOAD_PROGRAM.operation_id:
             self._loaded_program = cast(
-                "DecodedDigitizerProgram",
+                "DigitizerProgramDocument",
                 cast(
                     "DriverPayload",
                     request.arguments[DIGITIZER_PROGRAM.argument_id],
@@ -969,18 +969,18 @@ class VirtualTimingController(ObjectInstrumentDriver):
     def __init__(self, instrument_id: str, world: BenchSignalWorld) -> None:
         self.instrument_id = instrument_id
         self._world = world
-        self._loaded_program: DecodedTriggerProgram | None = None
-        self._started_programs: dict[str, DecodedTriggerProgram] = {}
+        self._loaded_program: TriggerProgramDocument | None = None
+        self._started_programs: dict[str, TriggerProgramDocument] = {}
 
     @implements(VirtualCaptureSourceInterface.load)
     def load_captures(self, *, captures: DriverPayload) -> DriverSuccess[None]:
-        queue = cast("DecodedVirtualCaptureQueue", captures.value)
+        queue = cast("VirtualCaptureQueueDocument", captures.value)
         self._world.load_capture_queue(queue)
         return DriverSuccess(None, metadata={"capture_count": len(queue.captures)})
 
     @implements(TriggerCoordinatorInterface.load_program)
     def load_trigger_program(self, *, program: DriverPayload) -> DriverSuccess[None]:
-        self._loaded_program = cast("DecodedTriggerProgram", program.value)
+        self._loaded_program = cast("TriggerProgramDocument", program.value)
         return DriverSuccess(
             None,
             metadata={

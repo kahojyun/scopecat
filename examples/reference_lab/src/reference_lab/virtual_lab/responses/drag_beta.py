@@ -17,6 +17,7 @@ from typing import cast, override
 import numpy as np
 from numpy.typing import NDArray
 from scopecat import Quantity
+from scopecat.kernel.content_identity import sha256_json_hash
 from scopecat_quantum._ids import TargetCompileEntryId
 from scopecat_quantum.targets import TargetAcquisitionAddress
 
@@ -27,7 +28,6 @@ from reference_lab.targets.list_mode.execution_model import (
 from reference_lab.targets.list_mode.model import (
     DigitizerAcquisitionWindow,
     acquisition_slot_identity_payload,
-    canonical_fingerprint,
 )
 
 _OPTIMUM_BETA_NS = 0.75
@@ -91,7 +91,7 @@ class DragBetaAcquisitionResponse(AcquisitionResponse):
                 for point in selected
             ],
         }
-        fingerprint = canonical_fingerprint(payload)
+        fingerprint = sha256_json_hash(payload)
         state_one_shots: dict[TargetAcquisitionAddress, NDArray[np.bool_]] = {}
         for point in selected:
             probability = _probability_one(

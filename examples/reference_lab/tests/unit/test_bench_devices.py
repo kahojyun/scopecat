@@ -28,10 +28,10 @@ from reference_lab.bench_interfaces import (
 )
 from reference_lab.interfaces import CLOCK_TIMING
 from reference_lab.payloads import (
-    DecodedDigitizerProgram,
-    DecodedDigitizerProgramEntry,
-    DecodedTriggerProgram,
-    DecodedTriggerProgramEntry,
+    DigitizerProgramDocument,
+    DigitizerProgramEntryDocument,
+    TriggerProgramDocument,
+    TriggerProgramEntryDocument,
 )
 from reference_lab.provider import ReferenceLabProvider
 
@@ -51,20 +51,20 @@ def test_virtual_trigger_programs_execute_complete_device_programs() -> None:
             ),
         ),
     )
-    digitizer = DecodedDigitizerProgram(
+    digitizer = DigitizerProgramDocument(
         entries=(
-            DecodedDigitizerProgramEntry(
+            DigitizerProgramEntryDocument(
                 sample_count=2,
                 input_component_paths=(("inputs", "ch1"),),
                 windows=(),
             ),
         )
     )
-    program = DecodedTriggerProgram(
+    program = TriggerProgramDocument(
         program_id="run-1",
         repetitions=2,
         entries=(
-            DecodedTriggerProgramEntry(
+            TriggerProgramEntryDocument(
                 awg_instrument_ids=("awg",),
                 digitizer_instrument_ids=("digitizer",),
             ),
@@ -91,15 +91,20 @@ def test_virtual_trigger_programs_execute_complete_device_programs() -> None:
 
 def test_virtual_trigger_idempotency_is_scoped_to_driver_session() -> None:
     world = BenchSignalWorld()
-    program = DecodedTriggerProgram(
+    program = TriggerProgramDocument(
         program_id="run-1",
         repetitions=1,
-        entries=(DecodedTriggerProgramEntry((), ()),),
+        entries=(
+            TriggerProgramEntryDocument(
+                awg_instrument_ids=(),
+                digitizer_instrument_ids=(),
+            ),
+        ),
     )
 
     def load_and_start(
         controller: VirtualTimingController,
-        loaded: DecodedTriggerProgram,
+        loaded: TriggerProgramDocument,
     ) -> DriverSuccess[DriverStateReadback | None]:
         controller.invoke(
             DriverOperation(
@@ -127,7 +132,7 @@ def test_virtual_trigger_idempotency_is_scoped_to_driver_session() -> None:
     assert load_and_start(second_session, program).metadata["replayed"] is False
     assert world.trigger_count == 2
 
-    changed = DecodedTriggerProgram(
+    changed = TriggerProgramDocument(
         program_id=program.program_id,
         repetitions=2,
         entries=program.entries,

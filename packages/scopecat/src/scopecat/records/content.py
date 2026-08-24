@@ -149,6 +149,7 @@ class CommandPayload(BaseModel):
     codec_id: _NonEmptyText
     codec_version: int = Field(ge=1)
     media_type: _NonEmptyText
+    content_format: Literal["bytes", "attachment_bundle"]
     content_hash: Sha256ContentHash
     size_bytes: int = Field(ge=0)
     body: CommandPayloadBody
@@ -198,6 +199,7 @@ class CommandPayload(BaseModel):
         codec_id: str,
         codec_version: int,
         media_type: str,
+        content_format: Literal["bytes", "attachment_bundle"],
         content: bytes,
     ) -> CommandPayload:
         """Build a trusted inline payload while hashing immutable bytes once."""
@@ -209,6 +211,7 @@ class CommandPayload(BaseModel):
             codec_id=codec_id,
             codec_version=codec_version,
             media_type=media_type,
+            content_format=content_format,
             content_hash=content_hash,
             size_bytes=len(content),
             body=InlinePayloadBody.from_bytes(content),
@@ -236,6 +239,7 @@ def command_payload_from_bytes(
             codec_id=codec_id,
             codec_version=codec_version,
             media_type=media_type,
+            content_format="bytes",
             content=content,
         )
     return CommandPayload(
@@ -244,6 +248,7 @@ def command_payload_from_bytes(
         codec_id=codec_id,
         codec_version=codec_version,
         media_type=media_type,
+        content_format="bytes",
         content_hash=sha256_content_hash(content),
         size_bytes=len(content),
         body=BlobPayloadBody(ref=blob_ref),

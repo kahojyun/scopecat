@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import struct
 from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -26,16 +25,20 @@ from scopecat.records.measurement import (
     MeasurementUnavailable,
 )
 from scopecat.records.metadata import JsonMetadata
+from scopecat.sdk.attachments import (
+    AttachmentBundle,
+    AttachmentBundleError,
+    AttachmentBundleLimits,
+    ImmutableBuffer,
+)
 from scopecat.sdk.instruments.commands import CollectReceipt
 from scopecat.sdk.instruments.execution import (
     RunHardwareBatchReceipt,
     RunHardwareValue,
 )
 
-HARDWARE_RECEIPT_MEDIA_TYPE = "application/vnd.scopecat.hardware-receipt.v1"
-_MAGIC = b"SCRCPT01"
-_PREFIX_SIZE = len(_MAGIC) + 8
-_MAX_HEADER_BYTES = 8 * 1024 * 1024
+HARDWARE_RECEIPT_MEDIA_TYPE = "application/vnd.scopecat.hardware-receipt.v2"
+_BUNDLE_LIMITS = AttachmentBundleLimits(max_header_bytes=8 * 1024 * 1024)
 
 
 class HardwareReceiptWireError(ValueError):
@@ -54,7 +57,6 @@ class _WireModel(BaseModel):
 class _ArrayReference(_WireModel):
     kind: Literal["array_attachment"] = "array_attachment"
     index: int = Field(ge=0)
-    size_bytes: int = Field(ge=0)
     dtype: MeasurementDType
     unit: str | None = None
     shape: tuple[Annotated[int, Field(ge=0)], ...] = Field(min_length=1)
@@ -118,13 +120,13 @@ def encode_collect_receipt(receipt: CollectReceipt) -> bytes:
         ),
         metadata=receipt.metadata,
     )
-    return _pack(header.model_dump_json().encode("utf-8"), attachments)
+    return _encode_bundle(header, attachments)
 
 
 def decode_collect_receipt(content: bytes) -> CollectReceipt:
     """Decode a framed direct collection receipt."""
 
-    header, body = _unpack(content, _CollectReceiptWire)
+    header, bundle = _decode_bundle(content, _CollectReceiptWire)
     references = tuple(
         value
         for value in (
@@ -132,7 +134,7 @@ def decode_collect_receipt(content: bytes) -> CollectReceipt:
         )
         if isinstance(value, _ArrayReference)
     )
-    attachments = _attachment_views(body, references)
+    attachments = _validated_attachments(bundle, references)
     readback = header.readback
     try:
         return CollectReceipt(
@@ -173,19 +175,19 @@ def encode_run_hardware_receipt(receipt: RunHardwareBatchReceipt) -> bytes:
         problems=receipt.problems,
         indeterminate=receipt.indeterminate,
     )
-    return _pack(header.model_dump_json().encode("utf-8"), attachments)
+    return _encode_bundle(header, attachments)
 
 
 def decode_run_hardware_receipt(content: bytes) -> RunHardwareBatchReceipt:
     """Decode one framed run hardware receipt."""
 
-    header, body = _unpack(content, _RunHardwareReceiptWire)
+    header, bundle = _decode_bundle(content, _RunHardwareReceiptWire)
     references = tuple(
         value.value
         for value in header.values
         if isinstance(value.value, _ArrayReference)
     )
-    attachments = _attachment_views(body, references)
+    attachments = _validated_attachments(bundle, references)
     try:
         return RunHardwareBatchReceipt(
             operation_id=header.operation_id,
@@ -223,7 +225,6 @@ def _encode_value(
         ) from error
     reference = _ArrayReference(
         index=len(attachments),
-        size_bytes=len(content),
         dtype=value.dtype,
         unit=value.unit,
         shape=value.shape,
@@ -235,7 +236,7 @@ def _encode_value(
 
 def _decode_value(
     value: _WireValue,
-    attachments: tuple[memoryview, ...],
+    attachments: tuple[ImmutableBuffer, ...],
 ) -> MeasurementAcquisitionValue:
     if not isinstance(value, _ArrayReference):
         return value
@@ -253,59 +254,48 @@ def _decode_value(
         ) from error
 
 
-def _pack(header: bytes, attachments: list[EncodedMeasurementArray]) -> bytes:
-    if len(header) > _MAX_HEADER_BYTES:
-        raise HardwareReceiptWireError("hardware receipt header exceeds its size limit")
-    content = bytearray(_PREFIX_SIZE + len(header) + sum(map(len, attachments)))
-    content[: len(_MAGIC)] = _MAGIC
-    struct.pack_into("<Q", content, len(_MAGIC), len(header))
-    offset = _PREFIX_SIZE
-    content[offset : offset + len(header)] = header
-    offset += len(header)
-    for attachment in attachments:
-        content[offset : offset + len(attachment)] = attachment
-        offset += len(attachment)
-    return bytes(content)
+def _encode_bundle(
+    header: BaseModel,
+    attachments: list[EncodedMeasurementArray],
+) -> bytes:
+    try:
+        return AttachmentBundle(
+            header=header.model_dump_json().encode("utf-8"),
+            attachments=tuple(attachments),
+        ).to_bytes(_BUNDLE_LIMITS)
+    except AttachmentBundleError as error:
+        raise HardwareReceiptWireError(str(error)) from error
 
 
-def _unpack[WireT: BaseModel](
+def _decode_bundle[WireT: BaseModel](
     content: bytes,
     model: type[WireT],
-) -> tuple[WireT, memoryview]:
-    if len(content) < _PREFIX_SIZE or content[: len(_MAGIC)] != _MAGIC:
-        raise HardwareReceiptWireError("invalid hardware receipt prefix")
-    header_size = struct.unpack_from("<Q", content, len(_MAGIC))[0]
-    if header_size > _MAX_HEADER_BYTES or _PREFIX_SIZE + header_size > len(content):
-        raise HardwareReceiptWireError("invalid hardware receipt header size")
+) -> tuple[WireT, AttachmentBundle]:
     try:
-        header = model.model_validate_json(
-            content[_PREFIX_SIZE : _PREFIX_SIZE + header_size]
-        )
+        bundle = AttachmentBundle.from_bytes(content, _BUNDLE_LIMITS)
+    except AttachmentBundleError as error:
+        raise HardwareReceiptWireError(str(error)) from error
+    try:
+        header = model.model_validate_json(bundle.header)
     except ValidationError as error:
         raise HardwareReceiptWireError("invalid hardware receipt header") from error
-    return header, memoryview(content)[_PREFIX_SIZE + header_size :]
+    return header, bundle
 
 
-def _attachment_views(
-    body: memoryview,
+def _validated_attachments(
+    bundle: AttachmentBundle,
     references: tuple[_ArrayReference, ...],
-) -> tuple[memoryview, ...]:
+) -> tuple[ImmutableBuffer, ...]:
     selected = tuple(sorted(references, key=lambda item: item.index))
     if tuple(reference.index for reference in selected) != tuple(range(len(selected))):
         raise HardwareReceiptWireError(
             "hardware receipt attachment indexes are invalid"
         )
-    attachments: list[memoryview] = []
-    offset = 0
-    for reference in selected:
-        end = offset + reference.size_bytes
-        if end > len(body):
-            raise HardwareReceiptWireError("hardware receipt attachment is truncated")
-        attachments.append(body[offset:end])
-        offset = end
-    if offset != len(body):
-        raise HardwareReceiptWireError("hardware receipt has trailing attachment bytes")
-    return tuple(attachments)
+    if len(selected) != len(bundle.attachments):
+        raise HardwareReceiptWireError(
+            "hardware receipt attachment count does not match its references"
+        )
+    return bundle.attachments
 
 
 __all__ = [

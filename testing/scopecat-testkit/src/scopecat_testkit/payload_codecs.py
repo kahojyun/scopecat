@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 
 from pydantic import BaseModel
-from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
+from scopecat.sdk.payloads import PayloadCodecRegistry, byte_payload_codec
 
 
 def json_payload_codecs(*schema_ids: str) -> PayloadCodecRegistry:
-    codec = PayloadCodec(
+    codec = byte_payload_codec(
         id="tests.canonical-json",
         version=1,
         media_type="application/json",

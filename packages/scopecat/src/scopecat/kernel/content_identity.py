@@ -28,6 +28,12 @@ def stable_content_hash(value: object) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def sha256_json_hash(value: object) -> str:
+    """Identify canonical JSON content with an explicit hash algorithm."""
+
+    return f"sha256:{stable_content_hash(value)}"
+
+
 def sha256_content_hash(content: bytes) -> str:
     """Identify an exact byte representation with an explicit hash algorithm."""
 

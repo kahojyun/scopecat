@@ -16,9 +16,11 @@ from scopecat.records.content import (
     CommandPayload,
     InlinePayloadBody,
 )
+from scopecat.sdk.attachments import AttachmentBundleError
 from scopecat.sdk.instruments.backend import BackendPayload
 from scopecat.sdk.instruments.commands import InvokeCommand
 from scopecat.sdk.instruments.execution import RunHardwareInvoke
+from scopecat.sdk.payloads import EncodedPayloadContent
 
 DEFAULT_MAX_PAYLOAD_OBJECT_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_INLINE_PAYLOAD_BYTES = 1024 * 1024
@@ -289,13 +291,23 @@ class CommandPayloadService:
                     )
                 content_by_ref[body.ref] = content
         _verify_payload(payload, content)
+        try:
+            encoded_content = EncodedPayloadContent.from_flat_bytes(
+                content,
+                payload.content_format,
+            )
+        except AttachmentBundleError as error:
+            raise CommandPayloadError(
+                f"payload {payload.id} has invalid attachment framing"
+            ) from error
         return BackendPayload(
             id=payload.id,
             schema_id=payload.schema_id,
             codec_id=payload.codec_id,
             codec_version=payload.codec_version,
             media_type=payload.media_type,
-            content=content,
+            content_format=payload.content_format,
+            content=encoded_content,
         )
 
     def release(self, scope: CommandPayloadScope) -> None:

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from itertools import chain, islice
 from typing import Protocol
 
+from scopecat.kernel.content_identity import sha256_json_hash
+
 from reference_lab.targets.list_mode.model import (
     ListModeDeviceSnapshot,
     ListModePlacementCandidate,
@@ -13,7 +15,6 @@ from reference_lab.targets.list_mode.model import (
     ListModePlacementConstraintKind,
     ListModePlacementRejection,
     ListModeSignalPlacement,
-    canonical_fingerprint,
 )
 
 type LogicalSignalKey = tuple[str, str, str]
@@ -76,7 +77,7 @@ class ConfiguredRoutePlacementProvider:
 
     @property
     def fingerprint(self) -> str:
-        return canonical_fingerprint(
+        return sha256_json_hash(
             {
                 "schema": "reference_lab.placement_provider.v1",
                 "provider_id": self.id,

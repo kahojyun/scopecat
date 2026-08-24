@@ -15,7 +15,7 @@ from scopecat.kernel.payloads import unwrap_payload_values
 from scopecat.kernel.point_identity import LogicalPointId
 from scopecat.kernel.product_identity import ProductUseId
 from scopecat.kernel.value_validation import coerce_literal
-from scopecat.records.content import CommandPayload, command_payload_from_bytes
+from scopecat.records.content import CommandPayload
 from scopecat.sdk.payloads import PayloadCodecRegistry
 
 
@@ -80,14 +80,10 @@ class ComputeEffectExecutor:
                 )
                 if operation.payload_slot is not None:
                     slot = operation.payload_slot
-                    encoded = self.payload_codecs.encode(slot.schema_id, result)
-                    payload = command_payload_from_bytes(
-                        id=slot.id,
-                        schema_id=encoded.schema_id,
-                        codec_id=encoded.codec_id,
-                        codec_version=encoded.codec_version,
-                        media_type=encoded.media_type,
-                        content=encoded.content,
+                    payload = self.payload_codecs.command_payload(
+                        slot.id,
+                        slot.schema_id,
+                        result,
                     )
                 else:
                     payload = None

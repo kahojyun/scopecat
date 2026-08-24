@@ -15,12 +15,14 @@ from scopecat.records.measurement import (
     MeasurementScalar,
     MeasurementUnavailable,
 )
+from scopecat.sdk.attachments import AttachmentBundle
 from scopecat.sdk.instruments.backend import (
     BackendInvokeRequest,
     BackendOperationArgument,
     BackendPayload,
 )
 from scopecat.sdk.instruments.commands import CollectReceipt
+from scopecat.sdk.payloads import EncodedPayloadContent
 
 from scopecat_server.instruments.worker_wire import (
     DEFAULT_WIRE_LIMITS,
@@ -41,7 +43,8 @@ def _payload(payload_id: str, content: bytes) -> BackendPayload:
         codec_id="tests.binary",
         codec_version=2,
         media_type="application/octet-stream",
-        content=content,
+        content_format="bytes",
+        content=EncodedPayloadContent.from_bytes(content),
     )
 
 
@@ -115,12 +118,15 @@ def test_invoke_wire_separates_json_descriptor_from_binary_content() -> None:
     assert set(document["payloads"][0]) == {
         "codec_id",
         "codec_version",
+        "content_format",
         "id",
         "media_type",
+        "part_count",
         "schema_id",
     }
     assert set(document["attachments"][0]) == {
         "index",
+        "part_index",
         "payload_id",
         "sha256",
         "size_bytes",
@@ -152,8 +158,66 @@ def test_invoke_wire_orders_multiple_payload_attachments_by_id() -> None:
         "alpha",
         "zeta",
     ]
-    assert frames.attachments == (first.content, second.content)
+    assert frames.attachments == (
+        first.content.require_bytes(),
+        second.content.require_bytes(),
+    )
     assert restored == request
+
+
+def test_invoke_wire_preserves_payload_bundle_parts() -> None:
+    content = EncodedPayloadContent.from_bundle(
+        AttachmentBundle(
+            header=b'{"program":"readout"}',
+            attachments=(memoryview(b"waveform-a"), memoryview(b"waveform-b")),
+        )
+    )
+    payload = BackendPayload(
+        id="program",
+        schema_id="tests.program/v1",
+        codec_id="tests.bundle",
+        codec_version=1,
+        media_type="application/vnd.tests.bundle",
+        content_format="attachment_bundle",
+        content=content,
+    )
+
+    frames = split_invoke_request(_request(payload))
+    restored = join_invoke_request(frames.header, frames.attachments)
+
+    assert tuple(map(bytes, frames.attachments)) == (
+        b'{"program":"readout"}',
+        b"waveform-a",
+        b"waveform-b",
+    )
+    restored_bundle = restored.payloads["program"].content.require_bundle()
+    assert restored_bundle.header == content.require_bundle().header
+    assert tuple(map(bytes, restored_bundle.attachments)) == (
+        b"waveform-a",
+        b"waveform-b",
+    )
+
+
+def test_invoke_wire_supports_array_fragment_heavy_payloads() -> None:
+    bundle = AttachmentBundle(
+        header=b'{"program":"fragmented"}',
+        attachments=tuple(memoryview(bytes([index % 251])) for index in range(300)),
+    )
+    payload = BackendPayload(
+        id="program",
+        schema_id="tests.program/v1",
+        codec_id="tests.bundle",
+        codec_version=1,
+        media_type="application/vnd.tests.bundle",
+        content_format="attachment_bundle",
+        content=EncodedPayloadContent.from_bundle(bundle),
+    )
+
+    frames = split_invoke_request(_request(payload))
+    restored = join_invoke_request(frames.header, frames.attachments)
+
+    assert len(frames.attachments) == 301
+    assert len(restored.payloads["program"].content.require_bundle().attachments) == 300
 
 
 @pytest.mark.parametrize("change", ["missing", "extra"])
@@ -192,7 +256,7 @@ def test_invoke_wire_rejects_attachment_length_and_hash_tampering() -> None:
 def test_invoke_wire_rejects_unknown_version_and_public_provenance() -> None:
     frames = split_invoke_request(_request(_payload("program", b"payload")))
     wrong_version_document = _header_document(frames.header)
-    wrong_version_document["protocol_version"] = 2
+    wrong_version_document["protocol_version"] = 3
     wrong_version = _encode_header(wrong_version_document)
     provenance_document = _header_document(frames.header)
     request_document = provenance_document["request"]

@@ -19,7 +19,7 @@ from scopecat.kernel.value_types import (
     Scalar,
 )
 from scopecat.program.value_graph import ComputeOutput, OperationId, operation_result_id
-from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
+from scopecat.sdk.payloads import PayloadCodecRegistry, byte_payload_codec
 
 
 def _operation() -> ComputeOperation:
@@ -51,7 +51,7 @@ def _failing_encoder(_value: object) -> bytes:
         PayloadCodecRegistry(),
         PayloadCodecRegistry(
             {
-                "tests.program/v1": PayloadCodec(
+                "tests.program/v1": byte_payload_codec(
                     id="tests.failing",
                     version=1,
                     media_type="application/octet-stream",

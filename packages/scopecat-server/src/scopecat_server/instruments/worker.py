@@ -21,7 +21,6 @@ from pydantic import (
     Field,
     JsonValue,
     TypeAdapter,
-    ValidationError,
     model_validator,
 )
 from scopecat.kernel.problems import Problem
@@ -1179,16 +1178,7 @@ def _model_from_body[ModelT: BaseModel](
 
 
 def _model_to_body(model: BaseModel) -> dict[str, JsonValue]:
-    content = model.model_dump_json().encode("utf-8")
-    try:
-        restored = type(model).model_validate_json(content)
-    except ValidationError as error:
-        raise ValueError(
-            "instrument worker model is not losslessly JSON serializable"
-        ) from error
-    if restored != model:
-        raise ValueError("instrument worker model is not losslessly JSON serializable")
-    return _JSON_OBJECT.validate_json(content)
+    return _JSON_OBJECT.validate_python(model.model_dump(mode="json"))
 
 
 def _require_response_body(response: _RpcResponse) -> dict[str, JsonValue]:

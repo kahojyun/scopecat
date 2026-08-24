@@ -24,6 +24,7 @@ from scopecat.inspection import (
     CompiledProgramInspectionQuery,
     CompiledWaveformInspection,
 )
+from scopecat.kernel.content_identity import sha256_json_hash
 
 from reference_lab.targets.list_mode.model import (
     AwgChannelWaveform,
@@ -35,7 +36,6 @@ from reference_lab.targets.list_mode.model import (
     ListModePlacementConstraint,
     acquisition_slot_identity_payload,
     awg_waveform_identity_payload,
-    canonical_fingerprint,
     pulse_event_identity_payload,
     signal_key,
 )
@@ -666,7 +666,7 @@ def _point_realization_fingerprint(
     entry: ListModeEntry,
     waveforms: tuple[AwgChannelWaveform, ...],
 ) -> str:
-    return canonical_fingerprint(
+    return sha256_json_hash(
         {
             "schema": "reference_lab.list_mode_point_realization.v1",
             "target_id": artifact.target_id.value,

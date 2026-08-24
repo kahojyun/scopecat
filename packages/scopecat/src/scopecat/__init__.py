@@ -162,6 +162,15 @@ if TYPE_CHECKING:
         PayloadCodecCatalog,
         PayloadCodecDescription,
         PayloadCodecRegistry,
+        PayloadContract,
+        byte_payload_codec,
+    )
+    from scopecat.sdk.structured_payloads import (
+        FrozenFloat64Vector,
+        StructuredPayloadError,
+        StructuredValueCodec,
+        pydantic_buffer_bundle_codec,
+        pydantic_buffer_bundle_value_codec,
     )
 
 _EXPORTS: dict[str, tuple[str, str]] = {
@@ -254,6 +263,28 @@ _EXPORTS: dict[str, tuple[str, str]] = {
         "PayloadCodecDescription",
     ),
     "PayloadCodecRegistry": ("scopecat.sdk.payloads", "PayloadCodecRegistry"),
+    "PayloadContract": ("scopecat.sdk.payloads", "PayloadContract"),
+    "byte_payload_codec": ("scopecat.sdk.payloads", "byte_payload_codec"),
+    "FrozenFloat64Vector": (
+        "scopecat.sdk.structured_payloads",
+        "FrozenFloat64Vector",
+    ),
+    "StructuredPayloadError": (
+        "scopecat.sdk.structured_payloads",
+        "StructuredPayloadError",
+    ),
+    "StructuredValueCodec": (
+        "scopecat.sdk.structured_payloads",
+        "StructuredValueCodec",
+    ),
+    "pydantic_buffer_bundle_codec": (
+        "scopecat.sdk.structured_payloads",
+        "pydantic_buffer_bundle_codec",
+    ),
+    "pydantic_buffer_bundle_value_codec": (
+        "scopecat.sdk.structured_payloads",
+        "pydantic_buffer_bundle_value_codec",
+    ),
     "EntityRef": ("scopecat.kernel.entity", "EntityRef"),
     "entity_ref": ("scopecat.kernel.entity", "entity_ref"),
     "delete_parameter_rows": ("scopecat.config.parameters", "delete_parameter_rows"),

@@ -23,4 +23,5 @@ def test_registry_lists_every_classified_case() -> None:
         ("historical-project", "component"),
         ("quantum-program", "component"),
         ("inspection-index", "micro"),
+        ("payload-attachments", "micro"),
     ]

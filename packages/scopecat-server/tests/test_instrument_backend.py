@@ -25,7 +25,11 @@ from scopecat.sdk.instruments.backend import (
     BackendReadRequest,
     BackendStateMemberWrite,
 )
-from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
+from scopecat.sdk.payloads import (
+    EncodedPayloadContent,
+    PayloadCodecRegistry,
+    byte_payload_codec,
+)
 from scopecat_testkit.instrument_drivers import (
     SignalInstrumentDriver,
     load_config,
@@ -210,7 +214,7 @@ def test_local_backend_rejects_payload_decode_before_driver_dispatch() -> None:
             driver_catalog=DriverCatalog(provider_id=provider.provider_id),
             payload_codecs=PayloadCodecRegistry(
                 {
-                    "tests.program/v1": PayloadCodec(
+                    "tests.program/v1": byte_payload_codec(
                         id="tests.canonical-json",
                         version=1,
                         media_type="application/json",
@@ -277,7 +281,8 @@ def _backend_invoke_request(content: bytes) -> BackendInvokeRequest:
         codec_id="tests.canonical-json",
         codec_version=1,
         media_type="application/json",
-        content=content,
+        content_format="bytes",
+        content=EncodedPayloadContent.from_bytes(content),
     )
     return BackendInvokeRequest(
         interface_id="test.play_program/v1",

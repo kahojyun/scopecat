@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 from dataclasses import dataclass, field
 from typing import Literal, cast, override
 
 import numpy as np
 from numpy.typing import NDArray
+from scopecat.kernel.content_identity import sha256_json_hash
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
     PulseEventId,
@@ -142,7 +142,7 @@ class ListModeDeviceSnapshot:
         object.__setattr__(
             self,
             "snapshot_fingerprint",
-            canonical_fingerprint(device_snapshot_payload(self)),
+            sha256_json_hash(device_snapshot_payload(self)),
         )
 
     def signal_placement(
@@ -412,19 +412,6 @@ class ListModePreparation:
     clocks: tuple[ClockPreparation, ...]
     outputs: tuple[OutputChannelPreparation, ...]
     timing: TimingDomainPreparation
-
-
-def canonical_fingerprint(payload: object) -> str:
-    """Hash canonical JSON data with a stable schema-independent envelope."""
-
-    encoded = json.dumps(
-        payload,
-        allow_nan=False,
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode()
-    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def physical_endpoint_payload(endpoint: ListModePhysicalEndpoint) -> dict[str, object]:
@@ -720,12 +707,12 @@ class ListModeTarget:
         object.__setattr__(
             self,
             "_capability_fingerprint",
-            canonical_fingerprint(self._capability_payload()),
+            sha256_json_hash(self._capability_payload()),
         )
         object.__setattr__(
             self,
             "_configuration_fingerprint",
-            canonical_fingerprint(self._configuration_payload()),
+            sha256_json_hash(self._configuration_payload()),
         )
 
     @property

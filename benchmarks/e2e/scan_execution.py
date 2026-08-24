@@ -58,9 +58,9 @@ from reference_lab.parameters import (
     READOUT_LO,
 )
 from reference_lab.payloads import (
-    DecodedAwgProgram,
-    DecodedMaterializedAwgProgram,
-    DecodedTriggerProgram,
+    AwgProgramDocument,
+    MaterializedAwgProgramDocument,
+    TriggerProgramDocument,
     materialize_awg_program,
     reference_lab_payload_codecs,
 )
@@ -377,12 +377,12 @@ class ScopecatWaveformTracker:
 
     def __init__(self, *, live_waveform: bool) -> None:
         self._view = LatestWaveformView(live_waveform)
-        self._programs: dict[str, DecodedMaterializedAwgProgram] = {}
+        self._programs: dict[str, MaterializedAwgProgramDocument] = {}
         self.uploaded_bytes = 0
         self._pending_batch_bytes = 0
         self.max_batch_bytes = 0
 
-    def load(self, instrument_id: str, program: DecodedAwgProgram) -> None:
+    def load(self, instrument_id: str, program: AwgProgramDocument) -> None:
         materialized = materialize_awg_program(program)
         self._programs[instrument_id] = materialized
         uploaded = sum(
@@ -933,7 +933,7 @@ class TimedInstrumentDriver:
             and request.target.operation_id == AWG_LOAD_PROGRAM.operation_id
         ):
             program = cast(
-                "DecodedAwgProgram",
+                "AwgProgramDocument",
                 cast(
                     "DriverPayload",
                     request.arguments[AWG_PROGRAM.argument_id],
@@ -945,7 +945,7 @@ class TimedInstrumentDriver:
             and request.target.operation_id == TRIGGER_LOAD_PROGRAM.operation_id
         ):
             program = cast(
-                "DecodedTriggerProgram",
+                "TriggerProgramDocument",
                 cast(
                     "DriverPayload",
                     request.arguments[TRIGGER_PROGRAM.argument_id],
