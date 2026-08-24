@@ -28,7 +28,11 @@ from scopecat.sdk.instruments.members import (
     OperationRef,
     StateMemberRef,
 )
-from scopecat.sdk.payloads import PayloadCodecRegistry
+from scopecat.sdk.payloads import (
+    EncodedPayloadContent,
+    PayloadCodecRegistry,
+    PayloadContentFormat,
+)
 
 if TYPE_CHECKING:
     from scopecat.sdk.instruments.commands import (
@@ -43,6 +47,7 @@ type _NonEmptyId = Annotated[str, Field(min_length=1)]
 
 class _BackendRequestModel(BaseModel):
     model_config = ConfigDict(
+        arbitrary_types_allowed=True,
         extra="forbid",
         frozen=True,
         strict=True,
@@ -69,14 +74,23 @@ class BackendApplyRequest(_BackendRequestModel):
 
 
 class BackendPayload(_BackendRequestModel):
-    """Verified opaque bytes ready to cross a driver-worker boundary."""
+    """Verified encoded content ready to cross a driver-worker boundary."""
 
     id: _NonEmptyId
     schema_id: _NonEmptyId
     codec_id: _NonEmptyId
     codec_version: int = Field(ge=1)
     media_type: _NonEmptyId
-    content: bytes = Field(repr=False)
+    content_format: PayloadContentFormat
+    content: EncodedPayloadContent = Field(repr=False)
+
+    @model_validator(mode="after")
+    def validate_content_format(self) -> BackendPayload:
+        if self.content.format != self.content_format:
+            raise ValueError(
+                "backend payload content format does not match its content"
+            )
+        return self
 
 
 class BackendOperationArgument(_BackendRequestModel):

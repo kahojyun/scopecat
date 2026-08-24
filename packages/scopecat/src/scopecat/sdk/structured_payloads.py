@@ -27,7 +27,7 @@ from scopecat.sdk.attachments import (
     AttachmentBundleError,
     AttachmentBundleLimits,
 )
-from scopecat.sdk.payloads import PayloadCodec
+from scopecat.sdk.payloads import EncodedPayloadContent, PayloadCodec
 
 STRUCTURED_PAYLOAD_CODEC_ID = "scopecat.pydantic-buffer-bundle"
 STRUCTURED_PAYLOAD_MEDIA_TYPE = "application/vnd.scopecat.pydantic-buffer-bundle"
@@ -262,25 +262,15 @@ def pydantic_buffer_bundle_codec[ValueT](
 
     value_codec = pydantic_buffer_bundle_value_codec(value_type)
 
-    def encode(value: ValueT) -> bytes:
-        try:
-            return value_codec.encode(value).to_bytes(_BUNDLE_LIMITS)
-        except AttachmentBundleError as error:
-            raise StructuredPayloadError(str(error)) from error
-
-    def decode(content: bytes) -> ValueT:
-        try:
-            bundle = AttachmentBundle.from_bytes(content, _BUNDLE_LIMITS)
-        except AttachmentBundleError as error:
-            raise StructuredPayloadError(str(error)) from error
-        return value_codec.decode(bundle)
-
     return PayloadCodec(
         id=id,
         version=version,
         media_type=STRUCTURED_PAYLOAD_MEDIA_TYPE,
-        encoder=encode,
-        decoder=decode,
+        content_format="attachment_bundle",
+        encoder=lambda value: EncodedPayloadContent.from_bundle(
+            value_codec.encode(value)
+        ),
+        decoder=lambda content: value_codec.decode(content.require_bundle()),
     )
 
 

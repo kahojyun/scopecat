@@ -26,6 +26,7 @@ from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
 from scopecat.records.content import CommandPayload, command_payload_from_bytes
 from scopecat.records.run_request import RunRequest
+from scopecat.sdk.attachments import AttachmentBundle
 from scopecat.sdk.instruments import (
     DriverCatalog,
     DriverOperation,
@@ -48,7 +49,12 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareCollectBinding,
     RunHardwareInvoke,
 )
-from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
+from scopecat.sdk.payloads import (
+    EncodedPayloadContent,
+    PayloadCodecRegistry,
+    byte_payload_codec,
+    command_payload_from_encoded_content,
+)
 from scopecat_testkit.instrument_drivers import SignalInstrumentDriver, load_config
 
 from scopecat_server import LocalDaemonRuntime
@@ -537,6 +543,35 @@ def test_blob_descriptor_is_bounded_before_spool_read() -> None:
             {blob.id: blob},
             scope=run_payload_scope("run", "oversized"),
         )
+
+
+def test_payload_materialization_restores_attachment_bundle_parts() -> None:
+    content = EncodedPayloadContent.from_bundle(
+        AttachmentBundle(
+            header=b'{"program":"readout"}',
+            attachments=(memoryview(b"first"), memoryview(b"second")),
+        )
+    )
+    payload = command_payload_from_encoded_content(
+        id="bundle-program",
+        schema_id="tests.bundle/v1",
+        codec_id="tests.bundle",
+        codec_version=1,
+        media_type="application/vnd.tests.bundle",
+        content=content,
+    )
+    service = CommandPayloadService()
+    scope = session_payload_scope("session", "bundle")
+
+    canonical = service.canonicalize_invoke_command(
+        _direct_payload_command("bundle", payload),
+        scope=scope,
+    )
+    materialized = service.materialize_payloads(canonical.payloads, scope=scope)
+
+    restored = materialized[payload.id].content.require_bundle()
+    assert restored.header == b'{"program":"readout"}'
+    assert tuple(map(bytes, restored.attachments)) == (b"first", b"second")
 
 
 def test_closed_direct_session_cannot_leave_an_uploaded_payload(
@@ -1078,7 +1113,7 @@ def _payload_codecs(
 ) -> PayloadCodecRegistry:
     return PayloadCodecRegistry(
         {
-            "pulse_program": PayloadCodec(
+            "pulse_program": byte_payload_codec(
                 id=_CODEC_ID,
                 version=_CODEC_VERSION,
                 media_type=_MEDIA_TYPE,

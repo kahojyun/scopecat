@@ -43,7 +43,7 @@ from scopecat.sdk.instruments import (
     operation_argument,
     state_readback,
 )
-from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
+from scopecat.sdk.payloads import PayloadCodecRegistry, byte_payload_codec
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,7 +217,7 @@ def create_backend(project_root: Path) -> InstrumentBackend:
         driver_catalog=DriverCatalog(provider_id=provider.provider_id),
         payload_codecs=PayloadCodecRegistry(
             {
-                "pulse_program": PayloadCodec(
+                "pulse_program": byte_payload_codec(
                     id="tests.raw",
                     version=1,
                     media_type="application/octet-stream",

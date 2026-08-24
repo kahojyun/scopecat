@@ -5,15 +5,121 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Protocol, cast, override
+from typing import Literal, Protocol, Self, cast, override
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.records.content import CommandPayload, command_payload_from_bytes
+from scopecat.records.content import CommandPayload, InlinePayloadBody
+from scopecat.sdk.attachments import (
+    AttachmentBundle,
+    AttachmentBundleLimits,
+    ImmutableBuffer,
+)
 
-type PayloadEncoder[ValueT] = Callable[[ValueT], bytes]
-type PayloadDecoder[ValueT] = Callable[[bytes], ValueT]
+type PayloadContentFormat = Literal["bytes", "attachment_bundle"]
+
+
+@dataclass(frozen=True, slots=True)
+class EncodedPayloadContent:
+    """Exact codec output, kept as raw bytes or separate binary attachments."""
+
+    _content: bytes | AttachmentBundle = field(repr=False)
+
+    @classmethod
+    def from_bytes(cls, content: bytes, /) -> Self:
+        return cls(bytes(content))
+
+    @classmethod
+    def from_bundle(cls, bundle: AttachmentBundle, /) -> Self:
+        return cls(bundle)
+
+    @classmethod
+    def from_flat_bytes(
+        cls,
+        content: bytes,
+        content_format: PayloadContentFormat,
+        /,
+        *,
+        limits: AttachmentBundleLimits | None = None,
+    ) -> Self:
+        if content_format == "bytes":
+            return cls.from_bytes(content)
+        return cls.from_bundle(
+            AttachmentBundle.from_bytes(content)
+            if limits is None
+            else AttachmentBundle.from_bytes(content, limits)
+        )
+
+    @classmethod
+    def from_parts(
+        cls,
+        content_format: PayloadContentFormat,
+        parts: tuple[ImmutableBuffer, ...],
+        /,
+    ) -> Self:
+        if content_format == "bytes":
+            if len(parts) != 1:
+                raise ValueError("raw payload content requires exactly one part")
+            return cls.from_bytes(bytes(parts[0]))
+        if not parts:
+            raise ValueError("attachment payload content requires a header part")
+        return cls.from_bundle(
+            AttachmentBundle(
+                header=bytes(parts[0]),
+                attachments=parts[1:],
+            )
+        )
+
+    @property
+    def format(self) -> PayloadContentFormat:
+        return (
+            "attachment_bundle"
+            if isinstance(self._content, AttachmentBundle)
+            else "bytes"
+        )
+
+    @property
+    def size_bytes(self) -> int:
+        if isinstance(self._content, AttachmentBundle):
+            return self._content.size_bytes
+        return len(self._content)
+
+    def __len__(self) -> int:
+        return self.size_bytes
+
+    @property
+    def parts(self) -> tuple[ImmutableBuffer, ...]:
+        if isinstance(self._content, AttachmentBundle):
+            return self._content.header, *self._content.attachments
+        return (self._content,)
+
+    def to_bytes(self) -> bytes:
+        if isinstance(self._content, AttachmentBundle):
+            return self._content.to_bytes()
+        return self._content
+
+    def content_hash(self) -> str:
+        if isinstance(self._content, AttachmentBundle):
+            return self._content.content_hash()
+        return sha256_content_hash(self._content)
+
+    def require_bytes(self) -> bytes:
+        if isinstance(self._content, AttachmentBundle):
+            raise TypeError("payload content is an attachment bundle")
+        return self._content
+
+    def require_bundle(self) -> AttachmentBundle:
+        if not isinstance(self._content, AttachmentBundle):
+            raise TypeError("payload content is raw bytes")
+        return self._content
+
+
+type PayloadEncoder[ValueT] = Callable[[ValueT], EncodedPayloadContent]
+type PayloadDecoder[ValueT] = Callable[[EncodedPayloadContent], ValueT]
+type BytePayloadEncoder[ValueT] = Callable[[ValueT], bytes]
+type BytePayloadDecoder[ValueT] = Callable[[bytes], ValueT]
 
 
 class PayloadDescriptor(Protocol):
@@ -29,6 +135,9 @@ class PayloadDescriptor(Protocol):
     @property
     def media_type(self) -> str: ...
 
+    @property
+    def content_format(self) -> PayloadContentFormat: ...
+
 
 class PayloadContractRegistration(Protocol):
     def registration(self) -> tuple[str, PayloadCodec[object]]: ...
@@ -43,6 +152,7 @@ class PayloadCodecDescription(BaseModel):
     codec_id: str = Field(min_length=1)
     codec_version: int = Field(ge=1)
     media_type: str = Field(min_length=1)
+    content_format: PayloadContentFormat
 
 
 class PayloadCodecCatalog(BaseModel):
@@ -68,6 +178,7 @@ class PayloadCodecCatalog(BaseModel):
             ("codec_id", codec.codec_id, payload.codec_id),
             ("codec_version", codec.codec_version, payload.codec_version),
             ("media_type", codec.media_type, payload.media_type),
+            ("content_format", codec.content_format, payload.content_format),
         )
         for field_name, expected, actual in mismatches:
             if actual != expected:
@@ -86,11 +197,12 @@ class PayloadCodecCatalog(BaseModel):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PayloadCodec[ValueT = object]:
-    """Bidirectional byte codec registered for one or more payload schemas."""
+    """Bidirectional content codec registered for one or more payload schemas."""
 
     id: str
     version: int
     media_type: str
+    content_format: PayloadContentFormat
     encoder: PayloadEncoder[ValueT] = field(repr=False, compare=False)
     decoder: PayloadDecoder[ValueT] = field(repr=False, compare=False)
 
@@ -103,6 +215,26 @@ class PayloadCodec[ValueT = object]:
             raise ValueError("payload codec media_type must not be empty")
 
 
+def byte_payload_codec[ValueT](
+    *,
+    id: str,
+    version: int,
+    media_type: str,
+    encoder: BytePayloadEncoder[ValueT],
+    decoder: BytePayloadDecoder[ValueT],
+) -> PayloadCodec[ValueT]:
+    """Adapt an ordinary bytes codec to the structured payload pipeline."""
+
+    return PayloadCodec(
+        id=id,
+        version=version,
+        media_type=media_type,
+        content_format="bytes",
+        encoder=lambda value: EncodedPayloadContent.from_bytes(encoder(value)),
+        decoder=lambda content: decoder(content.require_bytes()),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class EncodedPayload:
     """Exact codec output and the descriptor required to decode it."""
@@ -111,7 +243,8 @@ class EncodedPayload:
     codec_id: str
     codec_version: int
     media_type: str
-    content: bytes = field(repr=False)
+    content_format: PayloadContentFormat
+    content: EncodedPayloadContent = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -137,16 +270,19 @@ class PayloadContract[ValueT = object]:
         """Encode a typed value without repeating schema or codec metadata."""
 
         content = self.codec.encoder(value)
+        if content.format != self.codec.content_format:
+            raise ValueError("payload codec returned an undeclared content format")
         return EncodedPayload(
             schema_id=self.schema_id,
             codec_id=self.codec.id,
             codec_version=self.codec.version,
             media_type=self.codec.media_type,
+            content_format=self.codec.content_format,
             content=content,
         )
 
-    def decode_content(self, content: bytes, /) -> ValueT:
-        """Decode raw content when its descriptor was validated externally."""
+    def decode_content(self, content: EncodedPayloadContent, /) -> ValueT:
+        """Decode content when its descriptor was validated externally."""
 
         return self.codec.decoder(content)
 
@@ -162,6 +298,7 @@ class PayloadContract[ValueT = object]:
             ("codec_id", self.codec.id, payload.codec_id),
             ("codec_version", self.codec.version, payload.codec_version),
             ("media_type", self.codec.media_type, payload.media_type),
+            ("content_format", self.codec.content_format, payload.content_format),
         )
         for field_name, expected, actual in mismatches:
             if actual != expected:
@@ -169,9 +306,14 @@ class PayloadContract[ValueT = object]:
                     f"payload {field_name} mismatch for schema "
                     f"{self.schema_id!r}: expected {expected!r}, got {actual!r}"
                 )
-        content = payload.inline_bytes()
-        payload.verify_content(content)
-        return self.decode_content(content)
+        flat_content = payload.inline_bytes()
+        payload.verify_content(flat_content)
+        return self.decode_content(
+            EncodedPayloadContent.from_flat_bytes(
+                flat_content,
+                payload.content_format,
+            )
+        )
 
     def command_payload(
         self,
@@ -182,14 +324,7 @@ class PayloadContract[ValueT = object]:
         """Build one transport payload without exposing descriptor plumbing."""
 
         encoded = self.encode(value)
-        return command_payload_from_bytes(
-            id=id,
-            schema_id=encoded.schema_id,
-            codec_id=encoded.codec_id,
-            codec_version=encoded.codec_version,
-            media_type=encoded.media_type,
-            content=encoded.content,
-        )
+        return _command_payload_from_encoded(id, encoded)
 
     def registration(self) -> tuple[str, PayloadCodec[object]]:
         return self.schema_id, cast("PayloadCodec[object]", self.codec)
@@ -221,6 +356,7 @@ class PayloadCodecRegistry(Mapping[str, PayloadCodec[object]]):
                     codec_id=codec.id,
                     codec_version=codec.version,
                     media_type=codec.media_type,
+                    content_format=codec.content_format,
                 )
                 for schema_id, codec in sorted(selected.items())
             )
@@ -260,11 +396,14 @@ class PayloadCodecRegistry(Mapping[str, PayloadCodec[object]]):
     def encode(self, schema_id: str, value: object) -> EncodedPayload:
         codec = self._require(schema_id)
         content = codec.encoder(value)
+        if content.format != codec.content_format:
+            raise ValueError("payload codec returned an undeclared content format")
         return EncodedPayload(
             schema_id=schema_id,
             codec_id=codec.id,
             codec_version=codec.version,
             media_type=codec.media_type,
+            content_format=codec.content_format,
             content=content,
         )
 
@@ -278,14 +417,7 @@ class PayloadCodecRegistry(Mapping[str, PayloadCodec[object]]):
         """Encode a dynamically selected schema into its transport envelope."""
 
         encoded = self.encode(schema_id, value)
-        return command_payload_from_bytes(
-            id=id,
-            schema_id=encoded.schema_id,
-            codec_id=encoded.codec_id,
-            codec_version=encoded.codec_version,
-            media_type=encoded.media_type,
-            content=encoded.content,
-        )
+        return _command_payload_from_encoded(id, encoded)
 
     def validate_descriptor(
         self,
@@ -300,16 +432,25 @@ class PayloadCodecRegistry(Mapping[str, PayloadCodec[object]]):
     def decode_content(
         self,
         descriptor: PayloadDescriptor,
-        content: bytes,
+        content: EncodedPayloadContent,
     ) -> object:
-        """Decode verified bytes using their exact declared codec."""
+        """Decode verified content using its exact declared codec."""
 
-        return self.validate_descriptor(descriptor).decoder(content)
+        codec = self.validate_descriptor(descriptor)
+        if content.format != descriptor.content_format:
+            raise ValueError("payload content does not match its declared format")
+        return codec.decoder(content)
 
     def decode(self, payload: CommandPayload) -> object:
-        content = payload.inline_bytes()
-        payload.verify_content(content)
-        return self.decode_content(payload, content)
+        flat_content = payload.inline_bytes()
+        payload.verify_content(flat_content)
+        return self.decode_content(
+            payload,
+            EncodedPayloadContent.from_flat_bytes(
+                flat_content,
+                payload.content_format,
+            ),
+        )
 
     def _require(self, schema_id: str) -> PayloadCodec[object]:
         try:
@@ -323,16 +464,67 @@ class PayloadCodecRegistry(Mapping[str, PayloadCodec[object]]):
 EMPTY_PAYLOAD_CODECS = PayloadCodecRegistry()
 
 
+def _command_payload_from_encoded(
+    id: str,
+    encoded: EncodedPayload,
+) -> CommandPayload:
+    flat_content = encoded.content.to_bytes()
+    content_hash = encoded.content.content_hash()
+    payload = CommandPayload.model_construct(
+        id=id,
+        schema_id=encoded.schema_id,
+        codec_id=encoded.codec_id,
+        codec_version=encoded.codec_version,
+        media_type=encoded.media_type,
+        content_format=encoded.content_format,
+        content_hash=content_hash,
+        size_bytes=encoded.content.size_bytes,
+        body=InlinePayloadBody.from_bytes(flat_content),
+    )
+    object.__setattr__(payload, "_verified_content", (content_hash, flat_content))
+    return payload
+
+
+def command_payload_from_encoded_content(
+    *,
+    id: str,
+    schema_id: str,
+    codec_id: str,
+    codec_version: int,
+    media_type: str,
+    content: EncodedPayloadContent,
+) -> CommandPayload:
+    """Build a transport envelope from raw or attachment-backed content."""
+
+    return _command_payload_from_encoded(
+        id,
+        EncodedPayload(
+            schema_id=schema_id,
+            codec_id=codec_id,
+            codec_version=codec_version,
+            media_type=media_type,
+            content_format=content.format,
+            content=content,
+        ),
+    )
+
+
 __all__ = [
     "EMPTY_PAYLOAD_CODECS",
+    "BytePayloadDecoder",
+    "BytePayloadEncoder",
     "EncodedPayload",
+    "EncodedPayloadContent",
     "PayloadCodec",
     "PayloadCodecCatalog",
     "PayloadCodecDescription",
     "PayloadCodecRegistry",
+    "PayloadContentFormat",
     "PayloadContract",
     "PayloadContractRegistration",
     "PayloadDecoder",
     "PayloadDescriptor",
     "PayloadEncoder",
+    "byte_payload_codec",
+    "command_payload_from_encoded_content",
 ]

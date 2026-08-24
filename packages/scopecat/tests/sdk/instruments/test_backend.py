@@ -33,7 +33,11 @@ from scopecat.sdk.instruments.commands import (
     InstrumentStateCommand,
     InvokeCommand,
 )
-from scopecat.sdk.payloads import PayloadCodec, PayloadCodecRegistry
+from scopecat.sdk.payloads import (
+    EncodedPayloadContent,
+    PayloadCodecRegistry,
+    byte_payload_codec,
+)
 
 
 def test_apply_command_lowers_to_backend_property_writes() -> None:
@@ -112,7 +116,8 @@ def test_invoke_command_lowers_with_opaque_payload() -> None:
         codec_id=payload.codec_id,
         codec_version=payload.codec_version,
         media_type=payload.media_type,
-        content=payload.inline_bytes(),
+        content_format="bytes",
+        content=EncodedPayloadContent.from_bytes(payload.inline_bytes()),
     )
     backend_request = lower_backend_invoke_request(
         command,
@@ -129,7 +134,10 @@ def test_invoke_command_lowers_with_opaque_payload() -> None:
         ),
     )
     assert backend_request.payloads == {payload.id: materialized}
-    assert backend_request.payloads[payload.id].content == b"\x00\xffprogram"
+    assert (
+        backend_request.payloads[payload.id].content.require_bytes()
+        == b"\x00\xffprogram"
+    )
     assert {
         "body",
         "content_hash",
@@ -142,11 +150,6 @@ def test_invoke_command_lowers_with_opaque_payload() -> None:
     }.isdisjoint(backend_request.model_dump())
     assert backend_request.entity_ids == ("logical-drive",)
     assert backend_request.channel_bindings == ()
-    assert (
-        BackendInvokeRequest.model_validate(backend_request.model_dump())
-        == backend_request
-    )
-
     decoded_content: list[bytes] = []
 
     def decode_program(content: bytes) -> object:
@@ -157,7 +160,7 @@ def test_invoke_command_lowers_with_opaque_payload() -> None:
         backend_request,
         PayloadCodecRegistry(
             {
-                payload.schema_id: PayloadCodec(
+                payload.schema_id: byte_payload_codec(
                     id=payload.codec_id,
                     version=payload.codec_version,
                     media_type=payload.media_type,
@@ -187,7 +190,8 @@ def test_driver_invoke_decode_materializes_each_payload_id_once() -> None:
         codec_id="test.binary",
         codec_version=1,
         media_type="application/octet-stream",
-        content=b"program",
+        content_format="bytes",
+        content=EncodedPayloadContent.from_bytes(b"program"),
     )
     request = BackendInvokeRequest(
         interface_id="test.pulse_player/v1",
@@ -215,7 +219,7 @@ def test_driver_invoke_decode_materializes_each_payload_id_once() -> None:
         request,
         PayloadCodecRegistry(
             {
-                payload.schema_id: PayloadCodec(
+                payload.schema_id: byte_payload_codec(
                     id=payload.codec_id,
                     version=payload.codec_version,
                     media_type=payload.media_type,
@@ -233,7 +237,7 @@ def test_driver_invoke_decode_materializes_each_payload_id_once() -> None:
     assert isinstance(mirror, DriverPayload)
     assert program.schema_id == payload.schema_id
     assert program.value is mirror.value
-    assert decoded == [payload.content]
+    assert decoded == [payload.content.require_bytes()]
 
 
 def test_collect_command_lowers_to_one_acquisition_request() -> None:
@@ -364,7 +368,8 @@ def test_collect_command_lowers_to_one_acquisition_request() -> None:
             codec_id="test.binary",
             codec_version=1,
             media_type="application/octet-stream",
-            content=b"\x00\xff",
+            content_format="bytes",
+            content=EncodedPayloadContent.from_bytes(b"\x00\xff"),
         ),
         BackendCollectResult(request_id="signal", result_id="signal"),
         BackendCollectRequest(

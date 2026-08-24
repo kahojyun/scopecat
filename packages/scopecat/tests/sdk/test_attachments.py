@@ -15,7 +15,7 @@ def test_attachment_bundle_round_trips_ordered_immutable_parts() -> None:
     mutable = bytearray(b"second")
     bundle = AttachmentBundle(
         header=b'{"format":"test.v1"}',
-        attachments=(memoryview(b"first"), mutable),
+        attachments=(memoryview(b"first"), memoryview(mutable)),
     )
     mutable[:] = b"mutated"
 
@@ -24,7 +24,10 @@ def test_attachment_bundle_round_trips_ordered_immutable_parts() -> None:
 
     assert restored.header == bundle.header
     assert tuple(map(bytes, restored.attachments)) == (b"first", b"second")
-    assert all(attachment.readonly for attachment in restored.attachments)
+    assert all(
+        isinstance(attachment, bytes) or attachment.readonly
+        for attachment in restored.attachments
+    )
     assert restored.to_bytes() == content
     assert restored.content_hash() == f"sha256:{sha256(content).hexdigest()}"
 

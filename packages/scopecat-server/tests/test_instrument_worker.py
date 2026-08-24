@@ -55,6 +55,7 @@ from scopecat.sdk.instruments.backend import (
     BackendStateMemberWrite,
 )
 from scopecat.sdk.instruments.commands import InvokeCommand
+from scopecat.sdk.payloads import EncodedPayloadContent
 from scopecat_testkit.instrument_drivers import load_config
 
 from scopecat_server.errors import BackendConflict
@@ -216,7 +217,8 @@ def test_spawned_worker_executes_closed_driver_requests(tmp_path: Path) -> None:
                     codec_id="tests.raw",
                     codec_version=1,
                     media_type="application/octet-stream",
-                    content=content,
+                    content_format="bytes",
+                    content=EncodedPayloadContent.from_bytes(content),
                 )
             },
         ),

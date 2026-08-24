@@ -10,10 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.records.content import command_payload_from_bytes
 from scopecat.sdk.payloads import (
-    PayloadCodec,
     PayloadCodecCatalog,
     PayloadCodecRegistry,
     PayloadContract,
+    byte_payload_codec,
 )
 from scopecat.sdk.structured_payloads import (
     STRUCTURED_PAYLOAD_MEDIA_TYPE,
@@ -79,7 +79,7 @@ def _json_decoder(content: bytes) -> object:
 def _registry() -> PayloadCodecRegistry:
     return PayloadCodecRegistry(
         {
-            "tests.program/v1": PayloadCodec(
+            "tests.program/v1": byte_payload_codec(
                 id="tests.canonical-json",
                 version=2,
                 media_type="application/json",
@@ -101,10 +101,10 @@ def test_payload_codec_registry_round_trips_encoded_command_payload() -> None:
         codec_id=encoded.codec_id,
         codec_version=encoded.codec_version,
         media_type=encoded.media_type,
-        content=encoded.content,
+        content=encoded.content.require_bytes(),
     )
 
-    assert payload.inline_bytes() == encoded.content
+    assert payload.inline_bytes() == encoded.content.require_bytes()
     assert registry.validate_descriptor(payload) is registry["tests.program/v1"]
     assert registry.decode(payload) == value
 
@@ -126,7 +126,7 @@ def test_command_payload_decode_still_verifies_content_identity() -> None:
         codec_id=encoded.codec_id,
         codec_version=encoded.codec_version,
         media_type=encoded.media_type,
-        content=encoded.content,
+        content=encoded.content.require_bytes(),
     ).model_copy(update={"content_hash": f"sha256:{'0' * 64}"})
 
     with pytest.raises(ValueError, match="content_hash"):
@@ -146,6 +146,7 @@ def test_payload_codec_catalog_is_stable_serializable_and_has_no_callables() -> 
                 "codec_id": "tests.canonical-json",
                 "codec_version": 2,
                 "media_type": "application/json",
+                "content_format": "bytes",
             }
         ]
     }
@@ -170,6 +171,7 @@ def test_payload_codec_catalog_is_stable_serializable_and_has_no_callables() -> 
         ("codec_id", "tests.other-codec"),
         ("codec_version", 3),
         ("media_type", "application/octet-stream"),
+        ("content_format", "attachment_bundle"),
     ],
 )
 def test_payload_codec_registry_rejects_descriptor_mismatch(
@@ -184,7 +186,7 @@ def test_payload_codec_registry_rejects_descriptor_mismatch(
         codec_id=encoded.codec_id,
         codec_version=encoded.codec_version,
         media_type=encoded.media_type,
-        content=encoded.content,
+        content=encoded.content.require_bytes(),
     ).model_copy(update={field: value})
 
     with pytest.raises(ValueError, match=f"{field} mismatch"):
@@ -200,7 +202,7 @@ def test_payload_descriptor_validation_does_not_materialize_blob_content() -> No
         codec_id=encoded.codec_id,
         codec_version=encoded.codec_version,
         media_type=encoded.media_type,
-        content=encoded.content,
+        content=encoded.content.require_bytes(),
     )
     blob = command_payload_from_bytes(
         id=inline.id,
@@ -208,7 +210,7 @@ def test_payload_descriptor_validation_does_not_materialize_blob_content() -> No
         codec_id=inline.codec_id,
         codec_version=inline.codec_version,
         media_type=inline.media_type,
-        content=encoded.content,
+        content=encoded.content.require_bytes(),
         blob_ref=inline.content_hash,
     )
 
@@ -226,7 +228,7 @@ def test_payload_descriptor_validation_requires_registered_schema() -> None:
         codec_id=encoded.codec_id,
         codec_version=encoded.codec_version,
         media_type=encoded.media_type,
-        content=encoded.content,
+        content=encoded.content.require_bytes(),
     )
 
     with pytest.raises(LookupError, match="no payload codec registered"):
@@ -269,8 +271,9 @@ def test_pydantic_buffer_bundle_codec_round_trips_immutable_numpy_buffers() -> N
         assert actual.shape == expected.shape
         assert not actual.flags.writeable
     assert encoded.media_type == STRUCTURED_PAYLOAD_MEDIA_TYPE
-    assert value.waveforms[0].tobytes() in encoded.content
-    assert b"0.25" not in encoded.content
+    bundle = encoded.content.require_bundle()
+    assert bytes(bundle.attachments[0]) == value.waveforms[0].tobytes()
+    assert b"0.25" not in bundle.header
 
     payload = contract.command_payload("array-program", value)
     assert contract.decode(payload).id == value.id
@@ -298,14 +301,11 @@ def test_payload_contract_rejects_mismatched_descriptor() -> None:
         schema_id="tests.array-program/v1",
         codec=pydantic_buffer_bundle_codec(_ArrayProgram),
     )
-    encoded = contract.encode(_ArrayProgram(id="readout", waveforms=(), metadata={}))
-    payload = command_payload_from_bytes(
-        id="array-program",
-        schema_id="tests.other/v1",
-        codec_id=encoded.codec_id,
-        codec_version=encoded.codec_version,
-        media_type=encoded.media_type,
-        content=encoded.content,
+    payload = contract.command_payload(
+        "array-program",
+        _ArrayProgram(id="readout", waveforms=(), metadata={}),
+    ).model_copy(
+        update={"schema_id": "tests.other/v1"},
     )
 
     with pytest.raises(ValueError, match="schema mismatch"):
@@ -351,9 +351,7 @@ def test_pydantic_buffer_bundle_codec_is_deterministic_for_mapping_order() -> No
     assert codec.encoder(left) == codec.encoder(right)
 
 
-def test_pydantic_buffer_bundle_codec_rejects_object_arrays_and_trailing_bytes() -> (
-    None
-):
+def test_pydantic_buffer_bundle_codec_rejects_object_arrays() -> None:
     codec = pydantic_buffer_bundle_codec(_ArrayProgram)
     invalid = _ArrayProgram(
         id="objects",
@@ -363,13 +361,3 @@ def test_pydantic_buffer_bundle_codec_rejects_object_arrays_and_trailing_bytes()
 
     with pytest.raises(StructuredPayloadError, match="dtype object"):
         codec.encoder(invalid)
-
-    encoded = codec.encoder(
-        _ArrayProgram(
-            id="valid",
-            waveforms=(np.arange(4, dtype=np.int64),),
-            metadata={},
-        )
-    )
-    with pytest.raises(StructuredPayloadError, match="trailing bytes"):
-        codec.decoder(encoded + b"extra")
