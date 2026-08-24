@@ -11,6 +11,8 @@ uv run python -m benchmarks run scan-execution --profile waveform \
   --points 1,10,100 --qubit-counts 1,2,4
 uv run python -m benchmarks run scan-execution --profile lo-sweep \
   --points 10,100 --runners scopecat
+uv run python -m benchmarks run payload-attachments --arrays 300 \
+  --samples 1024 --iterations 10
 ```
 
 Every case emits records beginning with `BENCHMARK_RESULT=` and the common
@@ -24,7 +26,7 @@ cases and their measurement boundary.
 |---|---|---|
 | `e2e` | User-visible behavior spanning daemon, compiler, runtime, devices, and persistence | `scan-execution` |
 | `component` | One subsystem boundary with realistic inputs and setup outside the measured operation | `adaptive-context`, `historical-project`, `list-mode-compiler`, `quantum-program` |
-| `micro` | One pure operation or data structure without service or storage setup | `inspection-index` |
+| `micro` | One pure operation or data structure without service or storage setup | `inspection-index`, `payload-attachments` |
 
 The production `scopecat` runner is the end-to-end product result. `adhoc` is a
 descriptive lower bound and `scopecat-core` is a diagnostic that excludes daemon

@@ -41,6 +41,12 @@ BENCHMARK_CASES = (
         module="benchmarks.micro.inspection_index",
         summary="Exact-node and inverted-index inspection projection",
     ),
+    BenchmarkCase(
+        id="payload-attachments",
+        kind="micro",
+        module="benchmarks.micro.payload_attachments",
+        summary="Multi-array payload encode, flatten, restore, and decode",
+    ),
 )
 
 _CASES_BY_ID = {case.id: case for case in BENCHMARK_CASES}
