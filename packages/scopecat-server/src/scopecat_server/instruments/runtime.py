@@ -53,6 +53,7 @@ from scopecat.records.instrument import (
 )
 from scopecat.records.measurement import InstrumentAcquisitionEvidence
 from scopecat.sdk.instruments.backend import (
+    BackendAcquisitionPlan,
     BackendApplyRequest,
     BackendCollectRequest,
     BackendInvokeRequest,
@@ -85,6 +86,7 @@ from scopecat.sdk.instruments.contracts import (
     validate_state_command,
 )
 from scopecat.sdk.instruments.execution import (
+    RunHardwareAction,
     RunHardwareApply,
     RunHardwareBatchReceipt,
     RunHardwareCollect,
@@ -159,6 +161,7 @@ from .backend import (
 )
 from .commands import (
     InstrumentCommandExecutionError,
+    execute_instrument_acquisition_prepare,
     execute_instrument_apply,
     execute_instrument_collect,
     execute_instrument_invoke,
@@ -949,76 +952,36 @@ class InstrumentRuntime:
             effect_receipts: list[JsonValue] = []
             indeterminate_reason: str | None = None
             with runtime.lock:
-                for action, backend_request in zip(
-                    canonical_request.batch.actions,
-                    backend_requests,
-                    strict=True,
-                ):
-                    try:
-                        if isinstance(action, RunHardwareApply):
-                            evidence = self._execute_hardware_apply(
-                                run_id,
-                                canonical_request.lease_id,
-                                runtime,
-                                action,
-                                cast("BackendApplyRequest", backend_request),
-                            )
-                        elif isinstance(action, RunHardwareInvoke):
-                            evidence = self._execute_hardware_invoke(
-                                run_id,
-                                canonical_request.lease_id,
-                                runtime,
-                                action,
-                                cast("BackendInvokeRequest", backend_request),
-                            )
-                        else:
-                            collected, evidence = self._execute_hardware_collect(
-                                run_id,
-                                canonical_request.lease_id,
-                                runtime,
-                                action,
-                                cast("BackendCollectRequest", backend_request),
-                            )
-                            values.extend(collected)
-                        completed_effect_ids.append(action.effect_id)
-                        effect_receipts.append(evidence)
-                    except BackendConflict as error:
-                        if context.runtime is not runtime:
-                            raise
-                        problems.append(
-                            hardware_problem(
-                                "hardware_action_failed",
-                                str(error),
-                                run_id=run_id,
-                                operation_id=action.effect_id,
-                                instrument_id=action.instrument_id,
-                                point_index=action.point_index,
-                            )
-                        )
-                        break
-                    except HardwareActionRejected as rejection:
-                        problems.extend(
-                            contextualize_problems(
-                                rejection.problems,
-                                run_id=run_id,
-                                operation_id=action.effect_id,
-                                instrument_id=action.instrument_id,
-                                point_index=action.point_index,
-                            )
-                        )
-                        break
-                    except HardwareActionIndeterminate as indeterminate:
-                        problems.extend(
-                            contextualize_problems(
-                                indeterminate.problems,
-                                run_id=run_id,
-                                operation_id=action.effect_id,
-                                instrument_id=action.instrument_id,
-                                point_index=action.point_index,
-                            )
-                        )
-                        indeterminate_reason = indeterminate.reason
-                        break
+                preparation_problems, indeterminate_reason = (
+                    self._prepare_hardware_acquisitions(
+                        run_id,
+                        canonical_request.lease_id,
+                        context,
+                        runtime,
+                        canonical_request.batch.actions,
+                        backend_requests,
+                    )
+                )
+                problems.extend(preparation_problems)
+                if not problems:
+                    (
+                        action_values,
+                        action_problems,
+                        action_effect_ids,
+                        action_receipts,
+                        indeterminate_reason,
+                    ) = self._execute_hardware_actions(
+                        run_id,
+                        canonical_request.lease_id,
+                        context,
+                        runtime,
+                        canonical_request.batch.actions,
+                        backend_requests,
+                    )
+                    values.extend(action_values)
+                    problems.extend(action_problems)
+                    completed_effect_ids.extend(action_effect_ids)
+                    effect_receipts.extend(action_receipts)
             receipt = RunHardwareBatchReceipt(
                 operation_id=canonical_request.batch.operation_id,
                 values=tuple(values),
@@ -1229,6 +1192,207 @@ class InstrumentRuntime:
                     )
                 )
         return tuple(problems)
+
+    def _execute_hardware_actions(
+        self,
+        run_id: str,
+        token: str,
+        context: RunContext,
+        runtime: OwnershipRuntime,
+        actions: Sequence[RunHardwareAction],
+        backend_requests: Sequence[
+            BackendApplyRequest | BackendInvokeRequest | BackendCollectRequest
+        ],
+    ) -> tuple[
+        tuple[RunHardwareValue, ...],
+        tuple[Problem, ...],
+        tuple[str, ...],
+        tuple[JsonValue, ...],
+        str | None,
+    ]:
+        values: list[RunHardwareValue] = []
+        completed_effect_ids: list[str] = []
+        effect_receipts: list[JsonValue] = []
+        for action, backend_request in zip(actions, backend_requests, strict=True):
+            try:
+                if isinstance(action, RunHardwareApply):
+                    evidence = self._execute_hardware_apply(
+                        run_id,
+                        token,
+                        runtime,
+                        action,
+                        cast("BackendApplyRequest", backend_request),
+                    )
+                elif isinstance(action, RunHardwareInvoke):
+                    evidence = self._execute_hardware_invoke(
+                        run_id,
+                        token,
+                        runtime,
+                        action,
+                        cast("BackendInvokeRequest", backend_request),
+                    )
+                else:
+                    collected, evidence = self._execute_hardware_collect(
+                        run_id,
+                        token,
+                        runtime,
+                        action,
+                        cast("BackendCollectRequest", backend_request),
+                    )
+                    values.extend(collected)
+                completed_effect_ids.append(action.effect_id)
+                effect_receipts.append(evidence)
+            except BackendConflict as error:
+                if context.runtime is not runtime:
+                    raise
+                return (
+                    tuple(values),
+                    (
+                        hardware_problem(
+                            "hardware_action_failed",
+                            str(error),
+                            run_id=run_id,
+                            operation_id=action.effect_id,
+                            instrument_id=action.instrument_id,
+                            point_index=action.point_index,
+                        ),
+                    ),
+                    tuple(completed_effect_ids),
+                    tuple(effect_receipts),
+                    None,
+                )
+            except HardwareActionRejected as rejection:
+                return (
+                    tuple(values),
+                    contextualize_problems(
+                        rejection.problems,
+                        run_id=run_id,
+                        operation_id=action.effect_id,
+                        instrument_id=action.instrument_id,
+                        point_index=action.point_index,
+                    ),
+                    tuple(completed_effect_ids),
+                    tuple(effect_receipts),
+                    None,
+                )
+            except HardwareActionIndeterminate as indeterminate:
+                return (
+                    tuple(values),
+                    contextualize_problems(
+                        indeterminate.problems,
+                        run_id=run_id,
+                        operation_id=action.effect_id,
+                        instrument_id=action.instrument_id,
+                        point_index=action.point_index,
+                    ),
+                    tuple(completed_effect_ids),
+                    tuple(effect_receipts),
+                    indeterminate.reason,
+                )
+        return (
+            tuple(values),
+            (),
+            tuple(completed_effect_ids),
+            tuple(effect_receipts),
+            None,
+        )
+
+    def _prepare_hardware_acquisitions(
+        self,
+        run_id: str,
+        token: str,
+        context: RunContext,
+        runtime: OwnershipRuntime,
+        actions: Sequence[RunHardwareAction],
+        backend_requests: Sequence[
+            BackendApplyRequest | BackendInvokeRequest | BackendCollectRequest
+        ],
+    ) -> tuple[tuple[Problem, ...], str | None]:
+        acquisition_plans: dict[str, list[BackendCollectRequest]] = {}
+        preparation_actions: dict[str, RunHardwareCollect] = {}
+        for action, backend_request in zip(actions, backend_requests, strict=True):
+            if not isinstance(action, RunHardwareCollect):
+                continue
+            acquisition_plans.setdefault(action.instrument_id, []).append(
+                cast("BackendCollectRequest", backend_request)
+            )
+            preparation_actions.setdefault(action.instrument_id, action)
+        for instrument_id, acquisitions in acquisition_plans.items():
+            action = preparation_actions[instrument_id]
+            try:
+                self._execute_hardware_acquisition_prepare(
+                    run_id,
+                    token,
+                    runtime,
+                    action,
+                    BackendAcquisitionPlan(acquisitions=tuple(acquisitions)),
+                )
+            except BackendConflict as error:
+                if context.runtime is not runtime:
+                    raise
+                return (
+                    (
+                        hardware_problem(
+                            "hardware_action_failed",
+                            str(error),
+                            run_id=run_id,
+                            operation_id=action.effect_id,
+                            instrument_id=action.instrument_id,
+                            point_index=action.point_index,
+                        ),
+                    ),
+                    None,
+                )
+            except HardwareActionRejected as rejection:
+                return (
+                    contextualize_problems(
+                        rejection.problems,
+                        run_id=run_id,
+                        operation_id=action.effect_id,
+                        instrument_id=action.instrument_id,
+                        point_index=action.point_index,
+                    ),
+                    None,
+                )
+            except HardwareActionIndeterminate as indeterminate:
+                return (
+                    contextualize_problems(
+                        indeterminate.problems,
+                        run_id=run_id,
+                        operation_id=action.effect_id,
+                        instrument_id=action.instrument_id,
+                        point_index=action.point_index,
+                    ),
+                    indeterminate.reason,
+                )
+        return (), None
+
+    def _execute_hardware_acquisition_prepare(
+        self,
+        run_id: str,
+        token: str,
+        runtime: OwnershipRuntime,
+        action: RunHardwareCollect,
+        plan: BackendAcquisitionPlan,
+    ) -> None:
+        instrument = runtime.instruments[action.instrument_id]
+        try:
+            receipt = execute_instrument_acquisition_prepare(instrument, plan)
+        except InstrumentCommandExecutionError as error:
+            self._lose_run_runtime(
+                run_id,
+                runtime,
+                token=token,
+                reason=f"run_{error.reason}",
+            )
+            raise BackendConflict(str(error)) from error
+        if receipt.status == "unknown":
+            raise HardwareActionIndeterminate(
+                receipt.problems,
+                reason="run_instrument_acquisition_prepare_unknown",
+            )
+        if receipt.status != "prepared":
+            raise HardwareActionRejected(receipt.problems)
 
     def _execute_hardware_apply(
         self,

@@ -75,12 +75,15 @@ class ProductAxis:
     unit: str | None = None
     entity_values: bool = False
     shared_as: str | None = None
+    coordinate_result_id: str | None = None
     _inherited_dimension_id: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if self.shared_as is not None and not self.shared_as:
             msg = "shared product axis identity must be non-empty"
             raise ValueError(msg)
+        if self.coordinate_result_id is not None and not self.coordinate_result_id:
+            raise ValueError("coordinate result identity must be non-empty")
         if (
             self._inherited_dimension_id is not None
             and not self._inherited_dimension_id
@@ -415,6 +418,7 @@ def product_axis(
     kind: str | None = None,
     unit: str | None = None,
     shared_as: str | None = None,
+    coordinate_result_id: str | None = None,
 ) -> ProductAxis:
     selected_size = _axis_value(size)
     return ProductAxis(
@@ -423,6 +427,7 @@ def product_axis(
         kind=kind,
         unit=unit,
         shared_as=shared_as,
+        coordinate_result_id=coordinate_result_id,
     )
 
 

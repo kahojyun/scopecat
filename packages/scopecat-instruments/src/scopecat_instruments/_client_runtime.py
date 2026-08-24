@@ -188,11 +188,20 @@ class InstrumentMemberClient[ValueT]:
 
 
 @dataclass(frozen=True, slots=True)
+class ClientLinearCoordinates:
+    start: PropertyRef
+    stop: PropertyRef
+    endpoint: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class ClientAcquisitionAxis:
     id: str
     size: int | PropertyRef | None
     kind: str
     unit: str | None
+    coordinate_result_id: str | None = None
+    coordinates: ClientLinearCoordinates | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -391,6 +400,7 @@ __all__ = [
     "ClientAcquisition",
     "ClientAcquisitionAxis",
     "ClientAcquisitionResult",
+    "ClientLinearCoordinates",
     "ClientMemberDeclaration",
     "InstrumentClientBase",
     "InstrumentMemberClient",

@@ -9,12 +9,13 @@ from scopecat.sdk.instruments.declarations import (
     Member,
     acquisition,
     argument,
+    array_result,
     axis,
     instrument_interface,
-    instrument_result,
     member,
     operation,
-    result_field,
+    result_schema,
+    scalar_result,
 )
 
 
@@ -78,30 +79,30 @@ class CompositeEnabledMethodInterface(Protocol):
     def enabled(self) -> None: ...
 
 
-@instrument_result
+@result_schema
 class CompositeSampleResults:
-    value: float = result_field(dtype="float64")
+    value = scalar_result(dtype="float64")
 
 
 @instrument_interface("test.generated_composite_acquisition_left/v1")
 class CompositeAcquisitionLeftInterface(Protocol):
-    @acquisition(id="left_sample")
-    def sample(self) -> CompositeSampleResults: ...
+    @acquisition(results=CompositeSampleResults, id="left_sample")
+    def sample(self) -> None: ...
 
 
 @instrument_interface("test.generated_composite_acquisition_right/v1")
 class CompositeAcquisitionRightInterface(Protocol):
-    @acquisition(id="right_sample")
-    def sample(self) -> CompositeSampleResults: ...
+    @acquisition(results=CompositeSampleResults, id="right_sample")
+    def sample(self) -> None: ...
 
 
 @instrument_interface("test.generated_shared_acquisition_result/v1")
 class SharedAcquisitionResultInterface(Protocol):
-    @acquisition()
-    def sample_left(self) -> CompositeSampleResults: ...
+    @acquisition(results=CompositeSampleResults)
+    def sample_left(self) -> None: ...
 
-    @acquisition()
-    def sample_right(self) -> CompositeSampleResults: ...
+    @acquisition(results=CompositeSampleResults)
+    def sample_right(self) -> None: ...
 
 
 @instrument_interface("test.generated_payload_operation/v1")
@@ -116,11 +117,11 @@ class PayloadOperationInterface(Protocol):
     ) -> None: ...
 
 
-@instrument_result
+@result_schema
 class DriverFixedResults:
-    response: list[complex] = result_field(
-        id="signal",
+    response = array_result(
         dtype="complex128",
+        id="signal",
         unit="ratio",
         axes=("sample",),
     )
@@ -129,9 +130,10 @@ class DriverFixedResults:
 @instrument_interface("test.generated_driver_fixed_acquisition/v1")
 class DriverFixedAcquisitionInterface(Protocol):
     @acquisition(
+        results=DriverFixedResults,
         axes={"sample": axis(size=2, kind="sample")},
     )
-    def acquire(self) -> DriverFixedResults: ...
+    def acquire(self) -> None: ...
 
 
 @instrument_interface("test.generated_driver_source/v1")
@@ -140,33 +142,33 @@ class DriverSourceInterface(Protocol):
     level: Member[int] = member(access="read_write", restore=True)
 
 
-@instrument_result
+@result_schema
 class DriverMonitorResults:
-    left: float = result_field(id="left_value", dtype="float64")
-    right: float = result_field(id="right_value", dtype="float64")
+    left = scalar_result(id="left_value", dtype="float64")
+    right = scalar_result(id="right_value", dtype="float64")
 
 
 @instrument_interface("test.generated_driver_monitor/v1")
 class DriverMonitorInterface(Protocol):
     enabled: Member[bool] = member(access="read_write", restore=True)
 
-    @acquisition()
-    def monitor(self) -> DriverMonitorResults: ...
+    @acquisition(results=DriverMonitorResults)
+    def monitor(self) -> None: ...
 
 
-@instrument_result
+@result_schema
 class NativeScalarResults:
-    boolean: bool = result_field()
-    integer: int = result_field()
-    floating: float = result_field()
-    complex_value: complex = result_field()
-    text: str = result_field()
+    boolean = scalar_result(dtype="bool")
+    integer = scalar_result(dtype="int64")
+    floating = scalar_result(dtype="float64")
+    complex_value = scalar_result(dtype="complex128")
+    text = scalar_result(dtype="string")
 
 
 @instrument_interface("test.generated_native_scalars/v1")
 class NativeScalarInterface(Protocol):
-    @acquisition()
-    def sample(self) -> NativeScalarResults: ...
+    @acquisition(results=NativeScalarResults)
+    def sample(self) -> None: ...
 
 
 @instrument_interface("test.generated_literal_operation/v1")

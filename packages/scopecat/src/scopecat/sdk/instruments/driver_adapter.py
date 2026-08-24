@@ -15,6 +15,7 @@ from scopecat.records.instrument import (
 from scopecat.sdk.instruments.authoring import (
     DriverAcquisition,
     DriverAcquisitionDimension,
+    DriverAcquisitionPlan,
     DriverOutcome,
     DriverReadback,
     DriverRejected,
@@ -26,15 +27,41 @@ from scopecat.sdk.instruments.authoring import (
     DriverSuccess,
 )
 from scopecat.sdk.instruments.backend import (
+    BackendAcquisitionPlan,
     BackendApplyRequest,
     BackendCollectRequest,
     BackendReadRequest,
 )
 from scopecat.sdk.instruments.commands import (
+    AcquisitionPreparationReceipt,
     ApplyReceipt,
     CollectReceipt,
     InvokeReceipt,
 )
+
+
+def lower_acquisition_plan(plan: BackendAcquisitionPlan) -> DriverAcquisitionPlan:
+    return DriverAcquisitionPlan(
+        acquisitions=tuple(lower_acquisition(request) for request in plan.acquisitions)
+    )
+
+
+def project_acquisition_preparation_outcome(
+    outcome: DriverOutcome[None],
+) -> AcquisitionPreparationReceipt:
+    if isinstance(outcome, DriverSuccess):
+        return AcquisitionPreparationReceipt(metadata=outcome.metadata)
+    if isinstance(outcome, DriverRejected):
+        return AcquisitionPreparationReceipt(
+            status="not_prepared",
+            problems=outcome.problems,
+            metadata=outcome.metadata,
+        )
+    return AcquisitionPreparationReceipt(
+        status="unknown",
+        problems=outcome.problems,
+        metadata=outcome.metadata,
+    )
 
 
 def project_state_readback(
@@ -208,8 +235,10 @@ def project_collect_outcome(
 
 __all__ = [
     "lower_acquisition",
+    "lower_acquisition_plan",
     "lower_state_patch",
     "lower_state_read_request",
+    "project_acquisition_preparation_outcome",
     "project_apply_outcome",
     "project_collect_outcome",
     "project_invoke_outcome",

@@ -14,6 +14,7 @@ from scopecat.sdk.instruments.declarations import (
     MemberProjectionLayout,
     acquisition,
     argument,
+    array_result,
     axis,
     compile_interface,
     declared_acquisition_ref,
@@ -25,28 +26,28 @@ from scopecat.sdk.instruments.declarations import (
     instrument_component,
     instrument_interface,
     instrument_member_projection,
-    instrument_result,
     member,
     member_projection_assignments,
     member_projection_field,
     observation,
     operation,
     precondition,
-    result_field,
+    result_schema,
+    scalar_result,
 )
 
 
-@instrument_result
+@result_schema
 class SweepResults:
-    frequency: list[float] = result_field(
-        role="coordinate",
+    frequency = array_result(
         dtype="float64",
+        role="coordinate",
         unit="Hz",
         axes=("frequency",),
     )
-    response: list[complex] = result_field(
-        id="s_parameter",
+    response = array_result(
         dtype="complex128",
+        id="s_parameter",
         unit="ratio",
         axes=("frequency",),
     )
@@ -71,7 +72,15 @@ class Source(Protocol):
     ) -> None: ...
 
     @acquisition(
-        axes={"frequency": axis(size="point_count", kind="frequency", unit="Hz")},
+        results=SweepResults,
+        axes={
+            "frequency": axis(
+                size="point_count",
+                kind="frequency",
+                unit="Hz",
+                coordinate_result="frequency",
+            )
+        },
         preconditions=(
             precondition(
                 frequency,
@@ -80,7 +89,7 @@ class Source(Protocol):
             ),
         ),
     )
-    def sweep(self) -> SweepResults: ...
+    def sweep(self) -> None: ...
 
 
 def test_members_compile_from_explicit_attribute_declarations() -> None:
@@ -133,6 +142,7 @@ def test_acquisition_axes_preconditions_and_results_resolve_members() -> None:
         interface_id="test.source/v1",
         property_id="point_count",
     )
+    assert sweep.results[0].axes[0].coordinate_result == "frequency"
     assert sweep.preconditions[0].property == StatePropertyRef(
         interface_id="test.source/v1", property_id="frequency"
     )
@@ -140,6 +150,60 @@ def test_acquisition_axes_preconditions_and_results_resolve_members() -> None:
         Source
     ).ref.acquisition("sweep")
     assert declared_result_ref(Source, "sweep", "response").result_id == "s_parameter"
+
+
+def test_result_declarations_are_authoritative_without_value_annotations() -> None:
+    @result_schema
+    class ExplicitResults:
+        count = scalar_result(dtype="int64")
+        values = array_result(dtype="complex128", axes=("sample",))
+
+    @instrument_interface("test.explicit_results/v1")
+    class ExplicitInterface(Protocol):
+        @acquisition(results=ExplicitResults, axes={"sample": axis(size=2)})
+        def sample(self) -> None: ...
+
+    [sample] = compile_interface(ExplicitInterface).spec.acquisitions
+    assert [(item.id, item.dtype, bool(item.axes)) for item in sample.results] == [
+        ("count", "int64", False),
+        ("values", "complex128", True),
+    ]
+
+
+def test_result_schema_rejects_schema_inheritance() -> None:
+    @result_schema
+    class BaseResults:
+        value = scalar_result(dtype="float64")
+
+    class DerivedResults(BaseResults):
+        other = scalar_result(dtype="float64")
+
+    with pytest.raises(TypeError, match="must not inherit another result schema"):
+        result_schema(DerivedResults)
+
+
+def test_result_schema_rejects_unknown_axes_and_non_none_method_returns() -> None:
+    @result_schema
+    class UnknownAxisResults:
+        values = array_result(dtype="float64", axes=("missing",))
+
+    @instrument_interface("test.unknown_result_axis/v1")
+    class UnknownAxisInterface(Protocol):
+        @acquisition(results=UnknownAxisResults)
+        def sample(self) -> None: ...
+
+    with pytest.raises(ValueError, match="unknown axes"):
+        compile_interface(UnknownAxisInterface)
+
+    @instrument_interface("test.invalid_acquisition_return/v1")
+    class InvalidReturnInterface(Protocol):
+        @acquisition(results=SweepResults, axes={"frequency": axis(size=2)})
+        def sample(self) -> None: ...
+
+    InvalidReturnInterface.sample.__annotations__["return"] = SweepResults
+
+    with pytest.raises(TypeError, match="must return None"):
+        compile_interface(InvalidReturnInterface)
 
 
 def test_declared_layout_keeps_interface_as_member_source() -> None:
@@ -217,6 +281,7 @@ def test_explicit_cross_interface_member_refs_resolve() -> None:
         ready: Member[bool] = member(access="read_only")
 
         @acquisition(
+            results=SweepResults,
             axes={"frequency": axis(size=2, kind="frequency")},
             preconditions=(
                 precondition(
@@ -226,7 +291,7 @@ def test_explicit_cross_interface_member_refs_resolve() -> None:
                 ),
             ),
         )
-        def sample(self) -> SweepResults: ...
+        def sample(self) -> None: ...
 
     [sample] = compile_interface(Monitor).spec.acquisitions
     assert sample.preconditions[0].property == StatePropertyRef(

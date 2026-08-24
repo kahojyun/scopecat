@@ -190,14 +190,14 @@ def _lower_logical_program(
         )
         for record in logical.value_record_selections
     )
-    product_record_iterator = iter(products.record_uses)
+    product_record_group_iterator = iter(products.record_use_groups)
     value_record_iterator = iter(value_record_uses)
-    record_uses: tuple[BoundRecordUse, ...] = tuple(
-        next(value_record_iterator)
-        if isinstance(selection, LogicalValueRecordSelection)
-        else next(product_record_iterator)
-        for selection in logical.record_selections
-    )
+    record_uses: list[BoundRecordUse] = []
+    for selection in logical.record_selections:
+        if isinstance(selection, LogicalValueRecordSelection):
+            record_uses.append(next(value_record_iterator))
+        else:
+            record_uses.extend(next(product_record_group_iterator))
     return BoundProgramFacts(
         point_domain=point_domain,
         topology_entity_sets=topology_entity_sets,
@@ -221,7 +221,7 @@ def _lower_logical_program(
         ),
         product_defs=products.product_defs,
         product_uses=product_uses,
-        record_uses=record_uses,
+        record_uses=tuple(record_uses),
     )
 
 

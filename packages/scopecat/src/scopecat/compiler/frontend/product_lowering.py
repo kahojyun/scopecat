@@ -23,6 +23,7 @@ from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import ModelLocation
 from scopecat.kernel.product_identity import ProductId, ProductUse, ProductUseId
 from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.symbols import SymbolId
 from scopecat.kernel.value_types import Scalar, Table, ValueType
 from scopecat.measurements.products import ProductAxisDef, ProductDef
 from scopecat.measurements.records import (
@@ -38,10 +39,12 @@ from scopecat.program.expressions import (
 )
 from scopecat.program.products import (
     AxisSizeInput,
+    EntityRecordMemberSelection,
     EntityRecordSelection,
     ModuleProductDecl,
     ProductAxis,
     ProductRecordSelection,
+    RecordSelection,
     product_axis_dimension_id,
 )
 from scopecat.program.table_values import TableSource
@@ -62,7 +65,7 @@ class LoweredProductModel:
 
     product_defs: tuple[ProductDef, ...] = ()
     product_uses: tuple[ProductUse, ...] = ()
-    record_uses: tuple[ProductRecordUse, ...] = ()
+    record_use_groups: tuple[tuple[ProductRecordUse, ...], ...] = ()
 
 
 def lower_products(
@@ -75,6 +78,10 @@ def lower_products(
     type_bindings: ExpressionTypeBindings,
     input_row: InputRow,
 ) -> LoweredProductModel:
+    selection_groups = _include_coordinate_selections(
+        selections,
+        product_declarations_by_id=product_declarations_by_id,
+    )
     products = tuple(
         _lower_product_declaration(
             static_evaluator,
@@ -88,60 +95,194 @@ def lower_products(
     )
     uses: list[ProductUse] = []
     uses_by_id: dict[ProductUseId, ProductUse] = {}
-    records: list[ProductRecordUse] = []
-    for selection in selections:
-        if isinstance(selection, EntityRecordSelection):
-            members: list[EntityRecordUseMember] = []
-            for member in selection.members:
-                _require_selected_product(
-                    member.product_id,
-                    product_declarations_by_id=product_declarations_by_id,
-                )
-                _append_product_use(
-                    member.product_use,
-                    uses=uses,
-                    uses_by_id=uses_by_id,
-                )
-                members.append(
-                    EntityRecordUseMember(
-                        entity=member.entity,
-                        product_use_id=member.product_use.id,
-                    )
-                )
-            records.append(
-                EntityRecordUse(
-                    id=selection.record_id,
-                    axis=selection.axis,
-                    members=tuple(members),
-                    role=selection.role,
-                    recording_group_id=selection.recording_group_id,
-                    acquisition=selection.acquisition,
-                    metadata=_durable_metadata(selection.metadata),
-                )
+    record_groups = tuple(
+        tuple(
+            _lower_record_selection(
+                selection,
+                product_declarations_by_id=product_declarations_by_id,
+                uses=uses,
+                uses_by_id=uses_by_id,
             )
-            continue
-        product = product_declarations_by_id.get(selection.product_id)
-        if product is None:
-            raise AssertionError(
-                "verified product selection is absent from the product map: "
-                f"{selection.product_id.qualified_name}"
-            )
-        use = selection.product_use
-        _append_product_use(use, uses=uses, uses_by_id=uses_by_id)
-        records.append(
-            RecordUse(
-                id=selection.record_id or product.qualified_id,
-                product_use_id=use.id,
-                role=selection.role,
-                recording_group_id=selection.recording_group_id,
-                metadata=_durable_metadata(selection.metadata),
-            )
+            for selection in group
         )
+        for group in selection_groups
+    )
     return LoweredProductModel(
         product_defs=products,
         product_uses=tuple(uses),
-        record_uses=tuple(records),
+        record_use_groups=record_groups,
     )
+
+
+def _lower_record_selection(
+    selection: ProductRecordSelection,
+    *,
+    product_declarations_by_id: Mapping[ProductId, ModuleProductDecl],
+    uses: list[ProductUse],
+    uses_by_id: dict[ProductUseId, ProductUse],
+) -> ProductRecordUse:
+    if isinstance(selection, EntityRecordSelection):
+        members: list[EntityRecordUseMember] = []
+        for member in selection.members:
+            _require_selected_product(
+                member.product_id,
+                product_declarations_by_id=product_declarations_by_id,
+            )
+            _append_product_use(
+                member.product_use,
+                uses=uses,
+                uses_by_id=uses_by_id,
+            )
+            members.append(
+                EntityRecordUseMember(
+                    entity=member.entity,
+                    product_use_id=member.product_use.id,
+                )
+            )
+        return EntityRecordUse(
+            id=selection.record_id,
+            axis=selection.axis,
+            members=tuple(members),
+            role=selection.role,
+            recording_group_id=selection.recording_group_id,
+            acquisition=selection.acquisition,
+            metadata=_durable_metadata(selection.metadata),
+        )
+    product = product_declarations_by_id.get(selection.product_id)
+    if product is None:
+        raise AssertionError(
+            "verified product selection is absent from the product map: "
+            f"{selection.product_id.qualified_name}"
+        )
+    use = selection.product_use
+    _append_product_use(use, uses=uses, uses_by_id=uses_by_id)
+    return RecordUse(
+        id=selection.record_id or product.qualified_id,
+        product_use_id=use.id,
+        role=selection.role,
+        recording_group_id=selection.recording_group_id,
+        metadata=_durable_metadata(selection.metadata),
+    )
+
+
+def _include_coordinate_selections(
+    selections: Sequence[ProductRecordSelection],
+    *,
+    product_declarations_by_id: Mapping[ProductId, ModuleProductDecl],
+) -> tuple[tuple[ProductRecordSelection, ...], ...]:
+    scalar_keys = {
+        (selection.product_id, selection.recording_group_id)
+        for selection in selections
+        if isinstance(selection, RecordSelection)
+    }
+    entity_keys = {
+        (selection.product_ids, selection.recording_group_id)
+        for selection in selections
+        if isinstance(selection, EntityRecordSelection)
+    }
+    groups: list[tuple[ProductRecordSelection, ...]] = []
+    for selection in selections:
+        coordinates: list[ProductRecordSelection] = []
+        if isinstance(selection, RecordSelection):
+            product = product_declarations_by_id[selection.product_id]
+            for axis in product.axes:
+                coordinate_id = _coordinate_product_id(product, axis)
+                if coordinate_id is None or coordinate_id == selection.product_id:
+                    continue
+                key = (coordinate_id, selection.recording_group_id)
+                if key in scalar_keys:
+                    continue
+                coordinate = product_declarations_by_id[coordinate_id]
+                coordinates.append(
+                    RecordSelection(
+                        product_use=ProductUse(
+                            product_id=coordinate_id,
+                            id=ProductUseId(
+                                f"{selection.product_use.id.value}/coordinate/{axis.id}"
+                            ),
+                        ),
+                        product_origin=coordinate.origin,
+                        record_id=_coordinate_record_id(
+                            selection.record_id or product.qualified_id,
+                            coordinate,
+                        ),
+                        role="coordinate",
+                        recording_group_id=selection.recording_group_id,
+                    )
+                )
+                scalar_keys.add(key)
+            groups.append((*coordinates, selection))
+            continue
+
+        coordinates_by_axis: dict[str, list[EntityRecordMemberSelection]] = {}
+        for member in selection.members:
+            product = product_declarations_by_id[member.product_id]
+            for axis in product.axes:
+                coordinate_id = _coordinate_product_id(product, axis)
+                if coordinate_id is None or coordinate_id == member.product_id:
+                    continue
+                coordinate = product_declarations_by_id[coordinate_id]
+                coordinates_by_axis.setdefault(axis.id, []).append(
+                    EntityRecordMemberSelection(
+                        entity=member.entity,
+                        product_use=ProductUse(
+                            product_id=coordinate_id,
+                            id=ProductUseId(
+                                f"{member.product_use.id.value}/coordinate/{axis.id}"
+                            ),
+                        ),
+                        product_origin=coordinate.origin,
+                    )
+                )
+        for members in coordinates_by_axis.values():
+            if len(members) != len(selection.members):
+                raise AssertionError(
+                    "entity acquisition members disagree on coordinate products"
+                )
+            key = (
+                tuple(member.product_id for member in members),
+                selection.recording_group_id,
+            )
+            if key in entity_keys:
+                continue
+            coordinates.append(
+                EntityRecordSelection(
+                    record_id=_coordinate_record_id(
+                        selection.record_id,
+                        product_declarations_by_id[members[0].product_id],
+                    ),
+                    axis=selection.axis,
+                    members=tuple(members),
+                    role="coordinate",
+                    recording_group_id=selection.recording_group_id,
+                    acquisition=selection.acquisition,
+                )
+            )
+            entity_keys.add(key)
+        groups.append((*coordinates, selection))
+    return tuple(groups)
+
+
+def _coordinate_product_id(
+    product: ModuleProductDecl,
+    axis: ProductAxis,
+) -> ProductId | None:
+    if axis.coordinate_result_id is None:
+        return None
+    return ProductId(
+        SymbolId(
+            scope=product.product_id.scope,
+            local_id=axis.coordinate_result_id,
+        )
+    )
+
+
+def _coordinate_record_id(
+    observable_record_id: str,
+    coordinate: ModuleProductDecl,
+) -> str:
+    namespace, separator, _local_id = observable_record_id.rpartition("/")
+    return f"{namespace}{separator}{coordinate.id}"
 
 
 def _require_selected_product(
@@ -210,6 +351,16 @@ def _lower_product_axis(
         unit=axis.unit,
         entities=entities,
         metadata=metadata,
+        coordinate_product_id=(
+            None
+            if axis.coordinate_result_id is None
+            else ProductId(
+                SymbolId(
+                    scope=product.product_id.scope,
+                    local_id=axis.coordinate_result_id,
+                )
+            )
+        ),
     )
 
 

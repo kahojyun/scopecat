@@ -15,12 +15,14 @@ from scopecat.records.instrument import (
     state_member_target,
 )
 from scopecat.sdk.instruments.backend import (
+    BackendAcquisitionPlan,
     BackendApplyRequest,
     BackendCollectRequest,
     BackendInvokeRequest,
     BackendReadRequest,
 )
 from scopecat.sdk.instruments.commands import (
+    AcquisitionPreparationReceipt,
     ApplyReceipt,
     CollectCommand,
     CollectReceipt,
@@ -40,6 +42,7 @@ from ..errors import BackendConflict
 from .actors import OwnedInstrument
 
 type InstrumentCommandFailureReason = Literal[
+    "instrument_acquisition_prepare_unknown",
     "instrument_apply_unknown",
     "instrument_apply_state_unknown",
     "instrument_invoke_unknown",
@@ -49,6 +52,19 @@ type InstrumentCommandFailureReason = Literal[
     "instrument_collect_receipt_invalid",
     "instrument_collect_rejection_state_unknown",
 ]
+
+
+def execute_instrument_acquisition_prepare(
+    instrument: OwnedInstrument,
+    plan: BackendAcquisitionPlan,
+) -> AcquisitionPreparationReceipt:
+    try:
+        return instrument.prepare_acquisitions(plan)
+    except Exception as error:
+        raise InstrumentCommandExecutionError(
+            "instrument_acquisition_prepare_unknown",
+            "instrument acquisition preparation failed with unknown state",
+        ) from error
 
 
 class InstrumentCommandExecutionError(RuntimeError):

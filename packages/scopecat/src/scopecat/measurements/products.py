@@ -28,6 +28,7 @@ class ProductAxisDef:
     unit: str | None = None
     entities: tuple[EntityRef, ...] | None = None
     metadata: Mapping[str, JsonValue] = field(default_factory=_empty_metadata)
+    coordinate_product_id: ProductId | None = None
 
     def __post_init__(self) -> None:
         if (

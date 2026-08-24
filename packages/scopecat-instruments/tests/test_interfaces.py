@@ -56,6 +56,8 @@ from scopecat_instruments.members import (
     DC_SOURCE_VOLTAGE_RANGE,
     NETWORK_SWEEP,
     NETWORK_SWEEP_POINTS,
+    NETWORK_SWEEP_START_FREQUENCY,
+    NETWORK_SWEEP_STOP_FREQUENCY,
     REFERENCE_CLOCK,
     RF_OUTPUT,
     TEMPERATURE_READOUT,
@@ -137,11 +139,23 @@ def test_network_sweep_axis_size_tracks_the_points_state() -> None:
     for result in sweep.results:
         [frequency] = result.axes
         assert frequency.size == expected
+        assert frequency.coordinate_result == "frequency"
+        assert frequency.coordinates is not None
+        assert frequency.coordinates.start == StatePropertyRef(
+            interface_id=NETWORK_SWEEP_START_FREQUENCY.interface_id,
+            component_path=list(NETWORK_SWEEP_START_FREQUENCY.component_path),
+            property_id=NETWORK_SWEEP_START_FREQUENCY.property_id,
+        )
+        assert frequency.coordinates.stop == StatePropertyRef(
+            interface_id=NETWORK_SWEEP_STOP_FREQUENCY.interface_id,
+            component_path=list(NETWORK_SWEEP_STOP_FREQUENCY.component_path),
+            property_id=NETWORK_SWEEP_STOP_FREQUENCY.property_id,
+        )
 
 
 def test_declared_network_sweep_preserves_the_contract_fingerprint() -> None:
     assert model_wire_content_hash(network_sweep_interface()) == (
-        "17cb9b78cb000350b3704e6e552f28ee7c12f8668edcf8ee09f2401b2ad92ffe"
+        "e4e861be9e0875615970e866359e6d4ab43321910d9314ae0d657dc540b121d3"
     )
 
 

@@ -25,6 +25,7 @@ from scopecat.records.measurement import (
 )
 from scopecat.sdk.instruments.authoring import (
     DriverAcquisition,
+    DriverAcquisitionPlan,
     DriverOperation,
     DriverOutcome,
     DriverReadback,
@@ -526,6 +527,15 @@ class ObjectInstrumentDriver:
         if outcome is None:
             return DriverSuccess(None)
         return cast("DriverOutcome[DriverStateReadback | None]", outcome)
+
+    def prepare_acquisitions(
+        self,
+        plan: DriverAcquisitionPlan,
+    ) -> DriverOutcome[None]:
+        """Accept an acquisition plan; implementations override when needed."""
+
+        del plan
+        return DriverSuccess(None)
 
     def collect(
         self,
@@ -1102,7 +1112,7 @@ def _operation_bindings(
 
 def _acquisition_bindings(
     interfaces: Sequence[type[object]],
-) -> dict[AcquisitionRef, DeclaredAcquisition[object]]:
+) -> dict[AcquisitionRef, DeclaredAcquisition]:
     return {
         acquisition.ref: acquisition
         for layout in _layouts(interfaces)
@@ -1110,7 +1120,7 @@ def _acquisition_bindings(
     }
 
 
-type _DeclaredDriverImplementation = DeclaredOperation | DeclaredAcquisition[object]
+type _DeclaredDriverImplementation = DeclaredOperation | DeclaredAcquisition
 
 
 @dataclass(frozen=True, slots=True)

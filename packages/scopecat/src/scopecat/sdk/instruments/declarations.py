@@ -9,7 +9,7 @@ decorated operation/acquisition methods to :class:`InterfaceSpec`.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import Field, dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field, is_dataclass
 from enum import Enum, auto
 from inspect import Parameter, signature
 from types import GenericAlias, NoneType, UnionType
@@ -24,6 +24,8 @@ from typing import (
     get_origin,
     get_type_hints,
 )
+
+import numpy as np
 
 from scopecat.kernel.instrument_members import (
     AcquisitionRef,
@@ -56,9 +58,11 @@ from scopecat.sdk.instruments.contracts import (
     AcquisitionSpec,
     ComponentSpec,
     InterfaceSpec,
+    LinearCoordinatesSpec,
     OperationArgumentSpec,
     OperationSpec,
     PropertySpec,
+    StatePropertyRef,
 )
 from scopecat.sdk.instruments.contracts import (
     acquisition as build_acquisition,
@@ -84,20 +88,12 @@ from scopecat.sdk.instruments.contracts import (
 type PropertyAccess = Literal["read_only", "write_only", "read_write"]
 type PreconditionValue = bool | int | float | str | Quantity
 
-_RESULT_METADATA = "__scopecat_instrument_result__"
+_RESULT_SCHEMA_METADATA = "__scopecat_instrument_result_schema__"
 _INTERFACE_METADATA = "__scopecat_instrument_interface__"
 _COMPONENT_METADATA = "__scopecat_instrument_component__"
 _ACQUISITION_METADATA = "__scopecat_instrument_acquisition__"
 _OPERATION_METADATA = "__scopecat_instrument_operation__"
 _MEMBER_PROJECTION_METADATA = "__scopecat_instrument_member_projection__"
-_FIELD_DECLARATION_METADATA = "scopecat.instrument.declaration"
-
-
-class _NoFieldDefault(Enum):
-    TOKEN = auto()
-
-
-_NO_FIELD_DEFAULT = _NoFieldDefault.TOKEN
 
 
 class _MemberProjectionOmitted(Enum):
@@ -183,17 +179,70 @@ class DeviceMember[ValueT](Member[ValueT]):
         super().__init__(metadata)
 
 
-@dataclass(frozen=True, slots=True)
-class ResultMetadata:
-    """Metadata for one field of a decorated acquisition result dataclass."""
+class ResultDeclaration:
+    """A scalar or array field in a named acquisition result schema."""
 
-    id: str | None = None
-    role: MeasurementVariableRole = "observable"
-    dtype: MeasurementDType | None = None
-    unit: str | None = None
-    axes: tuple[str, ...] = ()
-    label: str | None = None
-    description: str | None = None
+    is_array: bool
+    dtype: MeasurementDType
+    id: str | None
+    role: MeasurementVariableRole
+    unit: str | None
+    axes: tuple[str, ...]
+    label: str | None
+    description: str | None
+    owner: type[object] | None
+    python_name: str | None
+
+    __slots__ = (
+        "axes",
+        "description",
+        "dtype",
+        "id",
+        "is_array",
+        "label",
+        "owner",
+        "python_name",
+        "role",
+        "unit",
+    )
+
+    def __init__(
+        self,
+        *,
+        is_array: bool,
+        dtype: MeasurementDType,
+        id: str | None = None,
+        role: MeasurementVariableRole = "observable",
+        unit: str | None = None,
+        axes: tuple[str, ...] = (),
+        label: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        self.is_array = is_array
+        self.dtype = dtype
+        self.id = id
+        self.role = role
+        self.unit = unit
+        self.axes = axes
+        self.label = label
+        self.description = description
+        self.owner = None
+        self.python_name = None
+
+    def __set_name__(self, owner: type[object], name: str) -> None:
+        if self.owner is not None and (
+            self.owner is not owner or self.python_name != name
+        ):
+            raise TypeError("acquisition result declarations cannot be reused")
+        self.owner = owner
+        self.python_name = name
+
+
+@dataclass(frozen=True, slots=True)
+class _ResultSchema:
+    """Internal ordered fields owned by one named result schema."""
+
+    fields: tuple[ResultDeclaration, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,12 +264,23 @@ type AxisSize = int | str | Member[object] | None
 
 
 @dataclass(frozen=True, slots=True)
+class LinearCoordinatesMetadata:
+    """Expected uniformly spaced coordinates derived from instrument state."""
+
+    start: DeclaredPropertyTarget
+    stop: DeclaredPropertyTarget
+    endpoint: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class AxisMetadata:
     """One acquisition axis with a fixed, state-owned, or variable size."""
 
     size: AxisSize
     kind: str | None = None
     unit: str | None = None
+    coordinate_result: str | None = None
+    coordinates: LinearCoordinatesMetadata | None = None
     label: str | None = None
     description: str | None = None
 
@@ -253,6 +313,7 @@ class PreconditionMetadata:
 @dataclass(frozen=True, slots=True)
 class AcquisitionMetadata:
     id: str | None
+    results: type[object] | None
     axes: tuple[tuple[str, AxisMetadata], ...]
     label: str | None
     description: str | None
@@ -379,7 +440,6 @@ class DeclaredResultField:
     python_name: str
     ref: AcquisitionResultRef
     spec: AcquisitionResultSpec
-    annotation: object
     source_property: PropertyRef | None = None
 
     @property
@@ -391,14 +451,14 @@ class DeclaredResultField:
 class DeclaredResultLayout:
     """The complete result schema for one acquisition."""
 
-    result_type: object | None
+    schema_type: type[object] | None
     type_name: str
     fields: tuple[DeclaredResultField, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class DeclaredAcquisition[ResultT]:
-    """Typed acquisition method paired with its complete result layout."""
+class DeclaredAcquisition:
+    """An acquisition method paired with its complete result schema."""
 
     method_name: str
     ref: AcquisitionRef
@@ -421,7 +481,7 @@ class DeclaredScopeLayout:
     ref: InterfaceRef
     spec: InterfaceSpec
     operations: tuple[DeclaredOperation, ...]
-    acquisitions: tuple[DeclaredAcquisition[object], ...]
+    acquisitions: tuple[DeclaredAcquisition, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -573,63 +633,55 @@ def precondition(
     )
 
 
-def result(
+def scalar_result(
     *,
+    dtype: MeasurementDType,
     id: str | None = None,
     role: MeasurementVariableRole = "observable",
-    dtype: MeasurementDType | None = None,
     unit: str | None = None,
-    axes: Sequence[str] = (),
     label: str | None = None,
     description: str | None = None,
-) -> ResultMetadata:
-    """Describe one result field while keeping its Python annotation intact."""
+) -> ResultDeclaration:
+    """Declare one scalar acquisition result with an explicit wire dtype."""
 
-    return ResultMetadata(
+    return ResultDeclaration(
+        is_array=False,
+        dtype=dtype,
         id=id,
         role=role,
-        dtype=dtype,
         unit=unit,
-        axes=tuple(axes),
         label=label,
         description=description,
     )
 
 
-def result_field[ValueT](
+def array_result(
     *,
-    default: ValueT | Literal[_NoFieldDefault.TOKEN] = _NO_FIELD_DEFAULT,
-    default_factory: Callable[[], ValueT] | Literal[_NoFieldDefault.TOKEN] = (
-        _NO_FIELD_DEFAULT
-    ),
+    dtype: MeasurementDType,
+    axes: Sequence[str],
     id: str | None = None,
     role: MeasurementVariableRole = "observable",
-    dtype: MeasurementDType | None = None,
     unit: str | None = None,
-    axes: Sequence[str] = (),
     label: str | None = None,
     description: str | None = None,
-) -> ValueT:
-    """Declare one dataclass acquisition-result field and its metadata."""
+) -> ResultDeclaration:
+    """Declare one array acquisition result and its ordered acquisition axes."""
 
-    metadata = {
-        _FIELD_DECLARATION_METADATA: result(
-            id=id,
-            role=role,
-            dtype=dtype,
-            unit=unit,
-            axes=axes,
-            label=label,
-            description=description,
-        )
-    }
-    if default_factory is not _NO_FIELD_DEFAULT:
-        if default is not _NO_FIELD_DEFAULT:
-            raise ValueError("cannot specify both default and default_factory")
-        return field(default_factory=default_factory, metadata=metadata)
-    if default is _NO_FIELD_DEFAULT:
-        return cast("ValueT", field(metadata=metadata))
-    return field(default=default, metadata=metadata)
+    axis_ids = tuple(axes)
+    if not axis_ids:
+        raise ValueError("array result requires at least one axis")
+    if len(set(axis_ids)) != len(axis_ids):
+        raise ValueError("array result axes must not contain duplicates")
+    return ResultDeclaration(
+        is_array=True,
+        dtype=dtype,
+        id=id,
+        role=role,
+        unit=unit,
+        axes=axis_ids,
+        label=label,
+        description=description,
+    )
 
 
 def axis(
@@ -637,6 +689,8 @@ def axis(
     size: AxisSize = None,
     kind: str | None = None,
     unit: str | None = None,
+    coordinate_result: str | None = None,
+    coordinates: LinearCoordinatesMetadata | None = None,
     label: str | None = None,
     description: str | None = None,
 ) -> AxisMetadata:
@@ -646,9 +700,22 @@ def axis(
         size=size,
         kind=kind,
         unit=unit,
+        coordinate_result=coordinate_result,
+        coordinates=coordinates,
         label=label,
         description=description,
     )
+
+
+def linear_coordinates(
+    *,
+    start: DeclaredPropertyTarget,
+    stop: DeclaredPropertyTarget,
+    endpoint: bool = True,
+) -> LinearCoordinatesMetadata:
+    """Declare the expected linear coordinate layout for an acquisition axis."""
+
+    return LinearCoordinatesMetadata(start=start, stop=stop, endpoint=endpoint)
 
 
 @dataclass_transform(
@@ -670,22 +737,39 @@ def instrument_member_projection[ClassT](
     return decorate
 
 
-@dataclass_transform(
-    field_specifiers=(result_field,),
-    frozen_default=True,
-    kw_only_default=True,
-)
-def instrument_result[ClassT](cls: type[ClassT], /) -> type[ClassT]:
-    """Create an immutable, slotted acquisition-result dataclass.
+def result_schema[ClassT](cls: type[ClassT], /) -> type[ClassT]:
+    """Mark a class of explicit result declarations as one acquisition schema.
 
-    Field roles and axes form one acquisition bundle. Live clients return the
-    concrete fields together; symbolic clients preserve the same bundle as
-    related dataset products when it is recorded.
+    The class is a named declaration namespace, not the value returned by a
+    driver or client. Generated driver observations and client bundles own the
+    corresponding runtime value types.
     """
 
-    declared = dataclass(frozen=True, slots=True, kw_only=True)(cls)
-    setattr(declared, _RESULT_METADATA, True)
-    return declared
+    type_parameters = cast(
+        "tuple[object, ...]",
+        getattr(cls, "__type_params__", ()),
+    ) or cast(
+        "tuple[object, ...]",
+        getattr(cls, "__parameters__", ()),
+    )
+    if type_parameters:
+        raise TypeError(f"result schema {cls.__qualname__!r} must not be generic")
+    if any(
+        isinstance(vars(base).get(_RESULT_SCHEMA_METADATA), _ResultSchema)
+        for base in cls.__mro__[1:]
+    ):
+        raise TypeError(
+            f"result schema {cls.__qualname__!r} must not inherit another result schema"
+        )
+    fields = tuple(
+        value
+        for value in cast("Mapping[str, object]", vars(cls)).values()
+        if isinstance(value, ResultDeclaration)
+    )
+    if not fields:
+        raise TypeError(f"result schema {cls.__qualname__!r} declares no results")
+    setattr(cls, _RESULT_SCHEMA_METADATA, _ResultSchema(fields=fields))
+    return cls
 
 
 def instrument_interface[ClassT: type[object]](
@@ -764,29 +848,27 @@ def operation[**P, ReturnT](
     return decorate
 
 
-def acquisition[**P, ReturnT](
+def acquisition[**P](
     *,
+    results: type[object],
     id: str | None = None,
     axes: Mapping[str, AxisMetadata] | None = None,
     label: str | None = None,
     description: str | None = None,
     preconditions: Sequence[PreconditionMetadata] = (),
-) -> Callable[[Callable[P, ReturnT]], Callable[P, ReturnT]]:
-    """Mark an existing method as a bundled acquisition without wrapping it.
-
-    The method's decorated result type owns variable roles. ``axes`` declares
-    dimensions shared by those fields, including sizes derived from state.
-    """
+) -> Callable[[Callable[P, None]], Callable[P, None]]:
+    """Mark a method as an acquisition with an explicit named result schema."""
 
     declaration = AcquisitionMetadata(
         id=id,
+        results=results,
         axes=() if axes is None else tuple(axes.items()),
         label=label,
         description=description,
         preconditions=tuple(preconditions),
     )
 
-    def decorate(method: Callable[P, ReturnT]) -> Callable[P, ReturnT]:
+    def decorate(method: Callable[P, None]) -> Callable[P, None]:
         setattr(method, _ACQUISITION_METADATA, declaration)
         return method
 
@@ -809,6 +891,7 @@ def observation(
         tuple(members),
         AcquisitionMetadata(
             id=id,
+            results=None,
             axes=(),
             label=label,
             description=description,
@@ -1139,7 +1222,7 @@ def _declared_scope_layout[InterfaceT](
     compiled: CompiledInterface[InterfaceT],
 ) -> DeclaredScopeLayout:
     operations: list[DeclaredOperation] = []
-    acquisitions: list[DeclaredAcquisition[object]] = []
+    acquisitions: list[DeclaredAcquisition] = []
     for method in _declared_members(compiled.interface_type).values():
         if isinstance(method, MemberObservation):
             acquisitions.append(declared_acquisition(compiled, method))
@@ -1155,7 +1238,7 @@ def _declared_scope_layout[InterfaceT](
                 )
             )
         if isinstance(acquisition_declaration, AcquisitionMetadata):
-            acquisition_method = cast("Callable[..., object]", method)
+            acquisition_method = cast("Callable[..., None]", method)
             acquisitions.append(
                 declared_acquisition(
                     compiled,
@@ -1235,11 +1318,11 @@ def declared_operation[InterfaceT](
     )
 
 
-def declared_acquisition[InterfaceT, ResultT](
+def declared_acquisition[InterfaceT](
     compiled: CompiledInterface[InterfaceT],
-    method: Callable[..., ResultT] | MemberObservation,
+    method: Callable[..., None] | MemberObservation,
     /,
-) -> DeclaredAcquisition[ResultT]:
+) -> DeclaredAcquisition:
     """Bind an acquisition declaration to its compiled result layout."""
 
     method_name = next(
@@ -1279,9 +1362,12 @@ def declared_acquisition[InterfaceT, ResultT](
         )
         kind: Literal["acquisition", "member_observation"] = "member_observation"
     else:
-        result_type = _declared_method_result_type(method, method_name=method_name)
+        result_schema_type = _require_result_schema(
+            declaration.results,
+            acquisition_id=acquisition_id,
+        )[0]
         result_layout = _declared_result_layout(
-            result_type,
+            result_schema_type,
             acquisition_ref=acquisition_ref,
             result_specs=acquisition_spec.results,
         )
@@ -1345,86 +1431,52 @@ def declared_result_ref(
         if result is None:
             raise ValueError(f"acquisition result has no field {field_name!r}")
         return result.ref
-    _required_metadata(
+    declaration = _required_metadata(
         method,
         _ACQUISITION_METADATA,
         AcquisitionMetadata,
         f"declared scope method {method_name!r}",
     )
-    result_type = _declared_method_result_type(
-        cast("Callable[..., object]", method),
-        method_name=method_name,
+    _, schema = _require_result_schema(
+        declaration.results,
+        acquisition_id=declaration.id or method_name,
     )
-    result_id = _optional_declared_dataclass_field_id(
-        result_type,
-        field_name,
-        metadata_type=ResultMetadata,
+    result = next(
+        (field for field in schema.fields if field.python_name == field_name),
+        None,
     )
-    if result_id is None:
+    if result is None:
         raise ValueError(f"acquisition result has no field {field_name!r}")
     return declared_acquisition_ref(
         interface_type,
         method_name,
-    ).result(result_id)
-
-
-def _declared_method_result_type(
-    method: Callable[..., object],
-    *,
-    method_name: str,
-) -> object:
-    hints = cast(
-        "Mapping[str, object]",
-        get_type_hints(method, include_extras=True),
-    )
-    result_type = hints.get("return")
-    if result_type is None:
-        raise TypeError(
-            f"acquisition method {method_name!r} requires a return annotation"
-        )
-    return result_type
+    ).result(result.id or field_name)
 
 
 def _declared_result_layout(
-    result_type: object,
+    result_schema_type: type[object],
     *,
     acquisition_ref: AcquisitionRef,
     result_specs: Sequence[AcquisitionResultSpec],
 ) -> DeclaredResultLayout:
-    result_class = get_origin(result_type) or result_type
-    if not isinstance(result_class, type) or not is_dataclass(result_class):
-        raise TypeError("declared acquisition result must be a dataclass")
-    hints = cast(
-        "Mapping[str, object]",
-        get_type_hints(result_class, include_extras=True),
+    _, schema = _require_result_schema(
+        result_schema_type,
+        acquisition_id=acquisition_ref.acquisition_id,
     )
     specs_by_id = {item.id: item for item in result_specs}
     declared_fields = tuple(
         DeclaredResultField(
-            python_name=result_field.name,
+            python_name=result_field.python_name,
             ref=acquisition_ref.result(result_id),
             spec=specs_by_id[result_id],
-            annotation=_expand_concrete_alias(
-                _split_annotation(
-                    hints[result_field.name],
-                    ResultMetadata,
-                )[0]
-            ),
         )
-        for result_field in fields(result_class)
-        if (
-            result_id := _declared_dataclass_field_id(
-                result_class,
-                result_field.name,
-                metadata_type=ResultMetadata,
-                label="result",
-            )
-        )
-        in specs_by_id
+        for result_field in schema.fields
+        if result_field.python_name is not None
+        and (result_id := result_field.id or result_field.python_name) in specs_by_id
     )
     return DeclaredResultLayout(
-        result_type=result_type,
-        type_name=result_class.__name__,
+        schema_type=result_schema_type,
+        type_name=result_schema_type.__name__,
         fields=declared_fields,
     )
 
@@ -1455,7 +1507,6 @@ def _declared_member_observation_result_layout[InterfaceT](
                 python_name=field.python_name,
                 ref=acquisition_ref.result(spec.id),
                 spec=spec,
-                annotation=field.annotation,
                 source_property=field.ref,
             )
         )
@@ -1466,7 +1517,7 @@ def _declared_member_observation_result_layout[InterfaceT](
         if segment
     )
     return DeclaredResultLayout(
-        result_type=None,
+        schema_type=None,
         type_name=f"{interface_name}{observation_name}Results",
         fields=tuple(declared_fields),
     )
@@ -1751,7 +1802,7 @@ def _compile_member_observation(
         results.append(
             build_acquisition_result(
                 property_spec.id,
-                dtype=_infer_result_dtype(annotation),
+                dtype=_infer_observation_dtype(annotation),
                 unit=selected_member.metadata.unit,
                 label=property_spec.label,
                 description=property_spec.description,
@@ -1785,10 +1836,10 @@ def _compile_acquisition(
         "Mapping[str, object]",
         get_type_hints(method, include_extras=True),
     )
-    result_type = hints.get("return")
-    if result_type is None:
+    if "return" not in hints or hints["return"] not in (None, NoneType):
         raise TypeError(
-            f"acquisition method {method_name!r} requires a return annotation"
+            f"acquisition method {method_name!r} must return None; declare its "
+            "results with @acquisition(results=...)"
         )
     axes = {
         axis_id: build_acquisition_axis(
@@ -1807,6 +1858,26 @@ def _compile_acquisition(
             ),
             kind=axis_metadata.kind,
             unit=axis_metadata.unit,
+            coordinate_result=axis_metadata.coordinate_result,
+            coordinates=(
+                None
+                if axis_metadata.coordinates is None
+                else LinearCoordinatesSpec(
+                    start=_declaration_state_property_ref(
+                        _resolve_property_target(
+                            axis_metadata.coordinates.start,
+                            scope=scope,
+                        )
+                    ),
+                    stop=_declaration_state_property_ref(
+                        _resolve_property_target(
+                            axis_metadata.coordinates.stop,
+                            scope=scope,
+                        )
+                    ),
+                    endpoint=axis_metadata.coordinates.endpoint,
+                )
+            ),
             label=axis_metadata.label,
             description=axis_metadata.description,
         )
@@ -1815,7 +1886,7 @@ def _compile_acquisition(
     preconditions = _compile_preconditions(declaration.preconditions, scope=scope)
     acquisition_id = declaration.id or method_name
     results = _compile_results(
-        result_type,
+        declaration.results,
         acquisition_id=acquisition_id,
         axes=axes,
     )
@@ -1853,6 +1924,14 @@ def _resolve_property_target(
     return _resolve_member_declaration(target, scope=scope)
 
 
+def _declaration_state_property_ref(target: PropertyRef) -> StatePropertyRef:
+    return StatePropertyRef(
+        interface_id=target.interface_id,
+        component_path=list(target.component_path),
+        property_id=target.property_id,
+    )
+
+
 def _resolve_member_declaration(
     target: Member[object],
     *,
@@ -1869,114 +1948,76 @@ def _resolve_member_declaration(
 
 
 def _compile_results(
-    result_type: object,
+    result_schema_type: object,
     *,
     acquisition_id: str,
     axes: Mapping[str, AcquisitionAxisSpec],
 ) -> list[AcquisitionResultSpec]:
-    result_class = _require_concrete_result_class(
-        result_type,
+    _, schema = _require_result_schema(
+        result_schema_type,
         acquisition_id=acquisition_id,
     )
-    if not is_dataclass(result_class):
-        raise TypeError("instrument result must be a dataclass")
-    hints = cast(
-        "Mapping[str, object]",
-        get_type_hints(result_class, include_extras=True),
-    )
-    result_fields = {
-        result_field.name: result_field for result_field in fields(result_class)
-    }
     compiled: list[AcquisitionResultSpec] = []
-    for field_name, result_field in result_fields.items():
-        annotation = hints.get(result_field.name)
-        if annotation is None:
-            raise TypeError(f"result field {result_field.name!r} must be annotated")
-        base, annotated_metadata = _split_annotation(annotation, ResultMetadata)
-        base = _expand_concrete_alias(base)
-        if _is_optional_union(base):
-            raise TypeError(
-                f"acquisition {acquisition_id!r} result field {field_name!r} "
-                "cannot be optional; a successful acquisition must provide every "
-                "declared result"
-            )
-        metadata = (
-            _declared_field_metadata(result_field, ResultMetadata)
-            or annotated_metadata
-            or ResultMetadata()
-        )
-        unknown_axes = set(metadata.axes) - axes.keys()
+    for result_field in schema.fields:
+        if result_field.python_name is None:
+            raise TypeError("acquisition result declaration is not bound to a schema")
+        field_name = result_field.python_name
+        unknown_axes = set(result_field.axes) - axes.keys()
         if unknown_axes:
             raise ValueError(
-                f"result {metadata.id or result_field.name!r} references unknown axes: "
+                f"result {result_field.id or field_name!r} references unknown axes: "
                 f"{sorted(unknown_axes)!r}"
+            )
+        if result_field.is_array != bool(result_field.axes):
+            expected = "at least one axis" if result_field.is_array else "no axes"
+            raise TypeError(
+                f"acquisition {acquisition_id!r} result field {field_name!r} "
+                f"must declare {expected}"
             )
         compiled.append(
             build_acquisition_result(
-                metadata.id or result_field.name,
-                role=metadata.role,
-                dtype=metadata.dtype or _infer_result_dtype(base),
-                unit=metadata.unit,
-                label=metadata.label,
-                description=metadata.description,
-                axes=[axes[axis_id] for axis_id in metadata.axes],
+                result_field.id or field_name,
+                role=result_field.role,
+                dtype=result_field.dtype,
+                unit=result_field.unit,
+                label=result_field.label,
+                description=result_field.description,
+                axes=[axes[axis_id] for axis_id in result_field.axes],
             )
         )
     return compiled
 
 
-def _require_concrete_result_class(
-    result_type: object,
+def _require_result_schema(
+    result_schema_type: object,
     *,
     acquisition_id: str,
-) -> type[object]:
-    result_origin = get_origin(result_type)
-    if isinstance(result_origin, type) and getattr(
-        result_origin, _RESULT_METADATA, False
-    ):
+) -> tuple[type[object], _ResultSchema]:
+    if not isinstance(result_schema_type, type):
         raise TypeError(
-            f"acquisition {acquisition_id!r} cannot return a parameterized "
-            "instrument result; instrument result classes must not be generic"
+            f"acquisition {acquisition_id!r} requires a class decorated with "
+            "@result_schema"
         )
-    if not isinstance(result_type, type) or not getattr(
-        result_type,
-        _RESULT_METADATA,
-        False,
-    ):
+    schema = vars(result_schema_type).get(_RESULT_SCHEMA_METADATA)
+    if not isinstance(schema, _ResultSchema):
         raise TypeError(
-            f"acquisition {acquisition_id!r} must return an instrument result dataclass"
+            f"acquisition {acquisition_id!r} requires a class decorated with "
+            "@result_schema"
         )
-    type_parameters = cast(
-        "tuple[object, ...]",
-        getattr(result_type, "__type_params__", ()),
-    ) or cast(
-        "tuple[object, ...]",
-        getattr(result_type, "__parameters__", ()),
-    )
-    if type_parameters:
-        raise TypeError(
-            f"instrument result {result_type.__qualname__!r} must not be generic"
-        )
-    return result_type
+    return result_schema_type, schema
 
 
-def _infer_result_dtype(annotation: object) -> MeasurementDType:
+def _infer_observation_dtype(annotation: object) -> MeasurementDType:
     annotation = _expand_concrete_alias(annotation)
-    origin = get_origin(annotation)
-    if origin in (list, Sequence):
-        arguments = cast("tuple[object, ...]", get_args(annotation))
-        if not arguments:
-            raise TypeError("result collection annotations require an element type")
-        annotation = _expand_concrete_alias(arguments[0])
-    if annotation is bool:
+    if annotation is bool or annotation is np.bool_:
         return "bool"
-    if annotation is int:
+    if annotation is int or annotation is np.int64:
         return "int64"
-    if annotation is float or annotation is Quantity:
+    if annotation is float or annotation is Quantity or annotation is np.float64:
         return "float64"
-    if annotation is complex:
+    if annotation is complex or annotation is np.complex128:
         return "complex128"
-    if annotation is str:
+    if annotation is str or annotation is np.str_:
         return "string"
     literal_choices = cast("tuple[object, ...]", get_args(annotation))
     if get_origin(annotation) is Literal and all(
@@ -1984,7 +2025,7 @@ def _infer_result_dtype(annotation: object) -> MeasurementDType:
     ):
         return "string"
     raise TypeError(
-        f"cannot infer a measurement dtype from {annotation!r}; set result(dtype=...)"
+        f"cannot infer a measurement dtype from member annotation {annotation!r}"
     )
 
 
@@ -2078,15 +2119,6 @@ def _substitute_type_parameters(
     if callable(copy_with):
         return cast("Callable[[tuple[object, ...]], object]", copy_with)(resolved)
     raise TypeError(f"unsupported generic concrete alias value {annotation!r}")
-
-
-def _is_optional_union(annotation: object) -> bool:
-    origin = get_origin(annotation)
-    is_union = origin is UnionType or (
-        getattr(origin, "__module__", None) == "typing"
-        and getattr(origin, "__qualname__", None) == "Union"
-    )
-    return is_union and NoneType in get_args(annotation)
 
 
 def _declared_members(interface_type: type[object]) -> Mapping[str, object]:
@@ -2193,58 +2225,6 @@ def _require_argument_metadata(
         )
 
 
-def _optional_declared_dataclass_field_id[MetadataT: MemberMetadata | ResultMetadata](
-    dataclass_annotation: object,
-    field_name: str,
-    *,
-    metadata_type: type[MetadataT],
-) -> str | None:
-    dataclass_type = get_origin(dataclass_annotation) or dataclass_annotation
-    if not isinstance(dataclass_type, type) or not is_dataclass(dataclass_type):
-        raise TypeError("declared result must be a dataclass")
-    if field_name not in {item.name for item in fields(dataclass_type)}:
-        return None
-    return _declared_dataclass_field_id(
-        dataclass_type,
-        field_name,
-        metadata_type=metadata_type,
-        label="result",
-    )
-
-
-def _declared_dataclass_field_id[MetadataT: MemberMetadata | ResultMetadata](
-    dataclass_type: type[object],
-    field_name: str,
-    *,
-    metadata_type: type[MetadataT],
-    label: str,
-) -> str:
-    if not is_dataclass(dataclass_type):
-        raise TypeError(f"declared {label} must be a dataclass")
-    dataclass_fields = {item.name: item for item in fields(dataclass_type)}
-    if field_name not in dataclass_fields:
-        raise ValueError(f"{label} dataclass has no field {field_name!r}")
-    hints = cast(
-        "Mapping[str, object]",
-        get_type_hints(dataclass_type, include_extras=True),
-    )
-    annotation = hints[field_name]
-    _, annotated_metadata = _split_annotation(annotation, metadata_type)
-    metadata = (
-        _declared_field_metadata(dataclass_fields[field_name], metadata_type)
-        or annotated_metadata
-    )
-    return field_name if metadata is None or metadata.id is None else metadata.id
-
-
-def _declared_field_metadata[MetadataT: MemberMetadata | ResultMetadata](
-    dataclass_field: Field[object],
-    metadata_type: type[MetadataT],
-) -> MetadataT | None:
-    metadata = dataclass_field.metadata.get(_FIELD_DECLARATION_METADATA)
-    return metadata if isinstance(metadata, metadata_type) else None
-
-
 def _required_interface_metadata(
     interface_type: type[object],
 ) -> InterfaceMetadata:
@@ -2300,6 +2280,7 @@ __all__ = [
     "DeviceMember",
     "DeviceMemberMetadata",
     "InterfaceMetadata",
+    "LinearCoordinatesMetadata",
     "Member",
     "MemberMetadata",
     "MemberObservation",
@@ -2309,9 +2290,10 @@ __all__ = [
     "PreconditionMetadata",
     "PreconditionValue",
     "PropertyAccess",
-    "ResultMetadata",
+    "ResultDeclaration",
     "acquisition",
     "argument",
+    "array_result",
     "axis",
     "compile_interface",
     "declared_acquisition",
@@ -2328,14 +2310,14 @@ __all__ = [
     "instrument_component",
     "instrument_interface",
     "instrument_member_projection",
-    "instrument_result",
+    "linear_coordinates",
     "member",
     "member_projection_assignments",
     "member_projection_field",
     "observation",
     "operation",
     "precondition",
-    "result",
-    "result_field",
+    "result_schema",
+    "scalar_result",
     "write_only_member",
 ]

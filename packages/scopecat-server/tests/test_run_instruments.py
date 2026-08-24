@@ -63,6 +63,7 @@ from scopecat.records.run_request import RunRequest
 from scopecat.sdk.instruments import (
     AcquisitionResultRef,
     DriverAcquisition,
+    DriverAcquisitionPlan,
     DriverCatalog,
     DriverOperation,
     DriverOutcome,
@@ -229,6 +230,47 @@ class _Driver(SignalInstrumentDriver):
         self.disconnect_count += 1
         if self.fail_action == "disconnect":
             raise RuntimeError("disconnect failed")
+
+
+class _PreparingDriver(_Driver):
+    def __init__(
+        self,
+        instrument_id: str,
+        *,
+        fail_action: _FailAction = None,
+        apply_barrier: Barrier | None = None,
+    ) -> None:
+        super().__init__(
+            instrument_id,
+            fail_action=fail_action,
+            apply_barrier=apply_barrier,
+        )
+        self.events: list[str] = []
+        self.acquisition_plans: list[DriverAcquisitionPlan] = []
+
+    def prepare_acquisitions(
+        self,
+        plan: DriverAcquisitionPlan,
+    ) -> DriverOutcome[None]:
+        self.events.append("prepare")
+        self.acquisition_plans.append(plan)
+        return DriverSuccess(None)
+
+    @override
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverStateReadback | None]:
+        self.events.append("invoke")
+        return super().invoke(request)
+
+    @override
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        self.events.append("collect")
+        return super().collect(request)
 
 
 class _VariantDriver(_Driver):
@@ -648,6 +690,53 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
             if event.kind.startswith("run_hardware_batch_")
         ]
         assert batch_events == []
+
+
+def test_batch_prepares_selected_acquisitions_before_trigger_invoke(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_PreparingDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_PreparingDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        payload = command_payload_from_bytes(
+            id="program-1",
+            schema_id="pulse_program",
+            codec_id="tests.canonical-json",
+            codec_version=1,
+            media_type="application/json",
+            content=b'{"samples":[0.0]}',
+        )
+
+        receipt = instruments.execute_run_hardware(
+            run_id,
+            _batch_command(
+                lease_id,
+                "prepared-capture",
+                _invoke_action(
+                    "source-0",
+                    effect_id="trigger",
+                    payload=payload,
+                ),
+                _collect_action("source-0", effect_id="fetch"),
+            ),
+        )
+
+        assert receipt.problems == ()
+        [driver] = provider.drivers
+        assert isinstance(driver, _PreparingDriver)
+        assert driver.events == ["prepare", "invoke", "collect"]
+        [plan] = driver.acquisition_plans
+        [planned] = plan.acquisitions
+        assert planned.target == InterfaceRef("test.scalar_signal/v1").acquisition(
+            "sample"
+        )
+        assert {result.result_id for result in planned.results} == {"signal"}
 
 
 def test_run_start_applies_default_state_after_fresh_observation(

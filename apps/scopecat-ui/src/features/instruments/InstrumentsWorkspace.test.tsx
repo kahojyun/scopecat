@@ -444,6 +444,7 @@ describe("instrument workspace", () => {
   });
 
   it("reuses the configured-default operation id while retrying a network failure", async () => {
+    mockInstrumentSessionOwnership();
     vi.mocked(openInstrumentSession).mockResolvedValue(
       session({ configured_default_instrument_ids: ["drive-source"] }),
     );
@@ -467,6 +468,7 @@ describe("instrument workspace", () => {
   });
 
   it("refreshes ownership after a configured-default conflict", async () => {
+    mockInstrumentSessionOwnership({ releasedAfterRefresh: true });
     vi.mocked(openInstrumentSession).mockResolvedValue(
       session({ configured_default_instrument_ids: ["drive-source"] }),
     );
@@ -1440,8 +1442,31 @@ function renderWorkspace() {
 }
 
 async function connectInstrument() {
-  fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Connect" }));
   await screen.findByText("Interactive session connected");
+}
+
+function mockInstrumentSessionOwnership({ releasedAfterRefresh = false } = {}) {
+  const available = {
+    config_entry_id: "lab-default",
+    problems: [],
+    items: [instrument()],
+  };
+  const owned = {
+    ...available,
+    items: [
+      instrument({
+        availability: "active",
+        owner_kind: "instrument_session",
+        owner_id: "session-1",
+        owner_actor: "local-operator",
+      }),
+    ],
+  };
+  vi.mocked(getInstruments)
+    .mockResolvedValueOnce(available)
+    .mockResolvedValueOnce(owned)
+    .mockResolvedValue(releasedAfterRefresh ? available : owned);
 }
 
 function instrument(overrides: Partial<InstrumentView> = {}): InstrumentView {

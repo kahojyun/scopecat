@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from scopecat.records.config import InstrumentBindingSpec
 from scopecat.sdk.instruments.authoring import (
     DriverAcquisition,
+    DriverAcquisitionPlan,
     DriverOperation,
     DriverOutcome,
     DriverReadback,
@@ -28,6 +29,16 @@ class DriverFault(Exception):
     def __init__(self, problem: Problem) -> None:
         self.problem = problem
         super().__init__(problem.message)
+
+
+@runtime_checkable
+class AcquisitionPreparer(Protocol):
+    """Optional driver hook for demand-dependent capture preparation."""
+
+    def prepare_acquisitions(
+        self,
+        plan: DriverAcquisitionPlan,
+    ) -> DriverOutcome[None]: ...
 
 
 class InstrumentDriver(Protocol):
