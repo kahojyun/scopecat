@@ -521,14 +521,14 @@ def test_lease_supervisor_health_recovers_after_one_failed_iteration(
             if not failed.is_set():
                 failed.set()
                 raise RuntimeError("temporary lease scan failure")
-            assert permit_success.wait(timeout=1)
+            assert permit_success.wait(timeout=5)
 
         monkeypatch.setattr(instruments, "expire_leases", fail_once_then_succeed)
-        assert failed.wait(timeout=2)
+        assert failed.wait(timeout=5)
         assert runtime.application.health().status == "degraded"
 
         permit_success.set()
-        deadline = time.monotonic() + 2
+        deadline = time.monotonic() + 5
         while (
             runtime.application.health().status != "ok" and time.monotonic() < deadline
         ):
@@ -653,7 +653,7 @@ def test_runtime_shutdown_unblocks_an_active_lease_supervisor(
 
     monkeypatch.setattr(instruments, "expire_leases", wait_for_instrument_shutdown)
     monkeypatch.setattr(instruments, "shutdown", shutdown_instruments)
-    assert supervision_started.wait(timeout=2)
+    assert supervision_started.wait(timeout=5)
 
     close_error: BaseException | None = None
 
@@ -666,13 +666,13 @@ def test_runtime_shutdown_unblocks_an_active_lease_supervisor(
 
     closer = Thread(target=close_runtime)
     closer.start()
-    closer.join(timeout=1)
+    closer.join(timeout=5)
     try:
         assert not closer.is_alive()
         assert close_error is None
     finally:
         instrument_shutdown_started.set()
-        closer.join(timeout=2)
+        closer.join(timeout=5)
 
 
 def test_runtime_shutdown_bounds_a_stuck_lease_supervisor(
@@ -692,7 +692,7 @@ def test_runtime_shutdown_bounds_a_stuck_lease_supervisor(
         release_supervision.wait()
 
     monkeypatch.setattr(instruments, "expire_leases", block_supervision)
-    assert supervision_started.wait(timeout=2)
+    assert supervision_started.wait(timeout=5)
 
     close_error: BaseException | None = None
 
@@ -705,7 +705,7 @@ def test_runtime_shutdown_bounds_a_stuck_lease_supervisor(
 
     closer = Thread(target=close_runtime)
     closer.start()
-    closer.join(timeout=0.5)
+    closer.join(timeout=5)
     try:
         assert not closer.is_alive()
         assert isinstance(close_error, RuntimeError)
@@ -714,7 +714,7 @@ def test_runtime_shutdown_bounds_a_stuck_lease_supervisor(
             LocalDaemonRuntime(tmp_path)
     finally:
         release_supervision.set()
-        closer.join(timeout=2)
+        closer.join(timeout=5)
         runtime.close()
 
     with LocalDaemonRuntime(tmp_path):

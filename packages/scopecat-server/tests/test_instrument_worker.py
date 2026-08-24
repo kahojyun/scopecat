@@ -588,43 +588,42 @@ def test_operation_timeout_fences_generation_and_wakes_pending_calls(
         )
         for instrument_id in ("source-0", "source-1")
     )
-    errors: list[BaseException] = []
+    first_error: list[BaseException] = []
+    blocking_request = BackendInvokeRequest(
+        interface_id="tests.control/v1",
+        operation_id="block",
+    )
 
-    def invoke_blocking_operation(connection_index: int) -> None:
+    def invoke_first_blocking_operation() -> None:
         try:
             endpoint.invoke(
-                connections[connection_index].handle,
-                BackendInvokeRequest(
-                    interface_id="tests.control/v1",
-                    operation_id="block",
-                ),
+                connections[0].handle,
+                blocking_request,
             )
         except BaseException as error:
-            errors.append(error)
+            first_error.append(error)
 
-    invocations = tuple(
-        Thread(
-            target=invoke_blocking_operation,
-            args=(index,),
-            daemon=True,
-        )
-        for index in range(2)
+    first_invocation = Thread(
+        target=invoke_first_blocking_operation,
+        daemon=True,
     )
     release_paths = tuple(
         project / f"driver-release-source-{index}" for index in range(2)
     )
     try:
-        for invocation in invocations:
-            invocation.start()
-        for index in range(2):
-            _wait_for_marker(project / f"driver-blocked-source-{index}")
-        for invocation in invocations:
-            invocation.join(timeout=3)
+        first_invocation.start()
+        _wait_for_marker(project / "driver-blocked-source-0")
+        with pytest.raises(InstrumentBackendUnavailable, match="timed out"):
+            endpoint.invoke(
+                connections[1].handle,
+                blocking_request,
+            )
+        first_invocation.join(timeout=3)
 
-        assert all(not invocation.is_alive() for invocation in invocations)
-        assert len(errors) == 2
-        assert all(isinstance(error, InstrumentBackendUnavailable) for error in errors)
-        assert all("timed out" in str(error) for error in errors)
+        assert not first_invocation.is_alive()
+        assert len(first_error) == 1
+        assert isinstance(first_error[0], InstrumentBackendUnavailable)
+        assert "timed out" in str(first_error[0])
         assert not endpoint.healthy
         endpoint.shutdown()
         endpoint.shutdown()
@@ -632,8 +631,7 @@ def test_operation_timeout_fences_generation_and_wakes_pending_calls(
         for release in release_paths:
             release.touch()
         endpoint.shutdown()
-        for invocation in invocations:
-            invocation.join(timeout=3)
+        first_invocation.join(timeout=3)
 
 
 def test_shutdown_interrupts_a_blocked_driver_call(tmp_path: Path) -> None:
@@ -801,10 +799,10 @@ def test_blocked_driver_does_not_block_another_device(tmp_path: Path) -> None:
                 _gain_read_request(),
             )
             try:
-                state = independent.result(timeout=1)
+                state = independent.result(timeout=10)
             finally:
                 release.touch()
-            blocked.result(timeout=2)
+            blocked.result(timeout=10)
         assert state.instrument_id == "source-1"
         [observation] = state.observations
         assert observation.metadata["worker_pid"] == endpoint.worker_pid

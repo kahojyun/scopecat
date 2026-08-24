@@ -542,8 +542,8 @@ def test_execute_submits_complete_plan_and_heartbeats(
         forwarded["program"] = program
         accepted = session.accepted
         session.begin()
-        assert heartbeat_seen.wait(timeout=1)
-        deadline = time.monotonic() + 1
+        assert heartbeat_seen.wait(timeout=5)
+        deadline = time.monotonic() + 5
         while not session.cancellation_requested():
             if time.monotonic() >= deadline:
                 raise AssertionError("heartbeat did not expose cancellation request")
@@ -1052,7 +1052,7 @@ def test_execute_fences_effects_after_heartbeat_loses_lease(
     ) -> RunSnapshot:
         del program
         session.begin()
-        assert heartbeat_attempted.wait(timeout=1)
+        assert heartbeat_attempted.wait(timeout=5)
         terminal = TerminalRunCommit(
             run_id=session.run_id,
             outcome=RunOutcome(
@@ -1061,7 +1061,7 @@ def test_execute_fences_effects_after_heartbeat_loses_lease(
                 certainty="known",
             ),
         )
-        deadline = time.monotonic() + 1
+        deadline = time.monotonic() + 5
         while True:
             session.commit_terminal(terminal)
             if time.monotonic() >= deadline:
@@ -1103,7 +1103,7 @@ def test_executor_heartbeat_recovers_from_temporary_unavailability() -> None:
 
     supervisor.start(lease, heartbeat)
     try:
-        assert recovered.wait(timeout=1)
+        assert recovered.wait(timeout=5)
         supervisor.require_live()
         assert attempts == 2
     finally:

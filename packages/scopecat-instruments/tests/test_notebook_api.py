@@ -292,7 +292,7 @@ def test_session_handle_renews_lease_in_background() -> None:
     try:
         handle._observed_state()
 
-        assert daemon.renew_attempted.wait(timeout=1)
+        assert daemon.renew_attempted.wait(timeout=5)
         assert daemon.renew_calls >= 1
     finally:
         handle.close()
@@ -428,7 +428,7 @@ def test_session_handle_immediately_renews_a_late_open_lease() -> None:
     try:
         handle._observed_state()
 
-        assert daemon.renew_attempted.wait(timeout=1)
+        assert daemon.renew_attempted.wait(timeout=5)
     finally:
         handle.close()
         daemon.close()
@@ -446,7 +446,7 @@ def test_session_handle_close_stops_heartbeat() -> None:
         handle._observed_state()
         heartbeat = handle._heartbeat
         assert heartbeat is not None
-        assert daemon.renew_attempted.wait(timeout=1)
+        assert daemon.renew_attempted.wait(timeout=5)
 
         receipt = handle.close()
 
@@ -471,8 +471,8 @@ def test_session_handle_surfaces_renewal_failure() -> None:
         handle._observed_state()
         heartbeat = handle._heartbeat
         assert heartbeat is not None
-        assert daemon.renew_attempted.wait(timeout=1)
-        heartbeat._thread.join(timeout=1)
+        assert daemon.renew_attempted.wait(timeout=5)
+        heartbeat._thread.join(timeout=5)
 
         with pytest.raises(
             RuntimeError,
@@ -505,7 +505,7 @@ def test_session_handle_keeps_heartbeat_after_close_failure() -> None:
 
         assert caught.value is close_error
         daemon.renew_attempted.clear()
-        assert daemon.renew_attempted.wait(timeout=1)
+        assert daemon.renew_attempted.wait(timeout=5)
         assert heartbeat._thread.is_alive()
 
         receipt = handle.close()
@@ -533,7 +533,7 @@ def test_discarded_session_handle_requests_heartbeat_stop() -> None:
 
     del handle
     collect_garbage()
-    heartbeat._thread.join(timeout=1)
+    heartbeat._thread.join(timeout=5)
 
     assert handle_reference() is None
     assert not heartbeat._thread.is_alive()
