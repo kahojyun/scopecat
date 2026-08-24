@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 
 from scopecat_quantum.benchmarking import (
+    aggregate_seed_observations,
+    analyze_parallel_rb_seeds,
     fit_parallel_rb_decay,
     fit_rb_decay,
     fit_xeb_decay,
@@ -40,6 +42,43 @@ def test_parallel_rb_decay_preserves_entity_identity() -> None:
     assert tuple(fit.entity_id for fit in fits) == ("q0", "q7")
     assert fits[0].fit.decay == pytest.approx(0.98, abs=1e-9)
     assert fits[1].fit.decay == pytest.approx(0.95, abs=1e-9)
+
+
+def test_parallel_rb_seed_analysis_aggregates_and_bootstraps_repetitions() -> None:
+    lengths = (1, 1, 2, 2, 4, 4, 8, 8, 16, 16)
+    values = np.asarray(
+        [
+            [
+                0.4 * 0.98**length + 0.5 + noise,
+                0.45 * 0.95**length + 0.48 - noise,
+            ]
+            for length, noise in zip(lengths, (-0.01, 0.01) * 5, strict=True)
+        ],
+        dtype=np.float64,
+    )
+
+    aggregate = aggregate_seed_observations(
+        lengths,
+        values,
+        bootstrap_samples=256,
+        bootstrap_seed=17,
+    )
+    analysis = analyze_parallel_rb_seeds(
+        lengths,
+        values,
+        ("q0", "q7"),
+        bootstrap_samples=256,
+        bootstrap_seed=17,
+    )
+
+    assert aggregate.coordinates == (1, 2, 4, 8, 16)
+    assert aggregate.sample_counts == (2, 2, 2, 2, 2)
+    assert aggregate.mean.shape == aggregate.standard_error.shape == (5, 2)
+    assert np.all(aggregate.confidence_lower <= aggregate.mean)
+    assert np.all(aggregate.mean <= aggregate.confidence_upper)
+    assert analysis.aggregate.mean.tolist() == aggregate.mean.tolist()
+    assert analysis.fits[0].fit.decay == pytest.approx(0.98, abs=1e-9)
+    assert analysis.fits[1].fit.decay == pytest.approx(0.95, abs=1e-9)
 
 
 def test_interleaved_rb_and_linear_xeb_reference_estimators() -> None:

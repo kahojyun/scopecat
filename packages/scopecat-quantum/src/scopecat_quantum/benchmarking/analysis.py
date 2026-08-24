@@ -51,6 +51,27 @@ class LinearXebEstimate:
     sample_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class SeedAggregate:
+    """Seed-reduced observations with deterministic bootstrap intervals."""
+
+    coordinates: tuple[int, ...]
+    mean: np.ndarray
+    standard_error: np.ndarray
+    confidence_lower: np.ndarray
+    confidence_upper: np.ndarray
+    sample_counts: tuple[int, ...]
+    confidence_level: float
+
+
+@dataclass(frozen=True, slots=True)
+class ParallelRbSeedAnalysis:
+    """Seed aggregation and entity-addressed RB fits from the same values."""
+
+    aggregate: SeedAggregate
+    fits: tuple[EntityRbDecayFit, ...]
+
+
 def _observations(
     coordinates: Sequence[int],
     values: Sequence[float],
@@ -214,6 +235,110 @@ def fit_parallel_rb_decay(
     )
 
 
+def aggregate_seed_observations(
+    coordinates: Sequence[int],
+    observations: object,
+    *,
+    confidence_level: float = 0.95,
+    bootstrap_samples: int = 2_000,
+    bootstrap_seed: int = 0,
+) -> SeedAggregate:
+    """Aggregate repeated seeds at each coordinate without positional assumptions."""
+
+    coordinate_values = tuple(coordinates)
+    values = np.asarray(observations, dtype=np.float64)
+    if values.ndim < 1 or values.shape[0] != len(coordinate_values):
+        raise ValueError("seed observations must have one leading point axis")
+    if not coordinate_values:
+        raise ValueError("seed aggregation requires at least one observation")
+    if any(coordinate < 0 for coordinate in coordinate_values):
+        raise ValueError("seed coordinates must be non-negative integers")
+    if not np.isfinite(values).all():
+        raise ValueError("seed observations must be finite")
+    if not 0.0 < confidence_level < 1.0:
+        raise ValueError("confidence level must be in (0, 1)")
+    if bootstrap_samples <= 0:
+        raise ValueError("bootstrap sample count must be positive")
+
+    selected_coordinates = tuple(sorted(set(coordinate_values)))
+    rng = np.random.default_rng(bootstrap_seed)
+    means: list[np.ndarray] = []
+    standard_errors: list[np.ndarray] = []
+    lowers: list[np.ndarray] = []
+    uppers: list[np.ndarray] = []
+    sample_counts: list[int] = []
+    tail = (1.0 - confidence_level) / 2.0
+    for coordinate in selected_coordinates:
+        indices = tuple(
+            index
+            for index, candidate in enumerate(coordinate_values)
+            if candidate == coordinate
+        )
+        samples = values[np.asarray(indices, dtype=np.int64)]
+        sample_count = len(indices)
+        mean = np.mean(samples, axis=0)
+        standard_error = (
+            np.zeros_like(mean)
+            if sample_count == 1
+            else np.std(samples, axis=0, ddof=1) / math.sqrt(sample_count)
+        )
+        if sample_count == 1:
+            lower = upper = mean
+        else:
+            resampled = samples[
+                rng.integers(
+                    0,
+                    sample_count,
+                    size=(bootstrap_samples, sample_count),
+                )
+            ]
+            bootstrap_means = np.mean(resampled, axis=1)
+            lower = np.quantile(bootstrap_means, tail, axis=0)
+            upper = np.quantile(bootstrap_means, 1.0 - tail, axis=0)
+        means.append(np.asarray(mean, dtype=np.float64))
+        standard_errors.append(np.asarray(standard_error, dtype=np.float64))
+        lowers.append(np.asarray(lower, dtype=np.float64))
+        uppers.append(np.asarray(upper, dtype=np.float64))
+        sample_counts.append(sample_count)
+    return SeedAggregate(
+        coordinates=selected_coordinates,
+        mean=np.stack(means),
+        standard_error=np.stack(standard_errors),
+        confidence_lower=np.stack(lowers),
+        confidence_upper=np.stack(uppers),
+        sample_counts=tuple(sample_counts),
+        confidence_level=confidence_level,
+    )
+
+
+def analyze_parallel_rb_seeds(
+    lengths: Sequence[int],
+    survival_probabilities: object,
+    entity_ids: Sequence[str],
+    *,
+    dimension: int = 2,
+    confidence_level: float = 0.95,
+    bootstrap_samples: int = 2_000,
+    bootstrap_seed: int = 0,
+) -> ParallelRbSeedAnalysis:
+    """Aggregate seed repetitions, then fit one decay per durable entity id."""
+
+    aggregate = aggregate_seed_observations(
+        lengths,
+        survival_probabilities,
+        confidence_level=confidence_level,
+        bootstrap_samples=bootstrap_samples,
+        bootstrap_seed=bootstrap_seed,
+    )
+    fits = fit_parallel_rb_decay(
+        aggregate.coordinates,
+        aggregate.mean,
+        entity_ids,
+        dimension=dimension,
+    )
+    return ParallelRbSeedAnalysis(aggregate=aggregate, fits=fits)
+
+
 def interleaved_rb_error(
     reference_decay: float,
     interleaved_decay: float,
@@ -344,8 +469,12 @@ def fit_xeb_decay(
 __all__ = [
     "EntityRbDecayFit",
     "LinearXebEstimate",
+    "ParallelRbSeedAnalysis",
     "RbDecayFit",
+    "SeedAggregate",
     "XebDecayFit",
+    "aggregate_seed_observations",
+    "analyze_parallel_rb_seeds",
     "fit_parallel_rb_decay",
     "fit_rb_decay",
     "fit_xeb_decay",
