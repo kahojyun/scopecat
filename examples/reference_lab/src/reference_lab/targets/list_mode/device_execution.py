@@ -11,7 +11,6 @@ from scopecat.kernel.content_identity import content_fingerprint, stable_content
 from scopecat.kernel.errors import OperationFailure
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import PayloadRef, StateValue
-from scopecat.records.content import command_payload_from_bytes
 from scopecat.records.instrument import state_member_ref, state_member_target
 from scopecat.records.measurement import MeasurementArray, MeasurementUnavailable
 from scopecat.sdk.domain import (
@@ -70,10 +69,23 @@ from reference_lab.interfaces import (
     CLOCK_TIMING_FREQUENCY,
 )
 from reference_lab.payloads import (
-    AWG_PROGRAM_SCHEMA_ID,
-    DIGITIZER_PROGRAM_SCHEMA_ID,
-    TRIGGER_PROGRAM_SCHEMA_ID,
-    reference_lab_payload_codecs,
+    AWG_PROGRAM_PAYLOAD,
+    DIGITIZER_PROGRAM_PAYLOAD,
+    TRIGGER_PROGRAM_PAYLOAD,
+    AwgChannelWaveformDocument,
+    AwgEntryDocument,
+    AwgMixerDocument,
+    AwgPhaseTemplateDocument,
+    AwgPhaseTemplateUseDocument,
+    AwgProgramDocument,
+    DigitizerDspWindowDocument,
+    DigitizerProgramDocument,
+    DigitizerProgramEntryDocument,
+    MaterializedAwgProgramDocument,
+    PhaseSynthesizedAwgEntryDocument,
+    PhaseSynthesizedAwgProgramDocument,
+    TriggerProgramDocument,
+    TriggerProgramEntryDocument,
 )
 from reference_lab.targets.list_mode.execution_model import (
     DigitizerResultBatch,
@@ -279,7 +291,7 @@ def list_mode_setup_residency_requirements(
                 slot_id="list-mode-awg-program",
             ),
             content_fingerprint=_resident_program_fingerprint(
-                AWG_PROGRAM_SCHEMA_ID,
+                AWG_PROGRAM_PAYLOAD.schema_id,
                 _awg_payload_document(program),
             ),
         )
@@ -292,7 +304,7 @@ def list_mode_setup_residency_requirements(
                 slot_id="list-mode-digitizer-program",
             ),
             content_fingerprint=_resident_program_fingerprint(
-                DIGITIZER_PROGRAM_SCHEMA_ID,
+                DIGITIZER_PROGRAM_PAYLOAD.schema_id,
                 _digitizer_payload_document(artifact, program),
             ),
         )
@@ -459,20 +471,11 @@ def _resident_load_batch(
 ) -> RunHardwareBatch:
     prefix = _execution_prefix(artifact, execution_id=execution_id)
     actions: list[RunHardwareInvoke] = []
-    codecs = reference_lab_payload_codecs()
     for awg_program in artifact.awg_programs:
         payload_id = f"awg-program-{awg_program.instrument_id}"
-        encoded = codecs.encode(
-            AWG_PROGRAM_SCHEMA_ID,
+        payload = AWG_PROGRAM_PAYLOAD.command_payload(
+            payload_id,
             _awg_payload_document(awg_program),
-        )
-        payload = command_payload_from_bytes(
-            id=payload_id,
-            schema_id=encoded.schema_id,
-            codec_id=encoded.codec_id,
-            codec_version=encoded.codec_version,
-            media_type=encoded.media_type,
-            content=encoded.content,
         )
         actions.append(
             RunHardwareInvoke(
@@ -493,17 +496,9 @@ def _resident_load_batch(
 
     for digitizer_program in artifact.digitizer_programs:
         payload_id = f"digitizer-program-{digitizer_program.instrument_id}"
-        encoded = codecs.encode(
-            DIGITIZER_PROGRAM_SCHEMA_ID,
+        payload = DIGITIZER_PROGRAM_PAYLOAD.command_payload(
+            payload_id,
             _digitizer_payload_document(artifact, digitizer_program),
-        )
-        payload = command_payload_from_bytes(
-            id=payload_id,
-            schema_id=encoded.schema_id,
-            codec_id=encoded.codec_id,
-            codec_version=encoded.codec_version,
-            media_type=encoded.media_type,
-            content=encoded.content,
         )
         actions.append(
             RunHardwareInvoke(
@@ -536,17 +531,9 @@ def _trigger_load_batch(
     prefix = _execution_prefix(artifact, execution_id=execution_id)
     timing = artifact.preparation.timing
     timing_payload_id = f"trigger-program-{timing.trigger_instrument_id}"
-    encoded = reference_lab_payload_codecs().encode(
-        TRIGGER_PROGRAM_SCHEMA_ID,
+    payload = TRIGGER_PROGRAM_PAYLOAD.command_payload(
+        timing_payload_id,
         _trigger_payload_document(artifact, program_id=prefix),
-    )
-    payload = command_payload_from_bytes(
-        id=timing_payload_id,
-        schema_id=encoded.schema_id,
-        codec_id=encoded.codec_id,
-        codec_version=encoded.codec_version,
-        media_type=encoded.media_type,
-        content=encoded.content,
     )
     action = RunHardwareInvoke(
         effect_id=f"{prefix}:load:{timing.trigger_instrument_id}",
@@ -571,110 +558,109 @@ def _trigger_load_batch(
 def _digitizer_payload_document(
     artifact: ListModeArtifact,
     program: DigitizerProgram,
-) -> dict[str, object]:
-    return {
-        "entries": [
-            {
-                "sample_count": program_entry.sample_count,
-                "input_component_paths": [
-                    list(input_id.component_path)
-                    for input_id in program_entry.input_ids
-                ],
-                "windows": [
-                    {
-                        "component_path": list(window.input_id.component_path),
-                        "demodulator_slot_id": window.demodulator_slot_id.value,
-                        "start_sample": window.start_sample,
-                        "sample_count": window.sample_count,
-                        "demodulation_frequency_hz": (
+) -> DigitizerProgramDocument:
+    return DigitizerProgramDocument(
+        entries=tuple(
+            DigitizerProgramEntryDocument(
+                sample_count=program_entry.sample_count,
+                input_component_paths=tuple(
+                    input_id.component_path for input_id in program_entry.input_ids
+                ),
+                windows=tuple(
+                    DigitizerDspWindowDocument(
+                        component_path=window.input_id.component_path,
+                        demodulator_slot_id=window.demodulator_slot_id.value,
+                        start_sample=window.start_sample,
+                        sample_count=window.sample_count,
+                        demodulation_frequency_hz=(
                             window.intent.demodulation_frequency_hz
                         ),
-                        "semantics_id": window.intent.semantics_id,
-                        "normalization": window.intent.normalization,
-                    }
+                        semantics_id=window.intent.semantics_id,
+                        normalization=window.intent.normalization,
+                    )
                     for window in artifact.entries[entry_index].acquisitions
                     if window.input_id.instrument_id == program.instrument_id
-                ],
-            }
+                ),
+            )
             for entry_index, program_entry in enumerate(program.entries)
-        ]
-    }
+        )
+    )
 
 
 def _trigger_payload_document(
     artifact: ListModeArtifact,
     *,
     program_id: str,
-) -> dict[str, object]:
-    return {
-        "program_id": program_id,
-        "repetitions": artifact.repetitions,
-        "entries": [
-            {
-                "awg_instrument_ids": list(entry.awg_instrument_ids),
-                "digitizer_instrument_ids": list(entry.digitizer_instrument_ids),
-            }
+) -> TriggerProgramDocument:
+    return TriggerProgramDocument(
+        program_id=program_id,
+        repetitions=artifact.repetitions,
+        entries=tuple(
+            TriggerProgramEntryDocument(
+                awg_instrument_ids=entry.awg_instrument_ids,
+                digitizer_instrument_ids=entry.digitizer_instrument_ids,
+            )
             for entry in (
                 artifact.trigger_participants(selected) for selected in artifact.entries
             )
-        ],
-    }
+        ),
+    )
 
 
 def _awg_payload_document(
     program: MaterializedAwgProgram | PhaseSynthesizedAwgProgram,
-) -> dict[str, object]:
+) -> AwgProgramDocument:
     if isinstance(program, MaterializedAwgProgram):
-        return {
-            "kind": "materialized",
-            "max_abs_amplitude": program.max_abs_amplitude,
-            "entries": [
-                {
-                    "waveforms": [
-                        {
-                            "component_path": list(waveform.channel_id.component_path),
-                            "samples": waveform.samples,
-                        }
+        return MaterializedAwgProgramDocument(
+            kind="materialized",
+            max_abs_amplitude=program.max_abs_amplitude,
+            entries=tuple(
+                AwgEntryDocument(
+                    waveforms=tuple(
+                        AwgChannelWaveformDocument(
+                            component_path=waveform.channel_id.component_path,
+                            samples=waveform.samples,
+                        )
                         for waveform in entry.waveforms
-                    ]
-                }
+                    )
+                )
                 for entry in program.entries
-            ],
-        }
-    return {
-        "kind": "phase_synthesized",
-        "max_abs_amplitude": program.max_abs_amplitude,
-        "templates": [
-            {
-                "id": template.id,
-                "i_component_path": list(template.i_channel_id.component_path),
-                "q_component_path": list(template.q_channel_id.component_path),
-                "start_sample": template.start_sample,
-                "logical_i": template.logical_i,
-                "logical_q": template.logical_q,
-                "mixer": {
-                    "ii": template.mixer.ii,
-                    "iq": template.mixer.iq,
-                    "qi": template.mixer.qi,
-                    "qq": template.mixer.qq,
-                },
-            }
+            ),
+        )
+    return PhaseSynthesizedAwgProgramDocument(
+        kind="phase_synthesized",
+        max_abs_amplitude=program.max_abs_amplitude,
+        templates=tuple(
+            AwgPhaseTemplateDocument(
+                id=template.id,
+                i_component_path=template.i_channel_id.component_path,
+                q_component_path=template.q_channel_id.component_path,
+                start_sample=template.start_sample,
+                logical_i=template.logical_i,
+                logical_q=template.logical_q,
+                mixer=AwgMixerDocument(
+                    ii=template.mixer.ii,
+                    iq=template.mixer.iq,
+                    qi=template.mixer.qi,
+                    qq=template.mixer.qq,
+                ),
+            )
             for template in program.templates
-        ],
-        "entries": [
-            {
-                "sample_count": entry.sample_count,
-                "template_uses": [
-                    {
-                        "template_id": use.template_id,
-                        "phase_radians": use.phase_radians,
-                    }
+        ),
+        entries=tuple(
+            PhaseSynthesizedAwgEntryDocument(
+                sample_count=entry.sample_count,
+                template_uses=tuple(
+                    AwgPhaseTemplateUseDocument(
+                        template_id=use.template_id,
+                        phase_radians=use.phase_radians,
+                    )
                     for use in entry.template_uses
-                ],
-            }
+                ),
+            )
             for entry in program.entries
-        ],
-    }
+        ),
+    )
 
 
 def _execution_batch(
