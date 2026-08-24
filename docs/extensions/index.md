@@ -3,6 +3,7 @@
 Extension authors use public Scopecat contracts to integrate lab capabilities:
 
 - [Instrument providers and drivers](instruments.md)
+- [Typed command payload codecs](payload-codecs.md)
 - [Quantum programs and targets](quantum.md)
 
 These are product extension surfaces, not instructions for changing Scopecat's

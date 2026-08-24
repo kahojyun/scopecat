@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+import scopecat as sc
 from scopecat.kernel.payloads import PayloadValue
 from scopecat.records.content import command_payload_from_bytes
 from scopecat.sdk.payloads import (
@@ -66,6 +67,15 @@ type _ProgramVariant = Annotated[
     _LeftProgram | _RightProgram,
     Field(discriminator="kind"),
 ]
+
+
+def test_payload_codec_tools_are_available_from_the_public_facade() -> None:
+    assert sc.PayloadContract is PayloadContract
+    assert sc.FrozenFloat64Vector is FrozenFloat64Vector
+    assert sc.StructuredValueCodec.__name__ == "StructuredValueCodec"
+    assert sc.byte_payload_codec is byte_payload_codec
+    assert sc.pydantic_buffer_bundle_codec is pydantic_buffer_bundle_codec
+    assert sc.pydantic_buffer_bundle_value_codec is pydantic_buffer_bundle_value_codec
 
 
 def _json_encoder(value: object) -> bytes:
