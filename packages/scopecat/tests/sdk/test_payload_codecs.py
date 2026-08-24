@@ -222,9 +222,9 @@ def test_pydantic_buffer_bundle_codec_round_trips_immutable_numpy_buffers() -> N
         metadata={"shots": 16, "channels": 2},
     )
 
-    wrapped = assert_type(contract(value), PayloadValue)
-    encoded = registry.encode(wrapped.schema_id, wrapped.payload)
-    decoded = registry.decode_content(encoded, encoded.content)
+    assert_type(contract(value), PayloadValue)
+    encoded = contract.encode(value)
+    decoded = assert_type(contract.decode_content(encoded.content), _ArrayProgram)
 
     assert isinstance(decoded, _ArrayProgram)
     assert decoded.id == value.id
@@ -238,6 +238,36 @@ def test_pydantic_buffer_bundle_codec_round_trips_immutable_numpy_buffers() -> N
     assert encoded.media_type == STRUCTURED_PAYLOAD_MEDIA_TYPE
     assert value.waveforms[0].tobytes() in encoded.content
     assert b"0.25" not in encoded.content
+
+    payload = command_payload_from_bytes(
+        id="array-program",
+        schema_id=encoded.schema_id,
+        codec_id=encoded.codec_id,
+        codec_version=encoded.codec_version,
+        media_type=encoded.media_type,
+        content=encoded.content,
+    )
+    assert contract.decode(payload).id == value.id
+    assert isinstance(registry.decode(payload), _ArrayProgram)
+
+
+def test_payload_contract_rejects_mismatched_descriptor() -> None:
+    contract = PayloadContract(
+        schema_id="tests.array-program/v1",
+        codec=pydantic_buffer_bundle_codec(_ArrayProgram),
+    )
+    encoded = contract.encode(_ArrayProgram(id="readout", waveforms=(), metadata={}))
+    payload = command_payload_from_bytes(
+        id="array-program",
+        schema_id="tests.other/v1",
+        codec_id=encoded.codec_id,
+        codec_version=encoded.codec_version,
+        media_type=encoded.media_type,
+        content=encoded.content,
+    )
+
+    with pytest.raises(ValueError, match="schema mismatch"):
+        contract.decode(payload)
 
 
 def test_pydantic_buffer_bundle_codec_is_deterministic_for_mapping_order() -> None:

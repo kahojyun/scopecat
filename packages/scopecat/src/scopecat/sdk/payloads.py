@@ -133,6 +133,46 @@ class PayloadContract[ValueT = object]:
     def __call__(self, value: ValueT, /) -> PayloadValue:
         return self.value(value)
 
+    def encode(self, value: ValueT, /) -> EncodedPayload:
+        """Encode a typed value without repeating schema or codec metadata."""
+
+        content = self.codec.encoder(value)
+        return EncodedPayload(
+            schema_id=self.schema_id,
+            codec_id=self.codec.id,
+            codec_version=self.codec.version,
+            media_type=self.codec.media_type,
+            content=content,
+        )
+
+    def decode_content(self, content: bytes, /) -> ValueT:
+        """Decode raw content when its descriptor was validated externally."""
+
+        return self.codec.decoder(content)
+
+    def decode(self, payload: CommandPayload, /) -> ValueT:
+        """Validate and decode one command payload through this typed contract."""
+
+        if payload.schema_id != self.schema_id:
+            raise ValueError(
+                f"payload schema mismatch: expected {self.schema_id!r}, "
+                f"got {payload.schema_id!r}"
+            )
+        mismatches = (
+            ("codec_id", self.codec.id, payload.codec_id),
+            ("codec_version", self.codec.version, payload.codec_version),
+            ("media_type", self.codec.media_type, payload.media_type),
+        )
+        for field_name, expected, actual in mismatches:
+            if actual != expected:
+                raise ValueError(
+                    f"payload {field_name} mismatch for schema "
+                    f"{self.schema_id!r}: expected {expected!r}, got {actual!r}"
+                )
+        content = payload.inline_bytes()
+        payload.verify_content(content)
+        return self.decode_content(content)
+
     def registration(self) -> tuple[str, PayloadCodec[object]]:
         return self.schema_id, cast("PayloadCodec[object]", self.codec)
 
