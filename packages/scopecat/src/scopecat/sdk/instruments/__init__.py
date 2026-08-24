@@ -77,6 +77,7 @@ if TYPE_CHECKING:
         InterfaceMountSpec,
         InterfacePropertyImplementationSpec,
         InterfaceSpec,
+        LinearCoordinatesSpec,
         OperationArgumentSpec,
         OperationSpec,
         PropertySpec,
@@ -359,6 +360,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "InstrumentStateSnapshot": (
         "scopecat.records.instrument",
         "InstrumentStateSnapshot",
+    ),
+    "LinearCoordinatesSpec": (
+        "scopecat.sdk.instruments.contracts",
+        "LinearCoordinatesSpec",
     ),
     "state_observation": (
         "scopecat.records.instrument",

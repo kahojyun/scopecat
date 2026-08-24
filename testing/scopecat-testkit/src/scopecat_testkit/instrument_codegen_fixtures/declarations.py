@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Protocol
 
+import numpy as np
+from numpy.typing import NDArray
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
     Member,
@@ -118,9 +120,8 @@ class PayloadOperationInterface(Protocol):
 
 @instrument_result
 class DriverFixedResults:
-    response: list[complex] = result_field(
+    response: NDArray[np.complex128] = result_field(
         id="signal",
-        dtype="complex128",
         unit="ratio",
         axes=("sample",),
     )

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Protocol
 
+import numpy as np
+from numpy.typing import NDArray
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
     Member,
@@ -12,6 +14,7 @@ from scopecat.sdk.instruments.declarations import (
     axis,
     instrument_interface,
     instrument_result,
+    linear_coordinates,
     member,
     observation,
     operation,
@@ -177,11 +180,11 @@ class ReferenceClockInterface(Protocol):
 
 @instrument_result
 class NetworkSweepResults:
-    frequency: list[float] = result_field(
-        role="coordinate", dtype="float64", unit="Hz", axes=("frequency",)
+    frequency: NDArray[np.float64] = result_field(
+        role="coordinate", unit="Hz", axes=("frequency",)
     )
-    s_parameter: list[complex] = result_field(
-        dtype="complex128", unit="ratio", axes=("frequency",)
+    s_parameter: NDArray[np.complex128] = result_field(
+        unit="ratio", axes=("frequency",)
     )
 
 
@@ -212,7 +215,18 @@ class NetworkSweepInterface(Protocol):
 
     @acquisition(
         label="Acquire sweep",
-        axes={"frequency": axis(size=points, kind="frequency", unit="Hz")},
+        axes={
+            "frequency": axis(
+                size=points,
+                kind="frequency",
+                unit="Hz",
+                coordinate_result="frequency",
+                coordinates=linear_coordinates(
+                    start=start_frequency,
+                    stop=stop_frequency,
+                ),
+            )
+        },
     )
     def sweep(self) -> NetworkSweepResults: ...
 

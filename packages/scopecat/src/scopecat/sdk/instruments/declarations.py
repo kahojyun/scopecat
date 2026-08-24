@@ -25,6 +25,9 @@ from typing import (
     get_type_hints,
 )
 
+import numpy as np
+from numpy.typing import NDArray
+
 from scopecat.kernel.instrument_members import (
     AcquisitionRef,
     AcquisitionResultRef,
@@ -56,9 +59,11 @@ from scopecat.sdk.instruments.contracts import (
     AcquisitionSpec,
     ComponentSpec,
     InterfaceSpec,
+    LinearCoordinatesSpec,
     OperationArgumentSpec,
     OperationSpec,
     PropertySpec,
+    StatePropertyRef,
 )
 from scopecat.sdk.instruments.contracts import (
     acquisition as build_acquisition,
@@ -215,12 +220,23 @@ type AxisSize = int | str | Member[object] | None
 
 
 @dataclass(frozen=True, slots=True)
+class LinearCoordinatesMetadata:
+    """Expected uniformly spaced coordinates derived from instrument state."""
+
+    start: DeclaredPropertyTarget
+    stop: DeclaredPropertyTarget
+    endpoint: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class AxisMetadata:
     """One acquisition axis with a fixed, state-owned, or variable size."""
 
     size: AxisSize
     kind: str | None = None
     unit: str | None = None
+    coordinate_result: str | None = None
+    coordinates: LinearCoordinatesMetadata | None = None
     label: str | None = None
     description: str | None = None
 
@@ -637,6 +653,8 @@ def axis(
     size: AxisSize = None,
     kind: str | None = None,
     unit: str | None = None,
+    coordinate_result: str | None = None,
+    coordinates: LinearCoordinatesMetadata | None = None,
     label: str | None = None,
     description: str | None = None,
 ) -> AxisMetadata:
@@ -646,9 +664,22 @@ def axis(
         size=size,
         kind=kind,
         unit=unit,
+        coordinate_result=coordinate_result,
+        coordinates=coordinates,
         label=label,
         description=description,
     )
+
+
+def linear_coordinates(
+    *,
+    start: DeclaredPropertyTarget,
+    stop: DeclaredPropertyTarget,
+    endpoint: bool = True,
+) -> LinearCoordinatesMetadata:
+    """Declare the expected linear coordinate layout for an acquisition axis."""
+
+    return LinearCoordinatesMetadata(start=start, stop=stop, endpoint=endpoint)
 
 
 @dataclass_transform(
@@ -1807,6 +1838,26 @@ def _compile_acquisition(
             ),
             kind=axis_metadata.kind,
             unit=axis_metadata.unit,
+            coordinate_result=axis_metadata.coordinate_result,
+            coordinates=(
+                None
+                if axis_metadata.coordinates is None
+                else LinearCoordinatesSpec(
+                    start=_declaration_state_property_ref(
+                        _resolve_property_target(
+                            axis_metadata.coordinates.start,
+                            scope=scope,
+                        )
+                    ),
+                    stop=_declaration_state_property_ref(
+                        _resolve_property_target(
+                            axis_metadata.coordinates.stop,
+                            scope=scope,
+                        )
+                    ),
+                    endpoint=axis_metadata.coordinates.endpoint,
+                )
+            ),
             label=axis_metadata.label,
             description=axis_metadata.description,
         )
@@ -1853,6 +1904,14 @@ def _resolve_property_target(
     return _resolve_member_declaration(target, scope=scope)
 
 
+def _declaration_state_property_ref(target: PropertyRef) -> StatePropertyRef:
+    return StatePropertyRef(
+        interface_id=target.interface_id,
+        component_path=list(target.component_path),
+        property_id=target.property_id,
+    )
+
+
 def _resolve_member_declaration(
     target: Member[object],
     *,
@@ -1893,7 +1952,6 @@ def _compile_results(
         if annotation is None:
             raise TypeError(f"result field {result_field.name!r} must be annotated")
         base, annotated_metadata = _split_annotation(annotation, ResultMetadata)
-        base = _expand_concrete_alias(base)
         if _is_optional_union(base):
             raise TypeError(
                 f"acquisition {acquisition_id!r} result field {field_name!r} "
@@ -1911,11 +1969,23 @@ def _compile_results(
                 f"result {metadata.id or result_field.name!r} references unknown axes: "
                 f"{sorted(unknown_axes)!r}"
             )
+        if bool(metadata.axes) != (get_origin(base) is NDArray):
+            expected = "an NDArray" if metadata.axes else "a scalar"
+            raise TypeError(
+                f"acquisition {acquisition_id!r} result field {field_name!r} "
+                f"with axes {metadata.axes!r} must be declared as {expected}"
+            )
+        inferred_dtype = _infer_result_dtype(base)
+        if metadata.dtype is not None and metadata.dtype != inferred_dtype:
+            raise TypeError(
+                f"acquisition {acquisition_id!r} result field {field_name!r} "
+                f"annotation implies {inferred_dtype}, not {metadata.dtype}"
+            )
         compiled.append(
             build_acquisition_result(
                 metadata.id or result_field.name,
                 role=metadata.role,
-                dtype=metadata.dtype or _infer_result_dtype(base),
+                dtype=metadata.dtype or inferred_dtype,
                 unit=metadata.unit,
                 label=metadata.label,
                 description=metadata.description,
@@ -1961,22 +2031,23 @@ def _require_concrete_result_class(
 
 
 def _infer_result_dtype(annotation: object) -> MeasurementDType:
-    annotation = _expand_concrete_alias(annotation)
     origin = get_origin(annotation)
-    if origin in (list, Sequence):
+    if origin is NDArray:
         arguments = cast("tuple[object, ...]", get_args(annotation))
-        if not arguments:
-            raise TypeError("result collection annotations require an element type")
+        if len(arguments) != 1:
+            raise TypeError("NDArray result annotations require one element dtype")
         annotation = _expand_concrete_alias(arguments[0])
-    if annotation is bool:
+    else:
+        annotation = _expand_concrete_alias(annotation)
+    if annotation is bool or annotation is np.bool_:
         return "bool"
-    if annotation is int:
+    if annotation is int or annotation is np.int64:
         return "int64"
-    if annotation is float or annotation is Quantity:
+    if annotation is float or annotation is Quantity or annotation is np.float64:
         return "float64"
-    if annotation is complex:
+    if annotation is complex or annotation is np.complex128:
         return "complex128"
-    if annotation is str:
+    if annotation is str or annotation is np.str_:
         return "string"
     literal_choices = cast("tuple[object, ...]", get_args(annotation))
     if get_origin(annotation) is Literal and all(
@@ -2300,6 +2371,7 @@ __all__ = [
     "DeviceMember",
     "DeviceMemberMetadata",
     "InterfaceMetadata",
+    "LinearCoordinatesMetadata",
     "Member",
     "MemberMetadata",
     "MemberObservation",
@@ -2329,6 +2401,7 @@ __all__ = [
     "instrument_interface",
     "instrument_member_projection",
     "instrument_result",
+    "linear_coordinates",
     "member",
     "member_projection_assignments",
     "member_projection_field",

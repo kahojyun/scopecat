@@ -191,6 +191,7 @@ def product_axis(
     unit: str | None = None,
     entities: tuple[EntityRef, ...] | None = None,
     metadata: Mapping[str, JsonValue] | None = None,
+    coordinate_product_id: ProductId | None = None,
 ) -> ProductAxisDef:
     return ProductAxisDef(
         id=id,
@@ -201,6 +202,7 @@ def product_axis(
         unit=unit,
         entities=entities,
         metadata=metadata or {},
+        coordinate_product_id=coordinate_product_id,
     )
 
 

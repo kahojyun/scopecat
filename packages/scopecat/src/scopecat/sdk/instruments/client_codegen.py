@@ -2392,6 +2392,14 @@ def _render_header(
             for field in acquisition.result_fields
         ):
             acquisition_runtime_imports.add("ClientAcquisitionAxis")
+        if any(
+            axis.coordinates is not None
+            for model in models
+            for acquisition in model.root.acquisitions
+            for field in acquisition.result_fields
+            for axis in field.spec.axes
+        ):
+            acquisition_runtime_imports.add("ClientLinearCoordinates")
         imports.setdefault("scopecat_instruments._client_runtime", set()).update(
             acquisition_runtime_imports
         )
@@ -2637,12 +2645,59 @@ def _render_client_acquisition_axis(axis: AcquisitionAxisSpec) -> str:
             size_expression,
             indent=20,
         )
+    coordinates = axis.coordinates
+    start_expression = (
+        None
+        if coordinates is None
+        else _property_ref_expression(
+            PropertyRef(
+                coordinates.start.interface_id,
+                tuple(coordinates.start.component_path),
+                coordinates.start.property_id,
+            )
+        )
+    )
+    stop_expression = (
+        None
+        if coordinates is None
+        else _property_ref_expression(
+            PropertyRef(
+                coordinates.stop.interface_id,
+                tuple(coordinates.stop.component_path),
+                coordinates.stop.property_id,
+            )
+        )
+    )
+    start_argument = (
+        ""
+        if start_expression is None
+        else _render_client_ref_keyword("start", start_expression, indent=24)
+    )
+    stop_argument = (
+        ""
+        if stop_expression is None
+        else _render_client_ref_keyword("stop", stop_expression, indent=24)
+    )
+    coordinates_argument = (
+        "                    coordinates=None,\n"
+        if coordinates is None
+        else (
+            "                    coordinates=ClientLinearCoordinates(\n"
+            f"{start_argument}"
+            f"{stop_argument}"
+            f"                        endpoint={coordinates.endpoint!r},\n"
+            "                    ),\n"
+        )
+    )
     return (
         "                ClientAcquisitionAxis(\n"
         f"                    id={_string_literal(axis.id)},\n"
         f"{size_argument}"
         f"                    kind={_string_literal(axis.kind)},\n"
         f"                    unit={_optional_string_literal(axis.unit)},\n"
+        "                    coordinate_result_id="
+        f"{_optional_string_literal(axis.coordinate_result)},\n"
+        f"{coordinates_argument}"
         "                ),\n"
     )
 

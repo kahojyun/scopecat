@@ -49,10 +49,6 @@ def test_typed_each_resources_route_to_different_instruments() -> None:
         analyzers.ensure(NetworkSweepGroupTarget(points=points))
         traces = analyzers.sweep()
         context.stack_entities(
-            traces.map(lambda result: result.frequency),
-            record_id="frequency",
-        )
-        context.stack_entities(
             traces.map(lambda result: result.s_parameter),
             record_id="s_parameter",
         )
@@ -61,15 +57,29 @@ def test_typed_each_resources_route_to_different_instruments() -> None:
         selection.record_id
         for selection in experiment.bind().definition.record_selections
     )
-    assert record_ids == ("frequency", "s_parameter")
+    assert record_ids == ("s_parameter",)
 
     bound = bind_invocation(experiment(points=3), config_profile=config)
+    assert tuple(record.id for record in bound.bindings.product_record_uses) == (
+        "frequency",
+        "s_parameter",
+    )
     preview = materialized_effects_contract(
         bound,
         bound.environment.parameters,
         config=config,
     )
     operations = operations_of_type(preview, CollectOperation, point_index=0)
+    assert all(
+        tuple(request.result_id for request in operation.command.requests)
+        == ("frequency", "s_parameter")
+        for operation in operations
+    )
+    assert all(
+        tuple(binding.request_id for binding in operation.result_bindings)
+        == ("frequency", "s_parameter")
+        for operation in operations
+    )
     assert {
         operation.instrument_id: tuple(operation.command.requests[0].entity_ids)
         for operation in operations

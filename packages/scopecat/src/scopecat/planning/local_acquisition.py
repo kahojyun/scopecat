@@ -55,6 +55,22 @@ def bind_collect(
     )
     if not requested:
         return None
+    demanded_product_ids = {result.product_id for result in requested}
+    available_product_ids = {result.product_id for result in acquire.results}
+    pending = list(demanded_product_ids)
+    while pending:
+        product_id = pending.pop()
+        for axis in products_by_id[product_id].axes:
+            coordinate_product_id = axis.coordinate_product_id
+            if coordinate_product_id is None:
+                continue
+            if coordinate_product_id not in available_product_ids:
+                raise AssertionError(
+                    "acquisition coordinate product is not produced by its acquisition"
+                )
+            if coordinate_product_id not in demanded_product_ids:
+                demanded_product_ids.add(coordinate_product_id)
+                pending.append(coordinate_product_id)
     try:
         binding, entity_ids, channel_bindings = _bind_record_target(
             acquire.resource_port_id,
@@ -81,9 +97,10 @@ def bind_collect(
         (
             result,
             products_by_id[result.product_id],
-            tuple(use.id for use in uses_by_product[result.product_id]),
+            tuple(use.id for use in uses_by_product.get(result.product_id, ())),
         )
-        for result in requested
+        for result in acquire.results
+        if result.product_id in demanded_product_ids
     )
     operation_id = "collect-" + stable_content_hash(
         {

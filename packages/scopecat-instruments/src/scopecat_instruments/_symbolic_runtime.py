@@ -445,6 +445,7 @@ def _product_axes(
             kind=axis.kind,
             unit=axis.unit,
             shared_as=axis.id,
+            coordinate_result_id=axis.coordinate_result_id,
         )
         for axis in axes
     )

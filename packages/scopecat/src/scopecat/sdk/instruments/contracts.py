@@ -182,6 +182,17 @@ type AcquisitionAxisSize = (
 )
 
 
+class LinearCoordinatesSpec(BaseModel):
+    """Expected coordinates sampled uniformly between two state values."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["linear"] = "linear"
+    start: StatePropertyRef
+    stop: StatePropertyRef
+    endpoint: bool = True
+
+
 class AcquisitionAxisSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -191,6 +202,14 @@ class AcquisitionAxisSpec(BaseModel):
     kind: _NonEmptyId
     size: AcquisitionAxisSize
     unit: str | None = None
+    coordinate_result: _NonEmptyId | None = Field(
+        default=None,
+        exclude_if=_exclude_none,
+    )
+    coordinates: LinearCoordinatesSpec | None = Field(
+        default=None,
+        exclude_if=_exclude_none,
+    )
 
 
 class AcquisitionResultSpec(BaseModel):
@@ -301,6 +320,38 @@ class AcquisitionSpec(BaseModel):
             (result.id for result in self.results),
             "acquisition result ids",
         )
+        results_by_id = {result.id: result for result in self.results}
+        axes_by_id = {axis.id: axis for result in self.results for axis in result.axes}
+        for axis in axes_by_id.values():
+            coordinate_result_id = axis.coordinate_result
+            if coordinate_result_id is None:
+                if axis.coordinates is not None:
+                    raise ValueError(
+                        f"acquisition axis {axis.id!r} declares expected coordinates "
+                        "without a coordinate result"
+                    )
+                continue
+            coordinate = results_by_id.get(coordinate_result_id)
+            if coordinate is None:
+                raise ValueError(
+                    f"acquisition axis {axis.id!r} references unknown coordinate "
+                    f"result {coordinate_result_id!r}"
+                )
+            if coordinate.role != "coordinate":
+                raise ValueError(
+                    f"acquisition axis {axis.id!r} coordinate result "
+                    f"{coordinate_result_id!r} must have the coordinate role"
+                )
+            if len(coordinate.axes) != 1 or coordinate.axes[0].id != axis.id:
+                raise ValueError(
+                    f"acquisition axis {axis.id!r} coordinate result "
+                    f"{coordinate_result_id!r} must vary only along that axis"
+                )
+            if coordinate.unit != axis.unit:
+                raise ValueError(
+                    f"acquisition axis {axis.id!r} and coordinate result "
+                    f"{coordinate_result_id!r} must use the same unit"
+                )
         return self
 
 
@@ -625,6 +676,8 @@ def acquisition_axis(
     size: int | PropertyRef | None,
     kind: str | None = None,
     unit: str | None = None,
+    coordinate_result: str | None = None,
+    coordinates: LinearCoordinatesSpec | None = None,
     label: str | None = None,
     description: str | None = None,
 ) -> AcquisitionAxisSpec:
@@ -637,6 +690,8 @@ def acquisition_axis(
             size if isinstance(size, int) or size is None else _state_property_ref(size)
         ),
         unit=unit,
+        coordinate_result=coordinate_result,
+        coordinates=coordinates,
     )
 
 

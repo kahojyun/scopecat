@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Protocol
 
+import numpy as np
+from numpy.typing import NDArray
 from scopecat.kernel.quantity import Quantity
 from scopecat.sdk.instruments.declarations import (
     Member,
@@ -143,14 +145,12 @@ class OscilloscopeControlInterface(Protocol):
 
 @instrument_result
 class OscilloscopeFetchResults:
-    time: list[float] = result_field(
+    time: NDArray[np.float64] = result_field(
         role="coordinate",
-        dtype="float64",
         unit="s",
         axes=("sample",),
     )
-    voltage: list[float] = result_field(
-        dtype="float64",
+    voltage: NDArray[np.float64] = result_field(
         unit="V",
         axes=("sample",),
     )
@@ -196,6 +196,7 @@ class OscilloscopeInputInterface(Protocol):
             "sample": axis(
                 kind="time",
                 unit="s",
+                coordinate_result="time",
                 description=(
                     "Actual extent comes from the waveform preamble; requested "
                     "record length remains instrument state."
@@ -247,8 +248,7 @@ class DigitizerControlInterface(Protocol):
 
 @instrument_result
 class DigitizerProgramResults:
-    value: list[float] = result_field(
-        dtype="float64",
+    value: NDArray[np.float64] = result_field(
         unit="V",
         axes=("sample",),
     )
@@ -256,8 +256,7 @@ class DigitizerProgramResults:
 
 @instrument_result
 class DigitizerProgramIqResults:
-    value: list[complex] = result_field(
-        dtype="complex128",
+    value: NDArray[np.complex128] = result_field(
         unit="V",
         axes=("demodulator",),
     )

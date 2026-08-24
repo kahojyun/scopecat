@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Protocol
 
+import numpy as np
 import pytest
+from numpy.typing import NDArray
 
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.value_types import Int, Payload, Scalar, String
@@ -38,15 +40,13 @@ from scopecat.sdk.instruments.declarations import (
 
 @instrument_result
 class SweepResults:
-    frequency: list[float] = result_field(
+    frequency: NDArray[np.float64] = result_field(
         role="coordinate",
-        dtype="float64",
         unit="Hz",
         axes=("frequency",),
     )
-    response: list[complex] = result_field(
+    response: NDArray[np.complex128] = result_field(
         id="s_parameter",
-        dtype="complex128",
         unit="ratio",
         axes=("frequency",),
     )
@@ -71,7 +71,14 @@ class Source(Protocol):
     ) -> None: ...
 
     @acquisition(
-        axes={"frequency": axis(size="point_count", kind="frequency", unit="Hz")},
+        axes={
+            "frequency": axis(
+                size="point_count",
+                kind="frequency",
+                unit="Hz",
+                coordinate_result="frequency",
+            )
+        },
         preconditions=(
             precondition(
                 frequency,
@@ -133,6 +140,7 @@ def test_acquisition_axes_preconditions_and_results_resolve_members() -> None:
         interface_id="test.source/v1",
         property_id="point_count",
     )
+    assert sweep.results[0].axes[0].coordinate_result == "frequency"
     assert sweep.preconditions[0].property == StatePropertyRef(
         interface_id="test.source/v1", property_id="frequency"
     )
@@ -140,6 +148,39 @@ def test_acquisition_axes_preconditions_and_results_resolve_members() -> None:
         Source
     ).ref.acquisition("sweep")
     assert declared_result_ref(Source, "sweep", "response").result_id == "s_parameter"
+
+
+def test_result_annotations_are_the_authoritative_shape_and_dtype() -> None:
+    @instrument_result
+    class InvalidListResults:
+        values: list[float] = result_field(axes=("sample",))
+
+    @instrument_interface("test.invalid_list_result/v1")
+    class InvalidListInterface(Protocol):
+        @acquisition(axes={"sample": axis(size=2)})
+        def sample(self) -> object: ...
+
+    InvalidListInterface.sample.__annotations__["return"] = InvalidListResults
+
+    with pytest.raises(TypeError, match="must be declared as an NDArray"):
+        compile_interface(InvalidListInterface)
+
+    @instrument_result
+    class InvalidDtypeResults:
+        values: NDArray[np.float64] = result_field(
+            dtype="complex128",
+            axes=("sample",),
+        )
+
+    @instrument_interface("test.invalid_dtype_result/v1")
+    class InvalidDtypeInterface(Protocol):
+        @acquisition(axes={"sample": axis(size=2)})
+        def sample(self) -> object: ...
+
+    InvalidDtypeInterface.sample.__annotations__["return"] = InvalidDtypeResults
+
+    with pytest.raises(TypeError, match="annotation implies float64, not complex128"):
+        compile_interface(InvalidDtypeInterface)
 
 
 def test_declared_layout_keeps_interface_as_member_source() -> None:

@@ -1054,6 +1054,8 @@ export interface components {
         AcquisitionAxisSize: number | components["schemas"]["StatePropertyRef"] | null;
         /** AcquisitionAxisSpec */
         AcquisitionAxisSpec: {
+            coordinate_result?: components["schemas"]["_NonEmptyId"] | null;
+            coordinates?: components["schemas"]["LinearCoordinatesSpec"] | null;
             /** Description */
             description?: string | null;
             id: components["schemas"]["_NonEmptyId"];
@@ -3202,6 +3204,25 @@ export interface components {
         };
         JsonMetadata: {
             [key: string]: components["schemas"]["pydantic__types__JsonValue"];
+        };
+        /**
+         * LinearCoordinatesSpec
+         * @description Expected coordinates sampled uniformly between two state values.
+         */
+        LinearCoordinatesSpec: {
+            /**
+             * Endpoint
+             * @default true
+             */
+            endpoint: boolean;
+            /**
+             * Kind
+             * @default linear
+             * @constant
+             */
+            kind: "linear";
+            start: components["schemas"]["StatePropertyRef"];
+            stop: components["schemas"]["StatePropertyRef"];
         };
         LocationPathItem: string | number;
         /**

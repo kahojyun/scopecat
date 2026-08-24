@@ -78,7 +78,7 @@ class RunHardwareInvoke(_HardwareModel):
 
 class RunHardwareCollectBinding(_HardwareModel):
     request_id: str = Field(min_length=1)
-    value_ids: tuple[str, ...] = Field(min_length=1)
+    value_ids: tuple[str, ...] = ()
 
 
 class RunHardwareCollect(_HardwareModel):

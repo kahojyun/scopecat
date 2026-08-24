@@ -34,6 +34,7 @@ from scopecat_instruments._client_runtime import (
     ClientAcquisition,
     ClientAcquisitionAxis,
     ClientAcquisitionResult,
+    ClientLinearCoordinates,
     ClientMemberDeclaration,
     InstrumentClientBase,
     InstrumentMemberClient,
@@ -179,6 +180,16 @@ _NETWORK_SWEEP_SWEEP_DECLARATION = ClientAcquisition(
                     size=InterfaceRef("scopecat.network_sweep/v1").property("points"),
                     kind="frequency",
                     unit="Hz",
+                    coordinate_result_id="frequency",
+                    coordinates=ClientLinearCoordinates(
+                        start=InterfaceRef("scopecat.network_sweep/v1").property(
+                            "start_frequency"
+                        ),
+                        stop=InterfaceRef("scopecat.network_sweep/v1").property(
+                            "stop_frequency"
+                        ),
+                        endpoint=True,
+                    ),
                 ),
             ),
         ),
@@ -194,6 +205,16 @@ _NETWORK_SWEEP_SWEEP_DECLARATION = ClientAcquisition(
                     size=InterfaceRef("scopecat.network_sweep/v1").property("points"),
                     kind="frequency",
                     unit="Hz",
+                    coordinate_result_id="frequency",
+                    coordinates=ClientLinearCoordinates(
+                        start=InterfaceRef("scopecat.network_sweep/v1").property(
+                            "start_frequency"
+                        ),
+                        stop=InterfaceRef("scopecat.network_sweep/v1").property(
+                            "stop_frequency"
+                        ),
+                        endpoint=True,
+                    ),
                 ),
             ),
         ),
