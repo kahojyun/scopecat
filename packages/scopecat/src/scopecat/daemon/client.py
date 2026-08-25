@@ -234,7 +234,7 @@ type _PayloadUploadContent = bytes | tuple[Buffer, ...]
 _API_PREFIX = "/api/v1"
 _NEXT_OFFSET_HEADER = "X-Scopecat-Next-Offset"
 _SNAPSHOT_SIZE_HEADER = "X-Scopecat-Snapshot-Size"
-_PAYLOAD_UPLOAD_CHUNK_BYTES = 1024 * 1024
+_PAYLOAD_UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024
 # The daemon owns operation deadlines; a read timeout would make a completed
 # hardware command ambiguous to its caller.
 _DEFAULT_TIMEOUT = httpx2.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
@@ -2050,13 +2050,22 @@ def _payload_upload_size(content: _PayloadUploadContent) -> int:
 
 
 def _payload_upload_chunks(segments: tuple[Buffer, ...]) -> Iterator[bytes]:
+    pending = bytearray()
     for segment in segments:
-        if isinstance(segment, bytes):
-            yield segment
-            continue
         view = memoryview(segment).cast("B")
-        for offset in range(0, view.nbytes, _PAYLOAD_UPLOAD_CHUNK_BYTES):
-            yield view[offset : offset + _PAYLOAD_UPLOAD_CHUNK_BYTES].tobytes()
+        offset = 0
+        while offset < view.nbytes:
+            take = min(
+                _PAYLOAD_UPLOAD_CHUNK_BYTES - len(pending),
+                view.nbytes - offset,
+            )
+            pending.extend(view[offset : offset + take])
+            offset += take
+            if len(pending) == _PAYLOAD_UPLOAD_CHUNK_BYTES:
+                yield bytes(pending)
+                pending.clear()
+    if pending:
+        yield bytes(pending)
 
 
 def _error_detail(response: httpx2.Response) -> str:
