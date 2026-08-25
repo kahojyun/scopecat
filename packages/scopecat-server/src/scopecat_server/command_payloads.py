@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import AsyncIterable, Iterable, Mapping
+from dataclasses import dataclass
+from tempfile import TemporaryFile
 from threading import RLock
-from typing import Literal
+from typing import BinaryIO, Literal
 
 from scopecat.daemon.wire import (
     PayloadObjectReceipt,
@@ -26,6 +29,22 @@ DEFAULT_MAX_PAYLOAD_OBJECT_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_INLINE_PAYLOAD_BYTES = 1024 * 1024
 
 type CommandPayloadScope = tuple[Literal["run", "session"], str, str]
+
+
+@dataclass(slots=True)
+class _StoredPayloadObject:
+    size_bytes: int
+    content: bytes | BinaryIO
+
+    def read(self) -> bytes:
+        if isinstance(self.content, bytes):
+            return self.content
+        self.content.seek(0)
+        return self.content.read()
+
+    def close(self) -> None:
+        if not isinstance(self.content, bytes):
+            self.content.close()
 
 
 def run_payload_scope(run_id: str, operation_id: str) -> CommandPayloadScope:
@@ -60,7 +79,10 @@ class CommandPayloadService:
         self._max_object_bytes = max_object_bytes
         self._max_inline_bytes = max_inline_bytes
         self._lock = RLock()
-        self._objects_by_scope: dict[CommandPayloadScope, dict[str, bytes]] = {}
+        self._objects_by_scope: dict[
+            CommandPayloadScope,
+            dict[str, _StoredPayloadObject],
+        ] = {}
         self._peak_spooled_size_bytes = 0
 
     def put_object(
@@ -81,12 +103,11 @@ class CommandPayloadService:
                 "payload object content hash mismatch: "
                 f"expected {expected_content_hash}, got {actual_hash}"
             )
-        with self._lock:
-            self._objects_by_scope.setdefault(scope, {})[actual_hash] = content
-            self._peak_spooled_size_bytes = max(
-                self._peak_spooled_size_bytes,
-                self._spooled_size_bytes_locked(),
-            )
+        self._store_object(
+            scope,
+            actual_hash,
+            _StoredPayloadObject(size_bytes=len(content), content=content),
+        )
         return PayloadObjectReceipt(
             ref=actual_hash,
             content_hash=actual_hash,
@@ -109,20 +130,39 @@ class CommandPayloadService:
                 limit=self._max_object_bytes,
                 boundary="payload object upload",
             )
-        content = bytearray()
+        # Ownership transfers to the scoped object store after verification.
+        spool = TemporaryFile(mode="w+b")  # noqa: SIM115
+        digest = hashlib.sha256()
         size_bytes = 0
-        async for chunk in chunks:
-            size_bytes += len(chunk)
-            self._require_size(
-                size_bytes,
-                limit=self._max_object_bytes,
-                boundary="payload object upload",
+        try:
+            async for chunk in chunks:
+                size_bytes += len(chunk)
+                self._require_size(
+                    size_bytes,
+                    limit=self._max_object_bytes,
+                    boundary="payload object upload",
+                )
+                digest.update(chunk)
+                spool.write(chunk)
+            actual_hash = f"sha256:{digest.hexdigest()}"
+            if actual_hash != expected_content_hash:
+                raise CommandPayloadError(
+                    "payload object content hash mismatch: "
+                    f"expected {expected_content_hash}, got {actual_hash}"
+                )
+            spool.seek(0)
+            self._store_object(
+                scope,
+                actual_hash,
+                _StoredPayloadObject(size_bytes=size_bytes, content=spool),
             )
-            content.extend(chunk)
-        return self.put_object(
-            bytes(content),
-            scope=scope,
-            expected_content_hash=expected_content_hash,
+        except BaseException:
+            spool.close()
+            raise
+        return PayloadObjectReceipt(
+            ref=actual_hash,
+            content_hash=actual_hash,
+            size_bytes=size_bytes,
         )
 
     def canonicalize_invoke_command(
@@ -284,8 +324,9 @@ class CommandPayloadService:
             content = content_by_ref.get(body.ref)
             if content is None:
                 with self._lock:
-                    content = self._objects_by_scope.get(scope, {}).get(body.ref)
-                if content is None:
+                    stored = self._objects_by_scope.get(scope, {}).get(body.ref)
+                    content = None if stored is None else stored.read()
+                if stored is None or content is None:
                     raise CommandPayloadError(
                         f"payload object was not found in command scope: {body.ref}"
                     )
@@ -314,7 +355,7 @@ class CommandPayloadService:
         """Release every transient object for one completed operation."""
 
         with self._lock:
-            self._objects_by_scope.pop(scope, None)
+            self._close_objects(self._objects_by_scope.pop(scope, {}).values())
 
     def release_owner(
         self,
@@ -330,12 +371,14 @@ class CommandPayloadService:
                 if scope[:2] == (owner_kind, owner_id)
             ]
             for scope in stale:
-                self._objects_by_scope.pop(scope)
+                self._close_objects(self._objects_by_scope.pop(scope).values())
 
     def close(self) -> None:
         """Drop all process-local payload bytes during daemon shutdown."""
 
         with self._lock:
+            for objects in self._objects_by_scope.values():
+                self._close_objects(objects.values())
             self._objects_by_scope.clear()
 
     def spooled_size_bytes(self) -> int:
@@ -352,10 +395,31 @@ class CommandPayloadService:
 
     def _spooled_size_bytes_locked(self) -> int:
         return sum(
-            len(content)
+            content.size_bytes
             for objects in self._objects_by_scope.values()
             for content in objects.values()
         )
+
+    def _store_object(
+        self,
+        scope: CommandPayloadScope,
+        content_hash: str,
+        content: _StoredPayloadObject,
+    ) -> None:
+        with self._lock:
+            objects = self._objects_by_scope.setdefault(scope, {})
+            retained = objects.setdefault(content_hash, content)
+            if retained is not content:
+                content.close()
+            self._peak_spooled_size_bytes = max(
+                self._peak_spooled_size_bytes,
+                self._spooled_size_bytes_locked(),
+            )
+
+    @staticmethod
+    def _close_objects(objects: Iterable[_StoredPayloadObject]) -> None:
+        for content in objects:
+            content.close()
 
     @staticmethod
     def _require_size(
