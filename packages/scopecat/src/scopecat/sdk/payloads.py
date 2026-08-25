@@ -11,7 +11,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.records.content import CommandPayload, InlinePayloadBody
+from scopecat.records.content import (
+    CommandPayload,
+    InlinePayloadBody,
+    SegmentedInlinePayloadBody,
+)
 from scopecat.sdk.attachments import (
     AttachmentBundle,
     AttachmentBundleLimits,
@@ -93,6 +97,13 @@ class EncodedPayloadContent:
     def parts(self) -> tuple[ImmutableBuffer, ...]:
         if isinstance(self._content, AttachmentBundle):
             return self._content.header, *self._content.attachments
+        return (self._content,)
+
+    def canonical_segments(self) -> tuple[ImmutableBuffer, ...]:
+        """Return exact wire bytes as separate immutable buffers."""
+
+        if isinstance(self._content, AttachmentBundle):
+            return self._content.segments()
         return (self._content,)
 
     def to_bytes(self) -> bytes:
@@ -468,8 +479,13 @@ def _command_payload_from_encoded(
     id: str,
     encoded: EncodedPayload,
 ) -> CommandPayload:
-    flat_content = encoded.content.to_bytes()
     content_hash = encoded.content.content_hash()
+    if encoded.content.format == "attachment_bundle":
+        body = SegmentedInlinePayloadBody.from_segments(
+            encoded.content.canonical_segments()
+        )
+    else:
+        body = InlinePayloadBody.from_bytes(encoded.content.require_bytes())
     payload = CommandPayload.model_construct(
         id=id,
         schema_id=encoded.schema_id,
@@ -479,9 +495,11 @@ def _command_payload_from_encoded(
         content_format=encoded.content_format,
         content_hash=content_hash,
         size_bytes=encoded.content.size_bytes,
-        body=InlinePayloadBody.from_bytes(flat_content),
+        body=body,
     )
-    object.__setattr__(payload, "_verified_content", (content_hash, flat_content))
+    if encoded.content.format == "bytes":
+        content = encoded.content.require_bytes()
+        object.__setattr__(payload, "_verified_content", (content_hash, content))
     return payload
 
 

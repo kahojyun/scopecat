@@ -17,7 +17,6 @@ from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.records.content import (
     BlobPayloadBody,
     CommandPayload,
-    InlinePayloadBody,
 )
 from scopecat.sdk.attachments import AttachmentBundleError
 from scopecat.sdk.instruments.backend import BackendPayload
@@ -286,7 +285,7 @@ class CommandPayloadService:
             limit=self._max_object_bytes,
             boundary="command payload object",
         )
-        if not isinstance(payload.body, InlinePayloadBody):
+        if isinstance(payload.body, BlobPayloadBody):
             return payload
         self._require_size(
             payload.size_bytes,
@@ -318,7 +317,7 @@ class CommandPayloadService:
             boundary="command payload object",
         )
         body = payload.body
-        if isinstance(body, InlinePayloadBody):
+        if not isinstance(body, BlobPayloadBody):
             content = payload.inline_bytes()
         else:
             content = content_by_ref.get(body.ref)

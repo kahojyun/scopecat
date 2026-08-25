@@ -9,7 +9,11 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 import scopecat as sc
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.records.content import command_payload_from_bytes
+from scopecat.records.content import (
+    CommandPayload,
+    SegmentedInlinePayloadBody,
+    command_payload_from_bytes,
+)
 from scopecat.sdk.payloads import (
     PayloadCodecCatalog,
     PayloadCodecRegistry,
@@ -286,6 +290,12 @@ def test_pydantic_buffer_bundle_codec_round_trips_immutable_numpy_buffers() -> N
     assert b"0.25" not in bundle.header
 
     payload = contract.command_payload("array-program", value)
+    assert isinstance(payload.body, SegmentedInlinePayloadBody)
+    assert len(payload.inline_segments()) == len(bundle.attachments) + 2
+    assert sum(memoryview(segment).nbytes for segment in payload.inline_segments()) == (
+        payload.size_bytes
+    )
+    assert CommandPayload.model_validate_json(payload.model_dump_json()) == payload
     assert contract.decode(payload).id == value.id
     assert isinstance(registry.decode(payload), _ArrayProgram)
 

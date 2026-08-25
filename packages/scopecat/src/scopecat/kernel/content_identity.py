@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Buffer, Mapping, Sequence
+from collections.abc import Buffer, Iterable, Mapping, Sequence
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 from datetime import date, datetime, time
@@ -38,6 +38,15 @@ def sha256_content_hash(content: bytes) -> str:
     """Identify an exact byte representation with an explicit hash algorithm."""
 
     return f"sha256:{hashlib.sha256(content).hexdigest()}"
+
+
+def sha256_content_hash_segments(segments: Iterable[Buffer]) -> str:
+    """Identify ordered contiguous buffers without joining their content."""
+
+    digest = hashlib.sha256()
+    for segment in segments:
+        digest.update(segment)
+    return f"sha256:{digest.hexdigest()}"
 
 
 def content_fingerprint(value: object) -> object:

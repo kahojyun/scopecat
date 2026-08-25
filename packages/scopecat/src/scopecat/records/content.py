@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from base64 import b64decode, b64encode
 from binascii import Error as BinasciiError
+from collections.abc import Buffer, Iterable
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Annotated, Literal, cast
@@ -17,7 +18,10 @@ from pydantic import (
     model_validator,
 )
 
-from scopecat.kernel.content_identity import sha256_content_hash
+from scopecat.kernel.content_identity import (
+    sha256_content_hash,
+    sha256_content_hash_segments,
+)
 from scopecat.records.metadata import JsonMetadata
 
 type Sha256ContentHash = Annotated[
@@ -95,19 +99,19 @@ class InlinePayloadBody(BaseModel):
 
     @field_validator("content", mode="before")
     @classmethod
-    def decode_canonical_base64(cls, value: bytes | str) -> bytes:
+    def decode_canonical_base64(
+        cls,
+        value: bytes | str,
+    ) -> bytes:
         if isinstance(value, bytes):
             return value
-        try:
-            decoded = b64decode(value, validate=True)
-        except (BinasciiError, ValueError) as error:
-            raise ValueError("inline payload content must be valid base64") from error
-        if b64encode(decoded).decode("ascii") != value:
-            raise ValueError("inline payload content must use canonical base64")
-        return decoded
+        return _decode_canonical_base64(value, boundary="inline payload content")
 
     @field_serializer("content", when_used="json")
-    def encode_base64_for_json(self, content: bytes) -> str:
+    def encode_base64_for_json(
+        self,
+        content: bytes,
+    ) -> str:
         return b64encode(content).decode("ascii")
 
     @classmethod
@@ -116,6 +120,70 @@ class InlinePayloadBody(BaseModel):
 
     def content_bytes(self) -> bytes:
         return self.content
+
+    def content_segments(self) -> tuple[Buffer, ...]:
+        return (self.content,)
+
+
+class SegmentedInlinePayloadBody(BaseModel):
+    """One inline payload retained as independently uploadable byte segments."""
+
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="forbid",
+        frozen=True,
+        populate_by_name=True,
+        serialize_by_alias=True,
+        strict=True,
+    )
+
+    kind: Literal["segmented_inline"] = "segmented_inline"
+    segments: tuple[bytes | memoryview, ...] = Field(
+        alias="segments_base64",
+        repr=False,
+        min_length=1,
+    )
+
+    @field_validator("segments", mode="before")
+    @classmethod
+    def decode_segments(cls, value: object) -> tuple[bytes | memoryview, ...]:
+        if not isinstance(value, list | tuple):
+            raise ValueError("segmented inline payload requires a segment sequence")
+        decoded: list[bytes | memoryview] = []
+        for item in cast("list[object] | tuple[object, ...]", value):
+            if isinstance(item, str):
+                decoded.append(
+                    _decode_canonical_base64(
+                        item,
+                        boundary="segmented inline payload content",
+                    )
+                )
+            elif isinstance(item, Buffer):
+                decoded.append(_immutable_inline_buffer(item))
+            else:
+                raise ValueError("segmented inline payload content must be bytes")
+        return tuple(decoded)
+
+    @field_serializer("segments", when_used="json")
+    def encode_segments_for_json(
+        self,
+        segments: tuple[bytes | memoryview, ...],
+    ) -> tuple[str, ...]:
+        return tuple(b64encode(segment).decode("ascii") for segment in segments)
+
+    @classmethod
+    def from_segments(cls, segments: Iterable[Buffer]) -> SegmentedInlinePayloadBody:
+        return cls(
+            segments_base64=tuple(
+                _immutable_inline_buffer(segment) for segment in segments
+            )
+        )
+
+    def content_bytes(self) -> bytes:
+        return b"".join(self.segments)
+
+    def content_segments(self) -> tuple[Buffer, ...]:
+        return self.segments
 
 
 class BlobPayloadBody(BaseModel):
@@ -128,7 +196,7 @@ class BlobPayloadBody(BaseModel):
 
 
 type CommandPayloadBody = Annotated[
-    InlinePayloadBody | BlobPayloadBody,
+    InlinePayloadBody | SegmentedInlinePayloadBody | BlobPayloadBody,
     Field(discriminator="kind"),
 ]
 
@@ -156,8 +224,8 @@ class CommandPayload(BaseModel):
 
     @model_validator(mode="after")
     def validate_inline_content(self) -> CommandPayload:
-        if isinstance(self.body, InlinePayloadBody):
-            self.verify_content(self.body.content_bytes())
+        if isinstance(self.body, InlinePayloadBody | SegmentedInlinePayloadBody):
+            self.verify_segments(self.body.content_segments())
         elif self.body.ref != self.content_hash:
             raise ValueError("payload blob ref must equal content_hash")
         return self
@@ -185,10 +253,27 @@ class CommandPayload(BaseModel):
             (self.content_hash, content),
         )
 
+    def verify_segments(self, segments: tuple[Buffer, ...]) -> None:
+        if len(segments) == 1 and isinstance(segments[0], bytes):
+            self.verify_content(segments[0])
+            return
+        size_bytes = sum(memoryview(segment).nbytes for segment in segments)
+        if size_bytes != self.size_bytes:
+            raise ValueError(
+                "payload byte length does not match its declared size_bytes"
+            )
+        if sha256_content_hash_segments(segments) != self.content_hash:
+            raise ValueError("payload bytes do not match their declared content_hash")
+
     def inline_bytes(self) -> bytes:
         if isinstance(self.body, BlobPayloadBody):
             raise ValueError("blob payload content must be resolved before decoding")
         return self.body.content_bytes()
+
+    def inline_segments(self) -> tuple[Buffer, ...]:
+        if isinstance(self.body, BlobPayloadBody):
+            raise ValueError("blob payload content must be resolved before decoding")
+        return self.body.content_segments()
 
     @classmethod
     def from_inline_bytes(
@@ -264,3 +349,23 @@ def _validate_content_segment(value: str) -> str:
         msg = "content ref field must be a single path segment"
         raise ValueError(msg)
     return value
+
+
+def _immutable_inline_buffer(content: Buffer) -> bytes | memoryview:
+    if isinstance(content, bytes):
+        return content
+    view = memoryview(content)
+    if not view.c_contiguous:
+        return view.tobytes()
+    selected = view.cast("B")
+    return selected if selected.readonly else selected.tobytes()
+
+
+def _decode_canonical_base64(value: str, *, boundary: str) -> bytes:
+    try:
+        decoded = b64decode(value, validate=True)
+    except (BinasciiError, ValueError) as error:
+        raise ValueError(f"{boundary} must be valid base64") from error
+    if b64encode(decoded).decode("ascii") != value:
+        raise ValueError(f"{boundary} must use canonical base64")
+    return decoded

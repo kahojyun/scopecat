@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Buffer, Callable, Iterable, Iterator
 from types import TracebackType
 from typing import Literal, Self
 from urllib.parse import quote
@@ -181,7 +181,10 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
-from scopecat.kernel.content_identity import sha256_content_hash
+from scopecat.kernel.content_identity import (
+    sha256_content_hash,
+    sha256_content_hash_segments,
+)
 from scopecat.measurements.recording_arrow import encode_measurement_append
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.config import ConfigProfileSnapshot
@@ -226,9 +229,12 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareInvoke,
 )
 
+type _PayloadUploadContent = bytes | tuple[Buffer, ...]
+
 _API_PREFIX = "/api/v1"
 _NEXT_OFFSET_HEADER = "X-Scopecat-Next-Offset"
 _SNAPSHOT_SIZE_HEADER = "X-Scopecat-Snapshot-Size"
+_PAYLOAD_UPLOAD_CHUNK_BYTES = 1024 * 1024
 # The daemon owns operation deadlines; a read timeout would make a completed
 # hardware command ambiguous to its caller.
 _DEFAULT_TIMEOUT = httpx2.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
@@ -1798,18 +1804,22 @@ class DaemonClient:
         self,
         payloads: dict[str, CommandPayload],
         *,
-        upload_object: Callable[[bytes, str], PayloadObjectReceipt],
+        upload_object: Callable[[_PayloadUploadContent, str], PayloadObjectReceipt],
         uploaded: dict[str, PayloadObjectReceipt] | None = None,
     ) -> dict[str, CommandPayload]:
         externalized: dict[str, CommandPayload] = {}
         uploaded_by_hash = uploaded if uploaded is not None else {}
         for payload_id, payload in payloads.items():
-            if not isinstance(payload.body, InlinePayloadBody):
+            if isinstance(payload.body, BlobPayloadBody):
                 externalized[payload_id] = payload
                 continue
             receipt = uploaded_by_hash.get(payload.content_hash)
             if receipt is None:
-                content = payload.inline_bytes()
+                content = (
+                    payload.inline_bytes()
+                    if isinstance(payload.body, InlinePayloadBody)
+                    else payload.inline_segments()
+                )
                 receipt = upload_object(content, payload.content_hash)
                 uploaded_by_hash[payload.content_hash] = receipt
             externalized[payload_id] = payload.model_copy(
@@ -1821,7 +1831,7 @@ class DaemonClient:
         self,
         session_id: str,
         command_id: str,
-        content: bytes,
+        content: _PayloadUploadContent,
         *,
         content_hash: str,
     ) -> PayloadObjectReceipt:
@@ -1840,7 +1850,7 @@ class DaemonClient:
         run_id: str,
         lease_id: str,
         operation_id: str,
-        content: bytes,
+        content: _PayloadUploadContent,
         *,
         content_hash: str,
     ) -> PayloadObjectReceipt:
@@ -1857,20 +1867,25 @@ class DaemonClient:
     def _put_payload_object(
         self,
         scope_path: str,
-        content: bytes,
+        content: _PayloadUploadContent,
         *,
         content_hash: str,
         headers: dict[str, str] | None = None,
     ) -> PayloadObjectReceipt:
         """Publish one immutable payload through an authorized scope."""
 
-        actual_hash = sha256_content_hash(content)
+        if isinstance(content, bytes):
+            actual_hash = sha256_content_hash(content)
+            size_bytes = len(content)
+        else:
+            actual_hash = sha256_content_hash_segments(content)
+            size_bytes = sum(memoryview(segment).nbytes for segment in content)
         if content_hash != actual_hash:
             raise ValueError("payload content does not match content_hash")
         path = f"{scope_path}/{actual_hash.removeprefix('sha256:')}"
         response = self._put_payload_content(path, content, headers=headers)
         receipt = PayloadObjectReceipt.model_validate_json(response.content)
-        if receipt.content_hash != content_hash or receipt.size_bytes != len(content):
+        if receipt.content_hash != content_hash or receipt.size_bytes != size_bytes:
             raise ValueError("daemon payload object receipt does not match upload")
         return receipt
 
@@ -1949,7 +1964,7 @@ class DaemonClient:
     def _put_payload_content(
         self,
         path: str,
-        content: bytes,
+        content: _PayloadUploadContent,
         *,
         headers: dict[str, str] | None = None,
     ) -> httpx2.Response:
@@ -1957,20 +1972,29 @@ class DaemonClient:
 
         request_headers = {
             "Content-Type": "application/octet-stream",
+            "Content-Length": str(_payload_upload_size(content)),
             **(headers or {}),
         }
+        request_content = (
+            content if isinstance(content, bytes) else _payload_upload_chunks(content)
+        )
         try:
             return self._request(
                 "PUT",
                 path,
-                content=content,
+                content=request_content,
                 headers=request_headers,
             )
         except httpx2.TransportError:
+            request_content = (
+                content
+                if isinstance(content, bytes)
+                else _payload_upload_chunks(content)
+            )
             return self._request(
                 "PUT",
                 path,
-                content=content,
+                content=request_content,
                 headers=request_headers,
             )
 
@@ -1994,7 +2018,7 @@ class DaemonClient:
         *,
         params: dict[str, str | int] | None = None,
         json: object | None = None,
-        content: bytes | None = None,
+        content: bytes | Iterable[bytes] | None = None,
         headers: dict[str, str] | None = None,
     ) -> httpx2.Response:
         response = self._http.request(
@@ -2017,6 +2041,22 @@ class DaemonClient:
 
 class _ErrorResponse(BaseModel):
     detail: str
+
+
+def _payload_upload_size(content: _PayloadUploadContent) -> int:
+    if isinstance(content, bytes):
+        return len(content)
+    return sum(memoryview(segment).nbytes for segment in content)
+
+
+def _payload_upload_chunks(segments: tuple[Buffer, ...]) -> Iterator[bytes]:
+    for segment in segments:
+        if isinstance(segment, bytes):
+            yield segment
+            continue
+        view = memoryview(segment).cast("B")
+        for offset in range(0, view.nbytes, _PAYLOAD_UPLOAD_CHUNK_BYTES):
+            yield view[offset : offset + _PAYLOAD_UPLOAD_CHUNK_BYTES].tobytes()
 
 
 def _error_detail(response: httpx2.Response) -> str:
