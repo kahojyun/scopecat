@@ -57,6 +57,7 @@ from scopecat.records.parameter_change import (
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
+from scopecat.records.sample import SampleRecord, SampleRevision
 from scopecat.sdk.instruments.contracts import InstrumentDescription
 
 
@@ -108,6 +109,28 @@ class ConfigDraftPreview(_ViewModel):
     result_content_hash: ConfigContentHash | None = None
     deltas: tuple[ParameterValueDelta, ...] = ()
     problems: tuple[Problem, ...] = ()
+
+
+class SampleSummary(_ViewModel):
+    """One sample's active revision and bounded run-history aggregates."""
+
+    record: SampleRecord
+    revision: SampleRevision
+    run_count: int = Field(default=0, ge=0)
+    last_run_at: datetime | None = None
+
+
+class SamplePage(_ViewModel):
+    """Newest-first bounded sample registry page."""
+
+    items: tuple[SampleSummary, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
+class SampleView(SampleSummary):
+    """Sample detail with newest-first immutable revision history."""
+
+    revisions: tuple[SampleRevision, ...] = ()
 
 
 class VirtualInstrumentConnectionSummary(_ViewModel):
@@ -765,6 +788,9 @@ __all__ = [
     "RunResourceView",
     "RunSummary",
     "RunSummaryPage",
+    "SamplePage",
+    "SampleSummary",
+    "SampleView",
     "SerialInstrumentConnectionSummary",
     "TcpipSocketInstrumentConnectionSummary",
     "VirtualInstrumentConnectionSummary",

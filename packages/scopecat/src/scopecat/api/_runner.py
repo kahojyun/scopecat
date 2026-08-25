@@ -60,6 +60,7 @@ from scopecat.records.run import (
     RunSnapshot,
 )
 from scopecat.records.run_request import RunRequest
+from scopecat.records.sample import SampleSelector
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +113,7 @@ class _DaemonRunner:
         operator: str | None = None,
         executor_id: str = "notebook",
         submission_id: str | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> RunSnapshot:
         planned = self._plan(
             experiment,
@@ -122,6 +124,7 @@ class _DaemonRunner:
             description=description,
             metadata=metadata,
             operator=operator,
+            samples=samples,
         )
         return self.execute(
             planned,
@@ -156,6 +159,7 @@ class _DaemonRunner:
             description=request.description,
             metadata=cast("Mapping[str, MetadataValue]", request.metadata),
             operator=request.operator,
+            samples=request.samples,
         )
         _validate_resumed_plan(planned, detail=detail, request=request)
         preview = self.client.measurement_preview(run_id, limit=1)
@@ -212,6 +216,7 @@ class _DaemonRunner:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> ExperimentPreview:
         planned = self._plan(
             experiment,
@@ -222,6 +227,7 @@ class _DaemonRunner:
             description=description,
             metadata=metadata,
             operator=operator,
+            samples=samples,
         )
         return build_run_program_preview(
             planned.program,
@@ -242,6 +248,7 @@ class _DaemonRunner:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> ExperimentReviewHandle:
         planned = self._plan(
             experiment,
@@ -252,6 +259,7 @@ class _DaemonRunner:
             description=description,
             metadata=metadata,
             operator=operator,
+            samples=samples,
         )
         return create_experiment_review(
             client=self.client,
@@ -273,6 +281,7 @@ class _DaemonRunner:
         description: str | None,
         metadata: Mapping[str, MetadataValue] | None,
         operator: str | None,
+        samples: tuple[SampleSelector, ...],
     ) -> PlannedRun:
         selected_source = config_source
         if config is None:
@@ -305,6 +314,7 @@ class _DaemonRunner:
             description=description,
             metadata=metadata,
             operator=operator,
+            samples=samples,
         )
 
 

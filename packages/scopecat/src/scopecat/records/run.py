@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scopecat.kernel.run_outcome import RunOutcome, RunStatus, utc_now
 from scopecat.records.config import ConfigContentHash
+from scopecat.records.sample import SampleBinding
 
 
 class ConfigRegistryRunConfigSource(BaseModel):
@@ -64,6 +65,7 @@ class RunSnapshot(BaseModel):
     outcome: RunOutcome | None = None
     config_content_hash: ConfigContentHash
     config_source: RunConfigSource | None = None
+    samples: tuple[SampleBinding, ...] = ()
 
     @model_validator(mode="after")
     def validate_identity(self) -> RunSnapshot:
@@ -76,6 +78,12 @@ class RunSnapshot(BaseModel):
         if self.outcome is not None and self.outcome.run_id != self.run_id:
             msg = "run outcome run_id does not match its snapshot"
             raise ValueError(msg)
+        roles = tuple(binding.role for binding in self.samples)
+        if len(roles) != len(set(roles)):
+            raise ValueError("run sample binding roles must be unique")
+        sample_ids = tuple(binding.sample_id for binding in self.samples)
+        if len(sample_ids) != len(set(sample_ids)):
+            raise ValueError("one sample cannot fill multiple run roles")
         return self
 
     @property

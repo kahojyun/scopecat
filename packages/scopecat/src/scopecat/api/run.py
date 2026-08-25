@@ -53,6 +53,7 @@ from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
+from scopecat.records.sample import SampleBinding
 from scopecat.runs.data import (
     RunArtifactBytesResult,
     RunArtifactJsonResult,
@@ -238,6 +239,12 @@ class RunHandle:
         """Load the operator request accepted with this run."""
 
         return self.session.run_operations.load_request(self.id)
+
+    @property
+    def samples(self) -> tuple[SampleBinding, ...]:
+        """Load exact sample revisions frozen into this run."""
+
+        return self.snapshot.samples
 
     def execution_segments(
         self,

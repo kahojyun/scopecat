@@ -1,0 +1,174 @@
+"""Notebook-facing handles for stable physical samples."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Protocol
+from uuid import uuid4
+
+from scopecat.daemon.client import DaemonClient
+from scopecat.daemon.views import SamplePage, SampleView
+from scopecat.daemon.wire import (
+    SampleCreateCommand,
+    SampleMutationReceipt,
+    SampleReviseCommand,
+)
+from scopecat.records.sample import SampleRevisionDraft, SampleSelector
+
+
+class SampleOperations(Protocol):
+    """Storage-neutral operations used by sample handles."""
+
+    def get(self, sample_id: str) -> SampleView: ...
+
+    def revise(
+        self,
+        sample_id: str,
+        content: SampleRevisionDraft,
+        *,
+        expected_revision: int | None,
+        actor: str | None,
+        note: str,
+        operation_id: str | None,
+    ) -> SampleMutationReceipt: ...
+
+
+class SampleSession(Protocol):
+    @property
+    def sample_operations(self) -> SampleOperations: ...
+
+
+@dataclass(frozen=True, slots=True)
+class SampleHandle:
+    """Stable sample identity with explicit revision selection for runs."""
+
+    session: SampleSession
+    id: str
+
+    @property
+    def view(self) -> SampleView:
+        return self.session.sample_operations.get(self.id)
+
+    def selector(
+        self,
+        *,
+        role: str = "subject",
+        revision: int | None = None,
+        context_id: str | None = None,
+    ) -> SampleSelector:
+        return SampleSelector(
+            role=role,
+            sample_id=self.id,
+            revision=revision,
+            context_id=context_id,
+        )
+
+    def revise(
+        self,
+        content: SampleRevisionDraft,
+        *,
+        expected_revision: int | None = None,
+        actor: str | None = None,
+        note: str = "",
+        operation_id: str | None = None,
+    ) -> SampleMutationReceipt:
+        return self.session.sample_operations.revise(
+            self.id,
+            content,
+            expected_revision=expected_revision,
+            actor=actor,
+            note=note,
+            operation_id=operation_id,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SampleHandlePage:
+    items: tuple[SampleHandle, ...] = ()
+    next_cursor: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LabSampleOperations:
+    """Create, inspect, and revise project samples through the daemon."""
+
+    client: DaemonClient
+    session: SampleSession
+    operator: str
+
+    def list(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> SampleHandlePage:
+        page: SamplePage = self.client.list_samples(limit=limit, before=before)
+        return SampleHandlePage(
+            items=tuple(
+                SampleHandle(session=self.session, id=item.record.id)
+                for item in page.items
+            ),
+            next_cursor=page.next_cursor,
+        )
+
+    def get(self, sample_id: str) -> SampleView:
+        return self.client.get_sample(sample_id)
+
+    def handle(self, sample_id: str) -> SampleHandle:
+        self.get(sample_id)
+        return SampleHandle(session=self.session, id=sample_id)
+
+    def create(
+        self,
+        sample_id: str,
+        *,
+        kind: str,
+        content: SampleRevisionDraft,
+        actor: str | None = None,
+        note: str = "",
+        operation_id: str | None = None,
+    ) -> SampleHandle:
+        receipt = self.client.create_sample(
+            SampleCreateCommand(
+                operation_id=operation_id or uuid4().hex,
+                sample_id=sample_id,
+                kind=kind,
+                actor=actor or self.operator,
+                note=note,
+                content=content,
+            )
+        )
+        return SampleHandle(session=self.session, id=receipt.record.id)
+
+    def revise(
+        self,
+        sample_id: str,
+        content: SampleRevisionDraft,
+        *,
+        expected_revision: int | None = None,
+        actor: str | None = None,
+        note: str = "",
+        operation_id: str | None = None,
+    ) -> SampleMutationReceipt:
+        selected_revision = expected_revision
+        if selected_revision is None:
+            selected_revision = self.get(sample_id).record.active_revision
+        return self.client.revise_sample(
+            sample_id,
+            SampleReviseCommand(
+                operation_id=operation_id or uuid4().hex,
+                expected_revision=selected_revision,
+                actor=actor or self.operator,
+                note=note,
+                content=content,
+            ),
+        )
+
+
+__all__ = [
+    "LabSampleOperations",
+    "SampleHandle",
+    "SampleHandlePage",
+    "SampleOperations",
+    "SampleSession",
+]

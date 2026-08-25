@@ -22,6 +22,7 @@ from scopecat.api.project_analysis import RemoteProjectAnalysisOperations
 from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.api.review import ExperimentReviewHandle
 from scopecat.api.run import RunHandle, RunHandlePage, run_handle_id
+from scopecat.api.samples import LabSampleOperations, SampleHandle, SampleOperations
 from scopecat.authoring.experiments import Experiment, ExperimentInvocation
 from scopecat.automation import ProcedureRegistry, ProcedureScheduleRegistry
 from scopecat.automation.calibration_definition import CalibrationRegistry
@@ -36,10 +37,12 @@ from scopecat.planning.system import ExperimentSystemBuilder
 from scopecat.program.values import MetadataValue
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource
+from scopecat.records.sample import SampleSelector
 from scopecat.runs.selectors import RunSelector
 
 type ExperimentSpec = ExperimentInvocation | Experiment[...]
 type PreviewPoint = int | Literal["first", "middle", "last"]
+type SampleSpec = str | SampleHandle | SampleSelector
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +66,8 @@ class PreparedLabExperiment:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
+        sample: SampleSpec | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> ExperimentPreview:
         return self.lab.preview_invocation(
             self.invocation,
@@ -76,6 +81,8 @@ class PreparedLabExperiment:
             description=description,
             metadata=metadata,
             operator=operator,
+            sample=sample,
+            samples=samples,
         )
 
     def run(
@@ -86,6 +93,8 @@ class PreparedLabExperiment:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
+        sample: SampleSpec | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> RunHandle:
         return self.lab.execute_invocation(
             self.invocation,
@@ -96,6 +105,8 @@ class PreparedLabExperiment:
             description=description,
             metadata=metadata,
             operator=operator,
+            sample=sample,
+            samples=samples,
         )
 
     def review(
@@ -106,6 +117,8 @@ class PreparedLabExperiment:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
+        sample: SampleSpec | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> ExperimentReviewHandle:
         return self.lab.review_invocation(
             self.invocation,
@@ -115,6 +128,8 @@ class PreparedLabExperiment:
             description=description,
             metadata=metadata,
             operator=operator,
+            sample=sample,
+            samples=samples,
         )
 
 
@@ -148,6 +163,11 @@ class LabClient:
         self._control = LabControlOperations(self._client)
         self._instruments = LabInstrumentOperations(
             self._client,
+            operator=operator,
+        )
+        self._samples = LabSampleOperations(
+            client=self._client,
+            session=self,
             operator=operator,
         )
         self._runner = _DaemonRunner(self._client, build_experiment_system)
@@ -209,6 +229,14 @@ class LabClient:
     @property
     def instruments(self) -> LabInstrumentOperations:
         return self._instruments
+
+    @property
+    def samples(self) -> LabSampleOperations:
+        return self._samples
+
+    @property
+    def sample_operations(self) -> SampleOperations:
+        return self._samples
 
     @property
     def procedures(self) -> LabProcedureOperations:
@@ -350,6 +378,8 @@ class LabClient:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
+        sample: SampleSpec | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> ExperimentPreview:
         """Preview an experiment without requiring an explicit prepare step."""
 
@@ -363,6 +393,8 @@ class LabClient:
             description=description,
             metadata=metadata,
             operator=operator,
+            sample=sample,
+            samples=samples,
         )
 
     def run(
@@ -375,6 +407,8 @@ class LabClient:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
+        sample: SampleSpec | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> RunHandle:
         """Run an experiment directly; use ``prepare`` when reusing a config."""
 
@@ -384,6 +418,8 @@ class LabClient:
             description=description,
             metadata=metadata,
             operator=operator,
+            sample=sample,
+            samples=samples,
         )
 
     def review(
@@ -396,6 +432,8 @@ class LabClient:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
+        sample: SampleSpec | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> ExperimentReviewHandle:
         """Open a live GUI backed by this process's pure compiler."""
 
@@ -405,6 +443,8 @@ class LabClient:
             description=description,
             metadata=metadata,
             operator=operator,
+            sample=sample,
+            samples=samples,
         )
 
     def preview_invocation(
@@ -421,6 +461,8 @@ class LabClient:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
+        sample: SampleSpec | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> ExperimentPreview:
         return self._runner.preview(
             invocation,
@@ -434,6 +476,7 @@ class LabClient:
             description=description,
             metadata=metadata,
             operator=operator,
+            samples=_sample_selectors(sample, samples),
         )
 
     def execute_invocation(
@@ -448,6 +491,8 @@ class LabClient:
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
         submission_id: str | None = None,
+        sample: SampleSpec | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> RunHandle:
         manifest = self._runner.run(
             invocation,
@@ -459,6 +504,7 @@ class LabClient:
             metadata=metadata,
             operator=operator,
             submission_id=submission_id,
+            samples=_sample_selectors(sample, samples),
         )
         return RunHandle(session=self, id=manifest.run_id)
 
@@ -472,6 +518,8 @@ class LabClient:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
+        sample: SampleSpec | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> ExperimentReviewHandle:
         return self._runner.review(
             invocation,
@@ -481,11 +529,27 @@ class LabClient:
             description=description,
             metadata=metadata,
             operator=operator,
+            samples=_sample_selectors(sample, samples),
         )
 
 
 def _experiment_invocation(experiment: ExperimentSpec) -> ExperimentInvocation:
     return experiment.bind() if isinstance(experiment, Experiment) else experiment
+
+
+def _sample_selectors(
+    sample: SampleSpec | None,
+    samples: tuple[SampleSelector, ...],
+) -> tuple[SampleSelector, ...]:
+    if sample is None:
+        return samples
+    if samples:
+        raise ValueError("sample and samples cannot be combined")
+    if isinstance(sample, SampleSelector):
+        return (sample,)
+    if isinstance(sample, SampleHandle):
+        return (sample.selector(),)
+    return (SampleSelector(sample_id=sample),)
 
 
 __all__ = [

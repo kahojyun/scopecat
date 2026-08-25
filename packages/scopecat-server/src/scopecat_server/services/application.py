@@ -28,6 +28,7 @@ from .point_plans import RunPointPlanService
 from .procedure_schedules import ProcedureScheduleService
 from .reviews import ReviewService
 from .runs import RunService
+from .samples import SampleService
 
 if TYPE_CHECKING:
     from scopecat_server.instruments.service import InstrumentService
@@ -55,6 +56,7 @@ class DaemonApplication:
         calibration_cohorts: CalibrationCohortService,
         procedure_schedules: ProcedureScheduleService,
         point_plans: RunPointPlanService,
+        samples: SampleService,
     ) -> None:
         self.project_root = Path(project_root).resolve()
         self.project_id = project_id
@@ -71,6 +73,7 @@ class DaemonApplication:
         self.calibration_cohorts = calibration_cohorts
         self.procedure_schedules = procedure_schedules
         self.point_plans = point_plans
+        self.samples = samples
         self._lease_supervisor = lease_supervisor
 
     def start(self) -> None:

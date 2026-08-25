@@ -80,6 +80,11 @@ from scopecat.records.run import (
     RunSnapshot,
 )
 from scopecat.records.run_request import RunRequest
+from scopecat.records.sample import (
+    SampleRecord,
+    SampleRevision,
+    SampleRevisionDraft,
+)
 from scopecat.sdk.instruments.contracts import InstrumentDescription
 from scopecat.sdk.instruments.execution import RunHardwareBatch
 
@@ -104,6 +109,45 @@ class ConfigDraftCommand(_WireModel):
     base_generation: int = Field(ge=1)
     candidate_id: NonEmptyText
     updates: tuple[ParameterUpdate, ...] = Field(min_length=1)
+
+
+class SampleCreateCommand(_WireModel):
+    """Create one stable sample and its first immutable revision."""
+
+    operation_id: NonEmptyText
+    sample_id: NonEmptyText
+    kind: NonEmptyText
+    actor: NonEmptyText
+    note: str = ""
+    content: SampleRevisionDraft
+
+    @property
+    def intent_hash(self) -> Sha256ContentHash:
+        content = self.model_dump(mode="json", exclude={"operation_id"})
+        return f"sha256:{stable_content_hash(content)}"
+
+
+class SampleReviseCommand(_WireModel):
+    """Append and activate one complete immutable sample revision."""
+
+    operation_id: NonEmptyText
+    expected_revision: int = Field(ge=1)
+    actor: NonEmptyText
+    note: str = ""
+    content: SampleRevisionDraft
+
+    @property
+    def intent_hash(self) -> Sha256ContentHash:
+        content = self.model_dump(mode="json", exclude={"operation_id"})
+        return f"sha256:{stable_content_hash(content)}"
+
+
+class SampleMutationReceipt(_WireModel):
+    """Stable sample identity paired with the exact activated revision."""
+
+    operation_id: NonEmptyText
+    record: SampleRecord
+    revision: SampleRevision
 
 
 class DirectConfigRevisionSource(_WireModel):
@@ -1272,6 +1316,9 @@ __all__ = [
     "RunInstrumentProvisionCommand",
     "RunInstrumentProvisionReceipt",
     "RunSubmission",
+    "SampleCreateCommand",
+    "SampleMutationReceipt",
+    "SampleReviseCommand",
     "TerminalModelWrite",
     "TerminalRunCommitCommand",
 ]

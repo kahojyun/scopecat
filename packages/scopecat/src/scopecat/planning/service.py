@@ -18,6 +18,7 @@ from scopecat.program.definitions import ExperimentInvocation
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource
 from scopecat.records.run_request import RunRequest
+from scopecat.records.sample import SampleSelector
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +66,7 @@ def plan_experiment_invocation(
     description: str | None = None,
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
+    samples: tuple[SampleSelector, ...] = (),
 ) -> PlannedRun:
     """Plan one authored invocation against a snapshot without project I/O."""
 
@@ -77,6 +79,7 @@ def plan_experiment_invocation(
             description=description,
             metadata=metadata,
             operator=operator,
+            samples=samples,
         ),
         system=system,
         config_source=config_source,

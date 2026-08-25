@@ -133,6 +133,8 @@ from scopecat.daemon.views import (
     RunDetail,
     RunRequestView,
     RunSummaryPage,
+    SamplePage,
+    SampleView,
 )
 from scopecat.daemon.wire import (
     AnalysisSaveCommand,
@@ -179,6 +181,9 @@ from scopecat.daemon.wire import (
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
     RunSubmission,
+    SampleCreateCommand,
+    SampleMutationReceipt,
+    SampleReviseCommand,
     TerminalRunCommitCommand,
 )
 from scopecat.kernel.content_identity import (
@@ -850,6 +855,48 @@ class DaemonClient:
         return self._get_model(
             f"{_API_PREFIX}/instruments",
             InstrumentListView,
+        )
+
+    def list_samples(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> SamplePage:
+        params: dict[str, int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/samples",
+            SamplePage,
+            params=params,
+        )
+
+    def get_sample(self, sample_id: str) -> SampleView:
+        return self._get_model(
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}",
+            SampleView,
+        )
+
+    def create_sample(
+        self,
+        command: SampleCreateCommand,
+    ) -> SampleMutationReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/samples",
+            command,
+            SampleMutationReceipt,
+        )
+
+    def revise_sample(
+        self,
+        sample_id: str,
+        command: SampleReviseCommand,
+    ) -> SampleMutationReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}/revisions",
+            command,
+            SampleMutationReceipt,
         )
 
     def driver_catalog(self) -> DriverCatalog:

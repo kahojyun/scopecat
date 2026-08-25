@@ -146,6 +146,8 @@ from scopecat.daemon.views import (
     RunDetail,
     RunRequestView,
     RunSummaryPage,
+    SamplePage,
+    SampleView,
 )
 from scopecat.daemon.wire import (
     AnalysisSaveCommand,
@@ -192,6 +194,9 @@ from scopecat.daemon.wire import (
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
     RunSubmission,
+    SampleCreateCommand,
+    SampleMutationReceipt,
+    SampleReviseCommand,
     TerminalRunCommitCommand,
 )
 from scopecat.planning.catalog import InstrumentContractCatalog
@@ -394,6 +399,28 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: ConfigEntryActivationCommand,
     ) -> ConfigActivationReceipt:
         return application.config.activate_config_entry(command)
+
+    @app.get(f"{_API_PREFIX}/samples")
+    def list_samples(
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> SamplePage:
+        return application.samples.list(limit=limit, before=before)
+
+    @app.post(f"{_API_PREFIX}/samples", status_code=201)
+    def create_sample(command: SampleCreateCommand) -> SampleMutationReceipt:
+        return application.samples.create(command)
+
+    @app.get(f"{_API_PREFIX}/samples/{{sample_id}}")
+    def get_sample(sample_id: str) -> SampleView:
+        return application.samples.get(sample_id)
+
+    @app.post(f"{_API_PREFIX}/samples/{{sample_id}}/revisions")
+    def revise_sample(
+        sample_id: str,
+        command: SampleReviseCommand,
+    ) -> SampleMutationReceipt:
+        return application.samples.revise(sample_id, command)
 
     @app.get(f"{_API_PREFIX}/instruments")
     def list_instruments() -> InstrumentListView:
