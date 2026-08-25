@@ -31,6 +31,7 @@ from scopecat_quantum.pulse_implementations import (
 )
 from scopecat_quantum.pulse_recipes import (
     PulseRecipeMap,
+    PulseRecipeMaterializationCache,
     PulseRecipeProfile,
     gate_pulse_recipe,
     map_qubit_pulse_recipes,
@@ -196,6 +197,43 @@ def test_repeated_exact_gate_calls_materialize_one_reusable_implementation() -> 
     resolved = _PROFILE.materialize(_parameters(), circuit)
 
     assert len(resolved.gates) == 1
+
+
+def test_request_cache_reuses_exact_implementations_across_points() -> None:
+    cache = PulseRecipeMaterializationCache()
+    circuit = _circuit(
+        _x_call("x-q0", "q0"),
+        _measurement("measure-q0", "q0"),
+    )
+
+    first = _PROFILE.materialize(_parameters(), circuit, cache=cache)
+    repeated = _PROFILE.materialize(_parameters(), circuit, cache=cache)
+    changed = _PROFILE.materialize(
+        _parameters(q0_amplitude=0.25),
+        circuit,
+        cache=cache,
+    )
+
+    assert repeated.gates[0] is first.gates[0]
+    assert repeated.measurements[0] is first.measurements[0]
+    assert changed.gates[0] is not first.gates[0]
+    assert changed.measurements[0] is not first.measurements[0]
+
+
+def test_request_cache_rejects_a_different_profile() -> None:
+    cache = PulseRecipeMaterializationCache()
+    circuit = _circuit(_x_call("x-q0", "q0"))
+    _PROFILE.materialize(_parameters(), circuit, cache=cache)
+    other_profile = PulseRecipeProfile[_Parameters](
+        map_qubit_pulse_recipes(
+            rows=lambda parameters: parameters.qubits,
+            qubit=lambda row: row.qubit,
+            gates=(_x_recipe,),
+        )
+    )
+
+    with pytest.raises(ValueError, match="cannot be shared across profiles"):
+        other_profile.materialize(_parameters(), circuit, cache=cache)
 
 
 def test_profile_streams_retained_parallel_each_operations() -> None:

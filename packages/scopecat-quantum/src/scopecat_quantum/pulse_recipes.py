@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING, Concatenate, Protocol, cast, get_type_hints
 from urllib.parse import quote
 
@@ -38,6 +39,92 @@ if TYPE_CHECKING:
     from scopecat_quantum.programs import VerifiedQuantumProgram
 
 type _GateRecipeTarget = GateDefinition | Gate
+type _GateRecipeCacheKey = tuple[
+    str,
+    str,
+    GatePulseImplementationKey,
+    tuple[CouplerId, ...],
+]
+type _MeasurementRecipeCacheKey = tuple[
+    str,
+    str,
+    MeasurementPulseImplementationKey,
+]
+
+
+@dataclass(slots=True)
+class PulseRecipeMaterializationCache:
+    """Exact pulse implementations retained for one compilation request.
+
+    A cache binds to the first profile that uses it and rejects reuse by another
+    profile. Row fingerprints keep point-dependent calibration values in the key;
+    object-identity memoization only avoids re-fingerprinting the same immutable
+    compiler-parameter row within the request.
+    """
+
+    _profile_token: object | None = field(default=None, init=False, repr=False)
+    _row_fingerprints: dict[int, tuple[object, str]] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _gates: dict[_GateRecipeCacheKey, GatePulseImplementation] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+    )
+    _measurements: dict[
+        _MeasurementRecipeCacheKey,
+        MeasurementPulseImplementation,
+    ] = field(default_factory=dict, init=False, repr=False)
+
+    def bind(self, profile_token: object) -> None:
+        if self._profile_token is None:
+            self._profile_token = profile_token
+        elif self._profile_token is not profile_token:
+            raise ValueError("pulse recipe cache cannot be shared across profiles")
+
+    def _row_fingerprint(self, row: object) -> str:
+        identity = id(row)
+        retained = self._row_fingerprints.get(identity)
+        if retained is not None and retained[0] is row:
+            return retained[1]
+        fingerprint = stable_content_hash(content_fingerprint(row))
+        self._row_fingerprints[identity] = (row, fingerprint)
+        return fingerprint
+
+    def materialize_gate(
+        self,
+        recipe_id: str,
+        row: object,
+        key: GatePulseImplementationKey,
+        resources: tuple[CouplerId, ...],
+        build: Callable[[], GatePulseImplementation],
+    ) -> GatePulseImplementation:
+        """Return or create one exact gate implementation."""
+
+        cache_key = (recipe_id, self._row_fingerprint(row), key, resources)
+        implementation = self._gates.get(cache_key)
+        if implementation is None:
+            implementation = build()
+            self._gates[cache_key] = implementation
+        return implementation
+
+    def materialize_measurement(
+        self,
+        recipe_id: str,
+        row: object,
+        key: MeasurementPulseImplementationKey,
+        build: Callable[[], MeasurementPulseImplementation],
+    ) -> MeasurementPulseImplementation:
+        """Return or create one exact measurement implementation."""
+
+        cache_key = (recipe_id, self._row_fingerprint(row), key)
+        implementation = self._measurements.get(cache_key)
+        if implementation is None:
+            implementation = build()
+            self._measurements[cache_key] = implementation
+        return implementation
 
 
 def _gate_definition(target: _GateRecipeTarget) -> GateDefinition:
@@ -329,6 +416,8 @@ class PulseRecipeMap[ParametersT, RowT]:
         self,
         parameters: ParametersT,
         circuit: VerifiedCircuitOperations,
+        *,
+        cache: PulseRecipeMaterializationCache | None = None,
     ) -> ResolvedPulseImplementations:
         """Map only operations present in the bound circuit onto matching rows."""
 
@@ -336,6 +425,7 @@ class PulseRecipeMap[ParametersT, RowT]:
             parameters,
             circuit.operations,
             gate_definition=circuit.gate_definition,
+            cache=cache,
         )
 
     def materialize_operations(
@@ -344,6 +434,7 @@ class PulseRecipeMap[ParametersT, RowT]:
         operations: Iterable[GateCall | Measure],
         *,
         gate_definition: Callable[[GateId], GateDefinition],
+        cache: PulseRecipeMaterializationCache | None = None,
     ) -> ResolvedPulseImplementations:
         """Join a streamed concrete operation sequence without retaining it."""
 
@@ -390,7 +481,21 @@ class PulseRecipeMap[ParametersT, RowT]:
                     key = GatePulseImplementationKey.from_call(operation)
                     marker = (recipe.id, key)
                     if marker not in materialized_gates:
-                        gates.append(recipe.materialize(row, operation, resources))
+                        if cache is None:
+                            implementation = recipe.materialize(
+                                row,
+                                operation,
+                                resources,
+                            )
+                        else:
+                            implementation = cache.materialize_gate(
+                                recipe.id,
+                                row,
+                                key,
+                                resources,
+                                partial(recipe.materialize, row, operation, resources),
+                            )
+                        gates.append(implementation)
                         materialized_gates.add(marker)
                 continue
             for recipe in self.measurements:
@@ -399,7 +504,16 @@ class PulseRecipeMap[ParametersT, RowT]:
                 key = MeasurementPulseImplementationKey.from_measurement(operation)
                 marker = (recipe.id, key)
                 if marker not in materialized_measurements:
-                    measurements.append(recipe.materialize(row, operation))
+                    if cache is None:
+                        implementation = recipe.materialize(row, operation)
+                    else:
+                        implementation = cache.materialize_measurement(
+                            recipe.id,
+                            row,
+                            key,
+                            partial(recipe.materialize, row, operation),
+                        )
+                    measurements.append(implementation)
                     materialized_measurements.add(marker)
         return ResolvedPulseImplementations(
             gates=tuple(gates),
@@ -434,6 +548,8 @@ class _PulseRecipeMapping[ParametersT](Protocol):
         self,
         parameters: ParametersT,
         circuit: VerifiedCircuitOperations,
+        *,
+        cache: PulseRecipeMaterializationCache | None = None,
     ) -> ResolvedPulseImplementations: ...
 
     def materialize_operations(
@@ -442,6 +558,7 @@ class _PulseRecipeMapping[ParametersT](Protocol):
         operations: Iterable[GateCall | Measure],
         *,
         gate_definition: Callable[[GateId], GateDefinition],
+        cache: PulseRecipeMaterializationCache | None = None,
     ) -> ResolvedPulseImplementations: ...
 
 
@@ -450,6 +567,7 @@ class PulseRecipeProfile[ParametersT]:
     """Static recipes joined only to operations used by the point-bound circuit."""
 
     _mappings: tuple[_PulseRecipeMapping[ParametersT], ...]
+    _cache_token: object
 
     def __init__(self, *mappings: _PulseRecipeMapping[ParametersT]) -> None:
         recipe_ids = tuple(
@@ -458,16 +576,22 @@ class PulseRecipeProfile[ParametersT]:
         if len(set(recipe_ids)) != len(recipe_ids):
             raise ValueError("pulse recipe ids must be unique within one profile")
         object.__setattr__(self, "_mappings", tuple(mappings))
+        object.__setattr__(self, "_cache_token", object())
 
     def materialize(
         self,
         parameters: ParametersT,
         circuit: VerifiedCircuitOperations,
+        *,
+        cache: PulseRecipeMaterializationCache | None = None,
     ) -> ResolvedPulseImplementations:
         """Join every configured row map to one point-bound circuit."""
 
+        if cache is not None:
+            cache.bind(self._cache_token)
         resolved = tuple(
-            mapping.materialize(parameters, circuit) for mapping in self._mappings
+            mapping.materialize(parameters, circuit, cache=cache)
+            for mapping in self._mappings
         )
         return ResolvedPulseImplementations(
             gates=tuple(
@@ -488,15 +612,19 @@ class PulseRecipeProfile[ParametersT]:
         program: VerifiedQuantumProgram,
         *,
         max_expanded_operations: int | None = None,
+        cache: PulseRecipeMaterializationCache | None = None,
     ) -> ResolvedPulseImplementations:
         """Join recipes to retained Map/Repeat leaves as a stream."""
 
         program.require_expansion_budget(max_expanded_operations)
+        if cache is not None:
+            cache.bind(self._cache_token)
         resolved = tuple(
             mapping.materialize_operations(
                 parameters,
                 program.iter_expanded_unresolved_operations(),
                 gate_definition=program.unresolved.gate_definition,
+                cache=cache,
             )
             for mapping in self._mappings
         )
@@ -518,6 +646,7 @@ __all__ = [
     "GatePulseRecipe",
     "MeasurementPulseRecipe",
     "PulseRecipeMap",
+    "PulseRecipeMaterializationCache",
     "PulseRecipeProfile",
     "gate_pulse_recipe",
     "map_qubit_pulse_recipes",

@@ -45,6 +45,7 @@ from scopecat_quantum.programs import (
     plan_quantum_pulse_lowering,
 )
 from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
+from scopecat_quantum.pulse_recipes import PulseRecipeMaterializationCache
 from scopecat_quantum.realtime import ScheduledBlock
 from scopecat_quantum.targets import TargetCompileEntry
 
@@ -466,6 +467,7 @@ def _compile_points(
         str,
         tuple[quantum.BoundProgram, ResolvedPulseImplementations],
     ] = {}
+    pulse_recipe_cache = PulseRecipeMaterializationCache()
     for point, parameters in zip(points, compiler_parameters, strict=True):
         effective_fingerprint = stable_content_hash(
             content_fingerprint(
@@ -484,6 +486,7 @@ def _compile_points(
                 parameters,
                 bound.verified,
                 max_expanded_operations=max_expanded_operations,
+                cache=pulse_recipe_cache,
             )
             effective_points[effective_fingerprint] = (bound, implementations)
         else:
