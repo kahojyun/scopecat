@@ -28,6 +28,57 @@ benchmarks use virtual backends and generated or replayed data so execution
 volume, payload shape, and failure points remain reproducible. Physical-hardware
 validation can then cover timing and integration behavior separately.
 
+## Named Acceptance Ladder
+
+The executable `scale-suite` uses five names for continuous-waveform scale
+acceptance and repeatable performance observations:
+
+| Level | Shape | Question answered |
+|---|---|---|
+| Smoke | 1q × 1 point × 1,000 samples | Does the complete product path execute? |
+| Small | 4q × 10 points × 10,000 samples | Does the reference topology behave normally? |
+| Medium | 16q × 10 points × 100,000 samples | Do routing and standard-length batches remain bounded? |
+| Full | 64q × 10 points × 100,000 samples | Can intended parallel width upload complete buffers? |
+| Endurance | 64q × 100 points × 10,000 samples | Does total scan volume stream through a bounded working set? |
+
+The full and endurance profiles carry the same approximate total waveform
+volume while stressing different axes. Full maximizes one physical entry;
+endurance increases the number of bounded batches. This avoids one profile that
+maximizes every dimension and makes failures easier to classify.
+
+Run acceptance through the routine levels or select a release level directly:
+
+```console
+uv run python -m benchmarks run scale-suite --through small
+uv run python -m benchmarks run scale-suite --profiles full
+```
+
+Formal acceptance defaults to the actual local deployment shape:
+
+```text
+notebook/client process --loopback HTTP--> daemon process
+daemon process --multiprocessing pipe--> instrument worker process
+```
+
+Acceptance gates exact completed points, rendered bytes, driver-received bytes,
+latest-view retention, payload cleanup, batch bounds, and a configurable
+fraction of host memory. The deployed memory value is the concurrent combined
+RSS of all three persistent processes; their individual peaks and daemon startup
+time are recorded separately. The driver boundary receives ordinary contiguous
+float64 arrays; target templates, predistortion, and device-side NCO are not
+required. Benchmark mode records the same profiles with warmup and repetition
+but never makes wall-clock time a machine-independent pass/fail condition.
+
+`--runner scopecat` keeps the daemon and virtual endpoint in the benchmark
+worker for fast diagnosis. It follows the same compilation and execution logic,
+but it is not the deployment acceptance result.
+
+This ladder is the scale and transport track, not the whole quantum capability
+claim. Parallel randomized-benchmarking semantics, flux lowering, host-side
+predistortion/crosstalk, and real-device timing require their own acceptance
+cases. They should reuse these level names so capability coverage and scale
+remain two readable dimensions instead of one combinatorial profile matrix.
+
 ## Workload Model
 
 An individual experiment normally fits a useful hardware and stability window.

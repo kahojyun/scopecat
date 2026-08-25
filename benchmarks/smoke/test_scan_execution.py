@@ -159,7 +159,7 @@ def test_fixed_program_lo_sweep_avoids_per_point_durable_job_writes(
             )
         )
 
-    assert result["case_version"] == 8
+    assert result["case_version"] == 9
     assert scenario["profile"] == "fixed_program_host_lo_sweep"
     assert result["points_completed"] == point_count
     assert result["trigger_count"] == point_count
@@ -244,7 +244,7 @@ def test_scan_execution_benchmark_runs_all_boundaries_with_waveforms(
     assert all(result["points_completed"] == 3 for result in results)
     assert all(result["schema"] == "scopecat.benchmark_result.v1" for result in results)
     assert all(result["case_id"] == "scan-execution" for result in results)
-    assert all(result["case_version"] == 8 for result in results)
+    assert all(result["case_version"] == 9 for result in results)
     assert all(result["kind"] == "e2e" for result in results)
     assert all(
         cast("dict[str, object]", result["scenario"])["acquisition_dsp_policy"]
