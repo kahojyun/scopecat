@@ -106,6 +106,8 @@ from scopecat.records.config import (
 )
 from scopecat.sdk.domain import (
     DomainBatchCandidate,
+    DomainBatchPreparationCost,
+    DomainBatchPreparationLimits,
     DomainBatchRequest,
     DomainPreparationBuilder,
     DomainStateAddress,
@@ -172,6 +174,9 @@ class _DomainCompiler:
     initial_size: int | None = None
     compatible_sizes: tuple[int, ...] | None = None
     next_batch_capacities: tuple[int, ...] | None = None
+    max_retained_bytes: int = 1024 * 1024
+    retained_bytes: int = 0
+    analyzed_point_count: int | None = None
     job_runtime: _EffectProbeRuntime = field(default_factory=_EffectProbeRuntime)
     initial_batch_requests: list[int] = field(default_factory=list)
     compatibility_requests: list[DomainBatchRequest] = field(default_factory=list)
@@ -187,12 +192,18 @@ class _DomainCompiler:
     def target_kind(self) -> str:
         return "tests.domain"
 
-    def initial_batch_max_points(self, point_count: int) -> int:
+    def initial_batch_preparation_limits(
+        self,
+        point_count: int,
+    ) -> DomainBatchPreparationLimits:
         self.initial_batch_requests.append(point_count)
-        return (
-            min(point_count, self.batch_size)
-            if self.initial_size is None
-            else self.initial_size
+        return DomainBatchPreparationLimits(
+            max_points=(
+                min(point_count, self.batch_size)
+                if self.initial_size is None
+                else self.initial_size
+            ),
+            max_retained_bytes=self.max_retained_bytes,
         )
 
     def prepare_batch(self, request: DomainBatchRequest) -> DomainBatchCandidate:
@@ -206,6 +217,14 @@ class _DomainCompiler:
             ]
         return DomainBatchCandidate(
             compatible_point_count=compatible_point_count,
+            preparation_cost=DomainBatchPreparationCost(
+                analyzed_point_count=(
+                    len(request.points)
+                    if self.analyzed_point_count is None
+                    else self.analyzed_point_count
+                ),
+                retained_bytes=self.retained_bytes,
+            ),
             _compile=self._compile_batch,
         )
 
@@ -1090,6 +1109,39 @@ def test_domain_target_initial_batch_must_fit_the_complete_point_space() -> None
         domain_compiler=compiler,
     ).compile(bound)
     with pytest.raises(ValueError, match="positive covered point count"):
+        tuple(plan.coverage)
+
+
+def test_domain_target_candidate_must_fit_its_retained_byte_budget() -> None:
+    bound = _bound_program(point_count=2)
+    compiler = _DomainCompiler(
+        "tests.invalid-retained-cost",
+        max_retained_bytes=1024,
+        retained_bytes=1025,
+    )
+
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
+
+    with pytest.raises(ValueError, match="retained-byte limit"):
+        tuple(plan.coverage)
+
+
+def test_domain_target_cost_must_cover_its_compatible_prefix() -> None:
+    bound = _bound_program(point_count=2)
+    compiler = _DomainCompiler(
+        "tests.invalid-analyzed-cost",
+        analyzed_point_count=1,
+    )
+
+    plan = ExperimentSystem(
+        instrument_catalog=_catalog(bound),
+        domain_compiler=compiler,
+    ).compile(bound)
+
+    with pytest.raises(ValueError, match="must cover its compatible prefix"):
         tuple(plan.coverage)
 
 

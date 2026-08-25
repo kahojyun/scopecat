@@ -10,6 +10,29 @@ models remain in the integrating project.
 The package root exports the `authoring` facade. Target integrations import
 their contracts from the owning submodules so those boundaries stay explicit.
 
+## Reference benchmarking protocols
+
+`scopecat_quantum.benchmarking` provides device-independent, versioned circuit
+families and numerical analysis for randomized benchmarking and XEB. Sequence
+identity is derived from a domain-separated `SequenceKey`, not arithmetic seed
+offsets or Python's process-level random generator. A manifest therefore keeps
+the protocol version, root seed, sample index, length policy, entity or pair
+identity, exact Clifford choices, recovery, primitive decomposition, and stable
+fingerprint needed for replay.
+
+The reference surface includes uniform 1q Clifford RB, entity-keyed parallel 1q
+RB, uniform 2q Clifford RB with an H/S/S†/CZ decomposition, 1q and phased XEB
+ensembles, RB decay and interleaved-error estimators, linear-XEB fidelity, and
+XEB cycle-decay fitting. Independent-length sampling is the default;
+`shared_prefix` is an explicit alternative.
+
+These tools stop at logical operations and numerical results. An integrating
+project still owns experiment scans, selected qubits and pairs, readout and
+classification, while a target owns gate-to-pulse lowering, scheduling, device
+uploads, and acquisition. Large-circuit ideal XEB probabilities may therefore
+come from a separately selected simulation backend without changing the
+recorded protocol manifest.
+
 ```python
 from typing import Annotated
 

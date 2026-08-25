@@ -8,6 +8,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Self, cast
 
+import httpx2
 import pytest
 from scopecat.api.lab import LabClient
 from scopecat.application import LabBootstrap
@@ -16,8 +17,10 @@ from scopecat.config.documents import (
     load_config_snapshot_document,
     parse_config_snapshot_document,
 )
+from scopecat.config.resolution import config_revision_entry_id
+from scopecat.daemon.client import DaemonNotFoundError
 from scopecat.daemon.endpoint import DAEMON_URL_ENV, DaemonEndpointRecord
-from scopecat.daemon.wire import ConfigPublishReceipt
+from scopecat.daemon.wire import ConfigActivationReceipt, ConfigPublishReceipt
 from scopecat.kernel.errors import CheckFailed
 from scopecat.project import Project
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
@@ -184,18 +187,42 @@ def test_diff_uses_selected_project_record_instead_of_environment_override(
     assert observed_urls == ["http://project-daemon.local"]
 
 
-@pytest.mark.parametrize("changed", [False, True])
-def test_apply_uses_config_intent_even_when_content_is_unchanged(
+def test_apply_does_not_create_another_activation_when_content_is_unchanged(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    *,
-    changed: bool,
 ) -> None:
     project = _project(tmp_path)
     active = load_config_snapshot_document(_CONFIG_FIXTURE).model_copy(
         update={"id": "active"}
     )
-    source = active.model_copy(update={"id": "project-source"}) if changed else active
+    lab = _FakeLab(active)
+    _patch_project(monkeypatch, source=active, lab=lab)
+
+    result = apply_project_config(
+        project,
+        actor="config-cli",
+        note="publish reviewed source",
+    )
+
+    assert not result.changed
+    assert result.previous == active
+    assert result.source == active
+    assert result.entry_id == config_revision_entry_id(active)
+    assert result.receipt is None
+    assert lab.set_default_calls == []
+    assert lab.activate_calls == []
+    assert lab.closed
+
+
+def test_apply_publishes_a_new_source_revision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = _project(tmp_path)
+    active = load_config_snapshot_document(_CONFIG_FIXTURE).model_copy(
+        update={"id": "active"}
+    )
+    source = active.model_copy(update={"id": "project-source"})
     lab = _FakeLab(active)
     _patch_project(monkeypatch, source=source, lab=lab)
 
@@ -205,15 +232,48 @@ def test_apply_uses_config_intent_even_when_content_is_unchanged(
         note="publish reviewed source",
     )
 
-    assert result.changed is changed
-    assert result.previous == active
-    assert result.source == source
+    assert result.changed
+    assert result.entry_id == config_revision_entry_id(source)
     assert result.receipt is lab.receipt
     assert lab.set_default_calls == [
         _SetDefaultCall(
             config=source,
             actor="config-cli",
             note="publish reviewed source",
+        )
+    ]
+    assert lab.activate_calls == []
+    assert lab.closed
+
+
+def test_apply_reactivates_an_existing_source_revision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = _project(tmp_path)
+    active = load_config_snapshot_document(_CONFIG_FIXTURE).model_copy(
+        update={"id": "active"}
+    )
+    source = active.model_copy(update={"id": "project-source"})
+    lab = _FakeLab(active, registered=(source,))
+    _patch_project(monkeypatch, source=source, lab=lab)
+
+    result = apply_project_config(
+        project,
+        actor="config-cli",
+        note="reactivate reviewed source",
+    )
+
+    assert result.changed
+    assert result.entry_id == config_revision_entry_id(source)
+    assert result.receipt is lab.activation_receipt
+    assert lab.set_default_calls == []
+    assert lab.activate_calls == [
+        _ActivateCall(
+            entry_id=config_revision_entry_id(source),
+            expected_generation=7,
+            actor="config-cli",
+            note="reactivate reviewed source",
         )
     ]
     assert lab.closed
@@ -293,11 +353,51 @@ class _SetDefaultCall:
     note: str
 
 
+@dataclass(frozen=True, slots=True)
+class _ActivateCall:
+    entry_id: str
+    expected_generation: int
+    actor: str
+    note: str
+
+
+@dataclass(frozen=True, slots=True)
+class _EntryIdentity:
+    id: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ActivationIdentity:
+    generation: int
+
+
+@dataclass(frozen=True, slots=True)
+class _ActiveConfig:
+    config: ConfigProfileSnapshot
+    entry: _EntryIdentity
+    activation: _ActivationIdentity
+
+
+@dataclass(frozen=True, slots=True)
+class _ConfigEntry:
+    config: ConfigProfileSnapshot
+
+
 class _FakeLab:
-    def __init__(self, active: ConfigProfileSnapshot) -> None:
-        self.active = active
+    def __init__(
+        self,
+        active: ConfigProfileSnapshot,
+        *,
+        registered: tuple[ConfigProfileSnapshot, ...] = (),
+    ) -> None:
+        self.active_config = active
+        self.registered = {
+            config_revision_entry_id(config): config for config in registered
+        }
         self.receipt = cast("ConfigPublishReceipt", object())
+        self.activation_receipt = cast("ConfigActivationReceipt", object())
         self.set_default_calls: list[_SetDefaultCall] = []
+        self.activate_calls: list[_ActivateCall] = []
         self.closed = False
 
     def __enter__(self) -> Self:
@@ -318,7 +418,24 @@ class _FakeLab:
 
     def resolve_config(self, selector: str) -> ConfigProfileSnapshot:
         assert selector == "active"
-        return self.active
+        return self.active_config
+
+    def active(self) -> _ActiveConfig:
+        return _ActiveConfig(
+            config=self.active_config,
+            entry=_EntryIdentity(id=config_revision_entry_id(self.active_config)),
+            activation=_ActivationIdentity(generation=7),
+        )
+
+    def entry(self, entry_id: str) -> _ConfigEntry:
+        try:
+            config = self.registered[entry_id]
+        except KeyError:
+            raise DaemonNotFoundError(
+                "missing config entry",
+                response=httpx2.Response(404),
+            ) from None
+        return _ConfigEntry(config=config)
 
     def set_default(
         self,
@@ -335,6 +452,26 @@ class _FakeLab:
             )
         )
         return self.receipt
+
+    def activate_entry(
+        self,
+        entry_id: str,
+        *,
+        operation_id: str,
+        expected_generation: int,
+        actor: str,
+        note: str,
+    ) -> ConfigActivationReceipt:
+        assert operation_id.startswith("config-apply-")
+        self.activate_calls.append(
+            _ActivateCall(
+                entry_id=entry_id,
+                expected_generation=expected_generation,
+                actor=actor,
+                note=note,
+            )
+        )
+        return self.activation_receipt
 
 
 def _project(root: Path) -> Project:

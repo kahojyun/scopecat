@@ -46,8 +46,11 @@ from scopecat.compiler.relations.verification import (
     scalar_expression_imports,
 )
 from scopecat.compiler.topology_selection import (
+    TopologyConnectionSetResolution,
     TopologyEntitySetResolution,
     TopologySelectionError,
+    TopologyTableResolution,
+    resolve_topology_connection_set,
     resolve_topology_entity_set,
 )
 from scopecat.kernel.errors import CheckFailed
@@ -62,7 +65,10 @@ from scopecat.program.parameters import (
     ParameterValueContract,
 )
 from scopecat.program.recording import LogicalValueRecordSelection
-from scopecat.program.table_values import TopologyEntitySetSource
+from scopecat.program.table_values import (
+    TopologyConnectionSetSource,
+    TopologyEntitySetSource,
+)
 from scopecat.records.config import ConfigProfileSnapshot, Topology
 from scopecat.records.parameter import ParameterCatalog
 
@@ -228,33 +234,54 @@ def _lower_logical_program(
 def _resolve_topology_entity_sets(
     program: LogicalProgram,
     topology: Topology,
-) -> dict[ValueId, TopologyEntitySetResolution]:
-    selected: dict[ValueId, TopologyEntitySetResolution] = {}
+) -> dict[ValueId, TopologyTableResolution]:
+    selected: dict[ValueId, TopologyTableResolution] = {}
     for definition in program.value_defs:
         source = definition.source
-        if not isinstance(source, TopologyEntitySetSource):
+        if not isinstance(
+            source, TopologyEntitySetSource | TopologyConnectionSetSource
+        ):
             continue
         if not isinstance(definition.value_type, Table):
-            raise AssertionError("topology entity-set source must own a table value")
+            raise AssertionError("topology selection source must own a table value")
         try:
-            selected[definition.id] = resolve_topology_entity_set(
-                topology,
-                source,
-                definition.value_type,
-            )
+            resolution: TopologyEntitySetResolution | TopologyConnectionSetResolution
+            if isinstance(source, TopologyEntitySetSource):
+                resolution = resolve_topology_entity_set(
+                    topology,
+                    source,
+                    definition.value_type,
+                )
+            else:
+                resolution = resolve_topology_connection_set(
+                    topology,
+                    source,
+                    definition.value_type,
+                )
+            selected[definition.id] = resolution
         except TopologySelectionError as error:
-            raise_frontend_problem(
-                "topology_entity_set_selection_failed",
-                str(error),
-                "logical_program",
-                path=("values", definition.id.qualified_name),
-                details={
+            details = (
+                {
                     "entity_kind": source.entity_kind,
                     "count": source.count,
                     "connected": source.connected,
                     "anchor_id": source.anchor_id,
                     "connection_kind": source.connection_kind,
-                },
+                }
+                if isinstance(source, TopologyEntitySetSource)
+                else {
+                    "endpoint_entity_kind": source.endpoint_entity_kind,
+                    "connection_entity_kind": source.connection_entity_kind,
+                    "connection_kind": source.connection_kind,
+                    "matching": source.matching,
+                }
+            )
+            raise_frontend_problem(
+                "topology_selection_failed",
+                str(error),
+                "logical_program",
+                path=("values", definition.id.qualified_name),
+                details=details,
             )
     return selected
 

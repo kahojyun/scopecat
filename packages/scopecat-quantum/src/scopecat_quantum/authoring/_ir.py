@@ -102,6 +102,79 @@ class QubitSet:
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class CouplerSet:
+    """A symbolic, variable-size set of logical couplers."""
+
+    _id: str
+    _item: Coupler
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def item(self) -> Coupler:
+        return self._item
+
+    @property
+    def value_type(self) -> Table:
+        return Table(
+            columns=(
+                TableColumn(
+                    "coupler",
+                    Scalar(EntityAtomType(entity_kind="logical_coupler")),
+                ),
+            ),
+            primary_key=("coupler",),
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class QubitPair:
+    """One symbolic topology edge with its two endpoints and coupler entity."""
+
+    left: Qubit
+    right: Qubit
+    coupler: Coupler
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class QubitPairSet:
+    """A symbolic, variable-size set of topology-backed qubit pairs."""
+
+    _id: str
+    _item: QubitPair
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def item(self) -> QubitPair:
+        return self._item
+
+    @property
+    def value_type(self) -> Table:
+        return Table(
+            columns=(
+                TableColumn(
+                    "left",
+                    Scalar(EntityAtomType(entity_kind="logical_qubit")),
+                ),
+                TableColumn(
+                    "right",
+                    Scalar(EntityAtomType(entity_kind="logical_qubit")),
+                ),
+                TableColumn(
+                    "coupler",
+                    Scalar(EntityAtomType(entity_kind="logical_coupler")),
+                ),
+            ),
+            primary_key=("coupler",),
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class ProgramInput:
     """One core-typed scalar input shared by circuit and pulse authoring."""
 
@@ -234,7 +307,10 @@ type CircuitArgument = GateArgumentValue | ProgramInput
 type QuantumQuantity = Quantity | ProgramInput
 
 
-type ProgramPort = PulseElement | QubitSet | ProgramInput
+type EntitySetPort = QubitSet | CouplerSet | QubitPairSet
+
+
+type ProgramPort = PulseElement | EntitySetPort | ProgramInput
 
 
 type ProgramFunction = Callable[..., QuantumFragment]
@@ -409,6 +485,18 @@ class _QuantumParallelFragment(QuantumFragment):
 @dataclass(frozen=True, slots=True)
 class _ParallelEachFragment(QuantumFragment):
     entity_set: QubitSet
+    operation: QuantumFragment
+
+
+@dataclass(frozen=True, slots=True)
+class _ParallelCouplerEachFragment(QuantumFragment):
+    entity_set: CouplerSet
+    operation: QuantumFragment
+
+
+@dataclass(frozen=True, slots=True)
+class _ParallelQubitPairEachFragment(QuantumFragment):
+    entity_set: QubitPairSet
     operation: QuantumFragment
 
 

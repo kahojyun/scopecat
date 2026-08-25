@@ -57,6 +57,7 @@ class TopologyConnection(BaseModel):
     id: _NonEmptyId
     kind: _NonEmptyId
     endpoints: tuple[_NonEmptyId, _NonEmptyId]
+    entity_id: _NonEmptyId | None = None
 
     @model_validator(mode="after")
     def validate_endpoints(self) -> TopologyConnection:
@@ -92,6 +93,12 @@ class Topology(BaseModel):
             for connection in self.connections
             for endpoint in connection.endpoints
             if endpoint not in entity_ids
+        )
+        missing.extend(
+            connection.entity_id
+            for connection in self.connections
+            if connection.entity_id is not None
+            and connection.entity_id not in entity_ids
         )
         if missing:
             raise ValueError(

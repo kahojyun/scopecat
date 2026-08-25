@@ -9,6 +9,7 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.value_types import Entity, Table
 from scopecat.program.table_values import (
     LiteralTableSource,
+    TopologyConnectionSetSource,
     TopologyEntitySetSource,
     literal_table_source,
 )
@@ -26,6 +27,19 @@ class TopologyEntitySetResolution:
     source: TopologyEntitySetSource
     entities: tuple[EntityRef, ...]
     table: LiteralTableSource
+
+
+@dataclass(frozen=True, slots=True)
+class TopologyConnectionSetResolution:
+    """A retained edge selection and its config-specific relation table."""
+
+    source: TopologyConnectionSetSource
+    table: LiteralTableSource
+
+
+type TopologyTableResolution = (
+    TopologyEntitySetResolution | TopologyConnectionSetResolution
+)
 
 
 def resolve_topology_entity_set(
@@ -113,8 +127,100 @@ def _connected_entities(
     return tuple(selected)
 
 
+def resolve_topology_connection_set(
+    topology: Topology,
+    source: TopologyConnectionSetSource,
+    value_type: Table,
+) -> TopologyConnectionSetResolution:
+    """Resolve ordered qubit-pair rows, optionally selecting one matching."""
+
+    expected_columns = ("left", "right", "coupler")
+    if tuple(column.id for column in value_type.columns) != expected_columns:
+        raise TopologySelectionError(
+            "topology connection selections require left/right/coupler columns"
+        )
+    expected_kinds = (
+        source.endpoint_entity_kind,
+        source.endpoint_entity_kind,
+        source.connection_entity_kind,
+    )
+    for column, expected_kind in zip(
+        value_type.columns,
+        expected_kinds,
+        strict=True,
+    ):
+        atom = column.value_type.atom
+        if not isinstance(atom, Entity) or atom.entity_kind != expected_kind:
+            raise TopologySelectionError(
+                f"topology connection column {column.id!r} must contain "
+                f"{expected_kind!r} entities"
+            )
+
+    entities = {entity.id: entity for entity in topology.entities}
+    selected = tuple(
+        connection
+        for connection in topology.connections
+        if source.connection_kind is None or connection.kind == source.connection_kind
+    )
+    rows: list[dict[str, EntityRef]] = []
+    edge_colors: list[int] = []
+    colors_by_endpoint: dict[str, set[int]] = {}
+    for connection in selected:
+        left_id, right_id = connection.endpoints
+        left = entities[left_id]
+        right = entities[right_id]
+        if (
+            left.kind != source.endpoint_entity_kind
+            or right.kind != source.endpoint_entity_kind
+        ):
+            continue
+        if connection.entity_id is None:
+            raise TopologySelectionError(
+                f"topology connection {connection.id!r} has no associated entity"
+            )
+        connection_entity = entities[connection.entity_id]
+        if connection_entity.kind != source.connection_entity_kind:
+            raise TopologySelectionError(
+                f"topology connection {connection.id!r} entity "
+                f"{connection.entity_id!r} has kind {connection_entity.kind!r}, "
+                f"not {source.connection_entity_kind!r}"
+            )
+        unavailable = colors_by_endpoint.get(left_id, set()) | colors_by_endpoint.get(
+            right_id,
+            set(),
+        )
+        color = next(
+            index for index in range(len(selected) + 1) if index not in unavailable
+        )
+        colors_by_endpoint.setdefault(left_id, set()).add(color)
+        colors_by_endpoint.setdefault(right_id, set()).add(color)
+        edge_colors.append(color)
+        rows.append({"left": left, "right": right, "coupler": connection_entity})
+
+    if not rows:
+        raise TopologySelectionError("topology connection selection is empty")
+    if source.matching is not None:
+        rows = [
+            row
+            for row, color in zip(rows, edge_colors, strict=True)
+            if color == source.matching
+        ]
+        if not rows:
+            raise TopologySelectionError(
+                f"topology has no matching layer {source.matching} "
+                "for the selected connections"
+            )
+    return TopologyConnectionSetResolution(
+        source=source,
+        table=literal_table_source(rows),
+    )
+
+
 __all__ = [
+    "TopologyConnectionSetResolution",
     "TopologyEntitySetResolution",
     "TopologySelectionError",
+    "TopologyTableResolution",
+    "resolve_topology_connection_set",
     "resolve_topology_entity_set",
 ]

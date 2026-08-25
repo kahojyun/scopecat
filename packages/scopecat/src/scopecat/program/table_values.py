@@ -53,11 +53,32 @@ class TopologyEntitySetSource:
             )
 
 
+@dataclass(frozen=True, slots=True)
+class TopologyConnectionSetSource:
+    """A config-bound selection of typed topology edges and their entities."""
+
+    endpoint_entity_kind: str
+    connection_entity_kind: str
+    connection_kind: str | None = None
+    matching: int | None = None
+
+    def __post_init__(self) -> None:
+        if not self.endpoint_entity_kind:
+            raise ValueError("topology connection selections require an endpoint kind")
+        if not self.connection_entity_kind:
+            raise ValueError("topology connection selections require an entity kind")
+        if self.connection_kind is not None and not self.connection_kind:
+            raise ValueError("topology connection selection kind must be non-empty")
+        if self.matching is not None and self.matching < 0:
+            raise ValueError("topology connection matching must be non-negative")
+
+
 type TableSource = (
     LiteralTableSource
     | ParameterTableSource
     | InputTableSource
     | TopologyEntitySetSource
+    | TopologyConnectionSetSource
 )
 
 

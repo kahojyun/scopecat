@@ -36,6 +36,7 @@ from ._analysis import (
 from ._ir import (
     Acquisition,
     Coupler,
+    CouplerSet,
     Measurement,
     ProgramInput,
     ProgramPort,
@@ -45,6 +46,7 @@ from ._ir import (
     QuantumFragment,
     QuantumQuantity,
     Qubit,
+    QubitPairSet,
     QubitSet,
     _ConditionalFragment,
     _DelayFragment,
@@ -52,8 +54,10 @@ from ._ir import (
     _FragmentCall,
     _GateFragment,
     _ImplementedGateFragment,
+    _ParallelCouplerEachFragment,
     _ParallelEachFragment,
     _ParallelFragment,
+    _ParallelQubitPairEachFragment,
     _PlayFragment,
     _ProgramFamilyEnvelope,
     _PulseTemplateCallFragment,
@@ -104,6 +108,10 @@ def describe(program: _InspectableProgram, /) -> str:
             value_type = "qubit"
         elif isinstance(port, QubitSet):
             value_type = "qubit-set"
+        elif isinstance(port, CouplerSet):
+            value_type = "coupler-set"
+        elif isinstance(port, QubitPairSet):
+            value_type = "qubit-pair-set"
         elif isinstance(port, Coupler):
             value_type = "coupler"
         else:
@@ -213,7 +221,12 @@ def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
             "parallel",
             tuple(_inspection_node(item) for item in fragment.branches),
         )
-    if isinstance(fragment, _ParallelEachFragment):
+    if isinstance(
+        fragment,
+        _ParallelEachFragment
+        | _ParallelCouplerEachFragment
+        | _ParallelQubitPairEachFragment,
+    ):
         return _InspectionNode(
             f"parallel_each ${fragment.entity_set.id}",
             (_inspection_node(fragment.operation),),
@@ -325,7 +338,7 @@ def _is_zero_phase(value: QuantumQuantity) -> bool:
 
 
 def _inspection_value(value: object) -> str:
-    if isinstance(value, Qubit | QubitSet | Coupler):
+    if isinstance(value, Qubit | QubitSet | Coupler | CouplerSet | QubitPairSet):
         return value.id
     if isinstance(value, ProgramInput):
         return f"${value.id}"

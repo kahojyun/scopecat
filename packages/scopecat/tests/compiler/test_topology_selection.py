@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 from pydantic import ValidationError
 
 from scopecat.compiler.topology_selection import (
     TopologySelectionError,
+    resolve_topology_connection_set,
     resolve_topology_entity_set,
 )
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.value_types import Entity, Scalar, Table, TableColumn
-from scopecat.program.table_values import TopologyEntitySetSource
+from scopecat.program.table_values import (
+    TopologyConnectionSetSource,
+    TopologyEntitySetSource,
+)
 from scopecat.records.config import Topology, TopologyConnection
 
 
@@ -22,6 +28,26 @@ def _qubit_table() -> Table:
             ),
         ),
         primary_key=("qubit",),
+    )
+
+
+def _qubit_pair_table() -> Table:
+    return Table(
+        columns=(
+            TableColumn(
+                "left",
+                Scalar(Entity(entity_kind="logical_qubit")),
+            ),
+            TableColumn(
+                "right",
+                Scalar(Entity(entity_kind="logical_qubit")),
+            ),
+            TableColumn(
+                "coupler",
+                Scalar(Entity(entity_kind="coupler")),
+            ),
+        ),
+        primary_key=("coupler",),
     )
 
 
@@ -114,6 +140,71 @@ def test_topology_selection_reports_an_unsatisfied_connected_count() -> None:
         )
 
 
+def test_topology_connection_selection_resolves_stable_matching_layers() -> None:
+    topology = Topology(
+        entities=[
+            *(EntityRef(id=f"q{index}", kind="logical_qubit") for index in range(4)),
+            *(EntityRef(id=f"c{index}", kind="coupler") for index in range(3)),
+        ],
+        connections=[
+            TopologyConnection(
+                id=f"q{index}-q{index + 1}",
+                kind="nearest_neighbor",
+                endpoints=(f"q{index}", f"q{index + 1}"),
+                entity_id=f"c{index}",
+            )
+            for index in range(3)
+        ],
+    )
+
+    all_pairs = resolve_topology_connection_set(
+        topology,
+        TopologyConnectionSetSource(
+            endpoint_entity_kind="logical_qubit",
+            connection_entity_kind="coupler",
+            connection_kind="nearest_neighbor",
+        ),
+        _qubit_pair_table(),
+    )
+    all_pair_rows = cast(
+        "tuple[dict[str, EntityRef], ...]",
+        all_pairs.table.rows,
+    )
+    assert [row["coupler"].id for row in all_pair_rows] == ["c0", "c1", "c2"]
+
+    first_matching = resolve_topology_connection_set(
+        topology,
+        TopologyConnectionSetSource(
+            endpoint_entity_kind="logical_qubit",
+            connection_entity_kind="coupler",
+            connection_kind="nearest_neighbor",
+            matching=0,
+        ),
+        _qubit_pair_table(),
+    )
+    first_matching_rows = cast(
+        "tuple[dict[str, EntityRef], ...]",
+        first_matching.table.rows,
+    )
+    assert [row["coupler"].id for row in first_matching_rows] == ["c0", "c2"]
+
+    second_matching = resolve_topology_connection_set(
+        topology,
+        TopologyConnectionSetSource(
+            endpoint_entity_kind="logical_qubit",
+            connection_entity_kind="coupler",
+            connection_kind="nearest_neighbor",
+            matching=1,
+        ),
+        _qubit_pair_table(),
+    )
+    second_matching_rows = cast(
+        "tuple[dict[str, EntityRef], ...]",
+        second_matching.table.rows,
+    )
+    assert [row["coupler"].id for row in second_matching_rows] == ["c1"]
+
+
 def test_topology_rejects_connections_to_unknown_entities() -> None:
     with pytest.raises(ValidationError, match=r"unknown entities.*missing"):
         Topology(
@@ -123,6 +214,24 @@ def test_topology_rejects_connections_to_unknown_entities() -> None:
                     id="broken",
                     kind="nearest_neighbor",
                     endpoints=("q0", "missing"),
+                )
+            ],
+        )
+
+
+def test_topology_rejects_connections_with_unknown_associated_entities() -> None:
+    with pytest.raises(ValidationError, match=r"unknown entities.*missing-coupler"):
+        Topology(
+            entities=[
+                EntityRef(id="q0", kind="logical_qubit"),
+                EntityRef(id="q1", kind="logical_qubit"),
+            ],
+            connections=[
+                TopologyConnection(
+                    id="broken",
+                    kind="nearest_neighbor",
+                    endpoints=("q0", "q1"),
+                    entity_id="missing-coupler",
                 )
             ],
         )

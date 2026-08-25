@@ -7,14 +7,19 @@ import tempfile
 from dataclasses import dataclass
 from difflib import unified_diff
 from pathlib import Path
+from uuid import uuid4
 
 from scopecat.config.documents import config_snapshot_document_json
-from scopecat.config.resolution import validate_config_profile
+from scopecat.config.resolution import (
+    config_revision_entry_id,
+    validate_config_profile,
+)
+from scopecat.daemon.client import DaemonNotFoundError
 from scopecat.daemon.endpoint import (
     DaemonEndpointError,
     read_daemon_endpoint_record,
 )
-from scopecat.daemon.wire import ConfigPublishReceipt
+from scopecat.daemon.wire import ConfigActivationReceipt, ConfigPublishReceipt
 from scopecat.project import Project
 from scopecat.records.config import (
     ConfigContentHash,
@@ -58,7 +63,8 @@ class ProjectConfigApplyResult:
 
     source: ConfigProfileSnapshot
     previous: ConfigProfileSnapshot
-    receipt: ConfigPublishReceipt
+    entry_id: str
+    receipt: ConfigPublishReceipt | ConfigActivationReceipt | None
     source_content_hash: ConfigContentHash
     previous_content_hash: ConfigContentHash
 
@@ -108,19 +114,43 @@ def apply_project_config(
     """Publish freshly evaluated source through the ordinary config intent API."""
 
     source = load_source_config(project)
+    source_content_hash = config_content_hash(source)
     with project.connect(_recorded_daemon_url(project)) as lab:
-        previous = lab.resolve_config("active")
-        receipt = lab.config.set_default(
-            source,
-            actor=actor,
-            note=note,
-        )
+        active = lab.config.active()
+        previous = active.config
+        previous_content_hash = config_content_hash(previous)
+        if source_content_hash == previous_content_hash:
+            entry_id = active.entry.id
+            receipt = None
+        else:
+            entry_id = config_revision_entry_id(source)
+            try:
+                existing = lab.config.entry(entry_id)
+            except DaemonNotFoundError:
+                receipt = lab.config.set_default(
+                    source,
+                    actor=actor,
+                    note=note,
+                )
+            else:
+                if config_content_hash(existing.config) != source_content_hash:
+                    raise RuntimeError(
+                        f"config registry entry {entry_id!r} has unexpected content"
+                    )
+                receipt = lab.config.activate_entry(
+                    entry_id,
+                    operation_id=f"config-apply-{uuid4().hex}",
+                    expected_generation=active.activation.generation,
+                    actor=actor,
+                    note=note,
+                )
     return ProjectConfigApplyResult(
         source=source,
         previous=previous,
+        entry_id=entry_id,
         receipt=receipt,
-        source_content_hash=config_content_hash(source),
-        previous_content_hash=config_content_hash(previous),
+        source_content_hash=source_content_hash,
+        previous_content_hash=previous_content_hash,
     )
 
 

@@ -15,6 +15,8 @@ from scopecat.kernel.json_types import JsonValue
 from scopecat.sdk.domain import (
     DomainBatchCandidate,
     DomainBatchInputs,
+    DomainBatchPreparationCost,
+    DomainBatchPreparationLimits,
     DomainBatchRequest,
     DomainCallView,
     DomainExecutionResult,
@@ -45,6 +47,7 @@ from scopecat_quantum.programs import (
     plan_quantum_pulse_lowering,
 )
 from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
+from scopecat_quantum.pulse_recipes import PulseRecipeMaterializationCache
 from scopecat_quantum.realtime import ScheduledBlock
 from scopecat_quantum.targets import TargetCompileEntry
 
@@ -78,6 +81,7 @@ from reference_lab.targets.list_mode import (
 
 _QUANTUM_LAB_TARGET_COMPILER_ID = TargetCompilerId("reference-lab.list-mode-target.v2")
 _INITIAL_BATCH_SIZE = 1
+_MAX_PREPARATION_RETAINED_BYTES = 64 * 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,13 +189,19 @@ class QuantumLabCompiler:
             )
         )
 
-    def initial_batch_max_points(self, point_count: int) -> int:
+    def initial_batch_preparation_limits(
+        self,
+        point_count: int,
+    ) -> DomainBatchPreparationLimits:
         """Bound the first preparation without materializing program inputs."""
 
-        return min(
-            point_count,
-            _INITIAL_BATCH_SIZE,
-            self._target.max_list_entries,
+        return DomainBatchPreparationLimits(
+            max_points=min(
+                point_count,
+                _INITIAL_BATCH_SIZE,
+                self._target.max_list_entries,
+            ),
+            max_retained_bytes=_MAX_PREPARATION_RETAINED_BYTES,
         )
 
     def prepare_batch(self, request: DomainBatchRequest) -> DomainBatchCandidate:
@@ -239,6 +249,10 @@ class QuantumLabCompiler:
 
         return DomainBatchCandidate(
             compatible_point_count=len(request.points),
+            preparation_cost=DomainBatchPreparationCost(
+                analyzed_point_count=len(request.points),
+                retained_bytes=0,
+            ),
             _compile=compile_exact,
         )
 
@@ -466,6 +480,7 @@ def _compile_points(
         str,
         tuple[quantum.BoundProgram, ResolvedPulseImplementations],
     ] = {}
+    pulse_recipe_cache = PulseRecipeMaterializationCache()
     for point, parameters in zip(points, compiler_parameters, strict=True):
         effective_fingerprint = stable_content_hash(
             content_fingerprint(
@@ -484,6 +499,7 @@ def _compile_points(
                 parameters,
                 bound.verified,
                 max_expanded_operations=max_expanded_operations,
+                cache=pulse_recipe_cache,
             )
             effective_points[effective_fingerprint] = (bound, implementations)
         else:

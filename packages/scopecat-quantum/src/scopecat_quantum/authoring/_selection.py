@@ -5,11 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from scopecat.kernel.entity import EntityRef
-from scopecat.program.table_values import TopologyEntitySetSource
+from scopecat.program.table_values import (
+    TopologyConnectionSetSource,
+    TopologyEntitySetSource,
+)
 from scopecat.program.value_refs import ValueRef, internal_table_value_ref
 from scopecat.program.value_types import Table
 
 _LOGICAL_QUBIT_KIND = "logical_qubit"
+_LOGICAL_COUPLER_KIND = "logical_coupler"
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +72,54 @@ def select_qubits(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class CouplerSelectionIntent:
+    """Select logical coupler entities from accepted topology order."""
+
+    count: int | None = None
+
+    def topology_source(self) -> TopologyEntitySetSource:
+        return TopologyEntitySetSource(
+            entity_kind=_LOGICAL_COUPLER_KIND,
+            count=self.count,
+        )
+
+
+def select_couplers(count: int | None = None) -> CouplerSelectionIntent:
+    """Select all or the first ``count`` logical couplers."""
+
+    return CouplerSelectionIntent(count=count)
+
+
+@dataclass(frozen=True, slots=True)
+class QubitPairSelectionIntent:
+    """Select topology edges, optionally restricted to one matching layer."""
+
+    connection_kind: str | None = None
+    matching: int | None = None
+
+    def topology_source(self) -> TopologyConnectionSetSource:
+        return TopologyConnectionSetSource(
+            endpoint_entity_kind=_LOGICAL_QUBIT_KIND,
+            connection_entity_kind=_LOGICAL_COUPLER_KIND,
+            connection_kind=self.connection_kind,
+            matching=self.matching,
+        )
+
+
+def select_qubit_pairs(
+    *,
+    connection_kind: str | None = None,
+    matching: int | None = None,
+) -> QubitPairSelectionIntent:
+    """Select ordered qubit-pair rows from topology connection declarations."""
+
+    return QubitPairSelectionIntent(
+        connection_kind=connection_kind,
+        matching=matching,
+    )
+
+
 def qubit_selection_value_ref(
     selection: QubitSelectionIntent,
     value_type: Table,
@@ -78,4 +130,25 @@ def qubit_selection_value_ref(
     )
 
 
-__all__ = ["QubitSelectionIntent", "select_qubits"]
+def coupler_selection_value_ref(
+    selection: CouplerSelectionIntent,
+    value_type: Table,
+) -> ValueRef:
+    return internal_table_value_ref(selection.topology_source(), value_type)
+
+
+def qubit_pair_selection_value_ref(
+    selection: QubitPairSelectionIntent,
+    value_type: Table,
+) -> ValueRef:
+    return internal_table_value_ref(selection.topology_source(), value_type)
+
+
+__all__ = [
+    "CouplerSelectionIntent",
+    "QubitPairSelectionIntent",
+    "QubitSelectionIntent",
+    "select_couplers",
+    "select_qubit_pairs",
+    "select_qubits",
+]

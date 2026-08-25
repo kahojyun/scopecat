@@ -50,6 +50,8 @@ from ._ir import (
     CircuitArgument,
     CircuitFragment,
     Coupler,
+    CouplerSet,
+    EntitySetPort,
     ProgramInput,
     ProgramPort,
     PulseElement,
@@ -58,6 +60,7 @@ from ._ir import (
     QuantumFragment,
     QuantumQuantity,
     Qubit,
+    QubitPairSet,
     QubitSet,
     RepeatCount,
     _DelayFragment,
@@ -112,11 +115,11 @@ class _QuantumFunctionContract:
         )
 
     @property
-    def entity_sets(self) -> tuple[QubitSet, ...]:
+    def entity_sets(self) -> tuple[EntitySetPort, ...]:
         return tuple(
             parameter
             for parameter in self.parameters
-            if isinstance(parameter, QubitSet)
+            if isinstance(parameter, QubitSet | CouplerSet | QubitPairSet)
         )
 
 
@@ -536,8 +539,8 @@ def _validate_fragment_call_arguments(
                 )
                 raise TypeError(msg)
             continue
-        if isinstance(formal, QubitSet):
-            raise TypeError("quantum fragments cannot declare QubitSet ports")
+        if isinstance(formal, QubitSet | CouplerSet | QubitPairSet):
+            raise TypeError("quantum fragments cannot declare entity-set ports")
         if isinstance(actual, Qubit | Coupler):
             msg = f"quantum fragment {definition.id!r} port {name!r} requires a value"
             raise TypeError(msg)

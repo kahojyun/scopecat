@@ -8,6 +8,7 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.resolution import compile_invocation
+from scopecat.compiler.topology_selection import TopologyEntitySetResolution
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
 from scopecat.measurements.records import EntityRecordPlan, plan_records
@@ -24,6 +25,7 @@ from scopecat_quantum.measurement_computes import (
     IqCentroid,
     binary_iq_probabilities,
 )
+from scopecat_quantum.programs import Parallel as QuantumParallel
 from scopecat_quantum.programs import ParallelEach as QuantumParallelEach
 from scopecat_quantum.programs import estimate_quantum_program_workload
 
@@ -632,6 +634,7 @@ def test_qubit_set_can_resolve_a_topology_selection_intent() -> None:
     bound = bind_program(compiled.program, build_config_environment(config))
 
     [resolution] = bound.bindings.topology_entity_sets.values()
+    assert isinstance(resolution, TopologyEntitySetResolution)
     assert [entity.id for entity in resolution.entities] == ["q1", "q0", "q2"]
     [product] = bound.bindings.product_defs
     assert product.axes[0].entities == resolution.entities
@@ -646,6 +649,131 @@ def test_qubit_set_can_resolve_a_topology_selection_intent() -> None:
     assert input_id == "qubits"
     rows = cast("list[dict[str, sc.EntityRef]]", values[0])
     assert [row["qubit"].id for row in rows] == ["q1", "q0", "q2"]
+
+
+def test_coupler_and_pair_sets_expand_parallel_operations() -> None:
+    cz = authoring.two_qubit_gate("cz")
+
+    @authoring.program(id="test.quantum.coupler-set")
+    def coupler_program(couplers: authoring.CouplerSet) -> authoring.QuantumFragment:
+        return authoring.parallel_each(
+            couplers,
+            lambda coupler: authoring.play(
+                authoring.flux(coupler),
+                authoring.constant(
+                    duration=sc.Quantity(8, "ns"),
+                    amplitude=sc.Quantity(0.2, "arb"),
+                ),
+            ),
+        )
+
+    @authoring.program(id="test.quantum.pair-set")
+    def pair_program(pairs: authoring.QubitPairSet) -> authoring.QuantumFragment:
+        return authoring.parallel_each(
+            pairs,
+            lambda pair: authoring.sequence(
+                cz(pair.left, pair.right),
+                authoring.play(
+                    authoring.flux(pair.coupler),
+                    authoring.constant(
+                        duration=sc.Quantity(8, "ns"),
+                        amplitude=sc.Quantity(0.2, "arb"),
+                    ),
+                ),
+            ),
+        )
+
+    bound_couplers = authoring.bind(coupler_program, {"couplers": ("c0", "c1")})
+    assert isinstance(bound_couplers.program.body, QuantumParallel)
+    assert len(bound_couplers.program.body.branches) == 2
+
+    bound_pairs = authoring.bind(
+        pair_program,
+        {
+            "pairs": (
+                {"left": "q0", "right": "q1", "coupler": "c0"},
+                {"left": "q2", "right": "q3", "coupler": "c1"},
+            )
+        },
+    )
+    assert isinstance(bound_pairs.program.body, QuantumParallel)
+    assert len(bound_pairs.program.body.branches) == 2
+    gate_calls = tuple(
+        operation
+        for operation in bound_pairs.verified.operations
+        if isinstance(operation, GateCall)
+    )
+    assert [[qubit.value for qubit in call.qubits] for call in gate_calls] == [
+        ["q0", "q1"],
+        ["q2", "q3"],
+    ]
+
+
+def test_pair_set_can_resolve_a_topology_matching_intent() -> None:
+    cz = authoring.two_qubit_gate("cz")
+
+    @authoring.program(id="test.quantum.topology-selected-pairs")
+    def declaration(pairs: authoring.QubitPairSet) -> authoring.QuantumFragment:
+        return authoring.parallel_each(
+            pairs,
+            lambda pair: cz(pair.left, pair.right),
+        )
+
+    call = declaration(
+        authoring.select_qubit_pairs(
+            connection_kind="nearest_neighbor",
+            matching=0,
+        )
+    )
+
+    @sc.experiment(id="test.quantum.topology-pairs", kind="quantum")
+    def experiment(context: sc.ExperimentContext) -> None:
+        context.use(call)
+
+    compiled = compile_invocation(experiment())
+    config = load_config_snapshot_document(
+        _REPO_ROOT / "fixtures" / "core" / "simple_scan" / "config-snapshot.json"
+    )
+    topology = Topology(
+        entities=[
+            *(sc.EntityRef(id=f"q{index}", kind="logical_qubit") for index in range(4)),
+            *(
+                sc.EntityRef(id=f"c{index}", kind="logical_coupler")
+                for index in range(3)
+            ),
+        ],
+        connections=[
+            TopologyConnection(
+                id=f"q{index}-q{index + 1}",
+                kind="nearest_neighbor",
+                endpoints=(f"q{index}", f"q{index + 1}"),
+                entity_id=f"c{index}",
+            )
+            for index in range(3)
+        ],
+    )
+    config = config.model_copy(
+        update={"system": config.system.model_copy(update={"topology": topology})}
+    )
+
+    bound = bind_program(compiled.program, build_config_environment(config))
+
+    [resolution] = bound.bindings.topology_entity_sets.values()
+    resolution_rows = cast(
+        "tuple[dict[str, sc.EntityRef], ...]",
+        resolution.table.rows,
+    )
+    assert [row["coupler"].id for row in resolution_rows] == ["c0", "c2"]
+    prepared = prepare_bound_points(bound)
+    [execution] = bound.program.program.domain_executions
+    [(_input_id, values)] = prepared.bind_domain_inputs(
+        execution.id,
+        "program",
+        ("pairs",),
+        (0,),
+    )
+    rows = cast("list[dict[str, sc.EntityRef]]", values[0])
+    assert [row["coupler"].id for row in rows] == ["c0", "c2"]
 
 
 def test_program_call_binds_compiler_collection_outside_program_arguments() -> None:

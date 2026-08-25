@@ -18,6 +18,7 @@ def test_registry_lists_every_classified_case() -> None:
     cases = cast("list[dict[str, object]]", json.loads(completed.stdout))
     assert [(case["id"], case["kind"]) for case in cases] == [
         ("scan-execution", "e2e"),
+        ("scale-suite", "e2e"),
         ("adaptive-context", "component"),
         ("list-mode-compiler", "component"),
         ("historical-project", "component"),

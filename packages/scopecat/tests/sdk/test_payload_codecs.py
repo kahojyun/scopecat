@@ -9,7 +9,11 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 import scopecat as sc
 from scopecat.kernel.payloads import PayloadValue
-from scopecat.records.content import command_payload_from_bytes
+from scopecat.records.content import (
+    CommandPayload,
+    SegmentedInlinePayloadBody,
+    command_payload_from_bytes,
+)
 from scopecat.sdk.payloads import (
     PayloadCodecCatalog,
     PayloadCodecRegistry,
@@ -19,6 +23,7 @@ from scopecat.sdk.payloads import (
 from scopecat.sdk.structured_payloads import (
     STRUCTURED_PAYLOAD_MEDIA_TYPE,
     FrozenFloat64Vector,
+    FrozenInt16Vector,
     StructuredPayloadError,
     pydantic_buffer_bundle_codec,
     pydantic_buffer_bundle_value_codec,
@@ -49,6 +54,17 @@ class _FrozenVectorProgram(BaseModel):
     samples: FrozenFloat64Vector
 
 
+class _FrozenInt16VectorProgram(BaseModel):
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="forbid",
+        frozen=True,
+        strict=True,
+    )
+
+    samples: FrozenInt16Vector
+
+
 class _LeftProgram(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -72,6 +88,7 @@ type _ProgramVariant = Annotated[
 def test_payload_codec_tools_are_available_from_the_public_facade() -> None:
     assert sc.PayloadContract is PayloadContract
     assert sc.FrozenFloat64Vector is FrozenFloat64Vector
+    assert sc.FrozenInt16Vector is FrozenInt16Vector
     assert sc.StructuredValueCodec.__name__ == "StructuredValueCodec"
     assert sc.byte_payload_codec is byte_payload_codec
     assert sc.pydantic_buffer_bundle_codec is pydantic_buffer_bundle_codec
@@ -286,6 +303,12 @@ def test_pydantic_buffer_bundle_codec_round_trips_immutable_numpy_buffers() -> N
     assert b"0.25" not in bundle.header
 
     payload = contract.command_payload("array-program", value)
+    assert isinstance(payload.body, SegmentedInlinePayloadBody)
+    assert len(payload.inline_segments()) == len(bundle.attachments) + 2
+    assert sum(memoryview(segment).nbytes for segment in payload.inline_segments()) == (
+        payload.size_bytes
+    )
+    assert CommandPayload.model_validate_json(payload.model_dump_json()) == payload
     assert contract.decode(payload).id == value.id
     assert isinstance(registry.decode(payload), _ArrayProgram)
 
@@ -331,6 +354,23 @@ def test_frozen_float64_vector_snapshots_numeric_input() -> None:
     assert value.samples.dtype == np.dtype(np.float64)
     assert not value.samples.flags.writeable
     np.testing.assert_array_equal(value.samples, np.arange(4, dtype=np.float64))
+
+
+def test_frozen_int16_vector_snapshots_integer_input() -> None:
+    source = np.arange(4, dtype=np.int64)
+
+    value = _FrozenInt16VectorProgram.model_validate({"samples": source})
+    source[0] = 99
+
+    assert value.samples.dtype == np.dtype(np.int16)
+    assert not value.samples.flags.writeable
+    np.testing.assert_array_equal(value.samples, np.arange(4, dtype=np.int16))
+
+
+@pytest.mark.parametrize("samples", ([0.5], [np.iinfo(np.int16).max + 1]))
+def test_frozen_int16_vector_rejects_non_codes(samples: list[float | int]) -> None:
+    with pytest.raises(ValueError, match=r"integer values|signed 16-bit"):
+        _FrozenInt16VectorProgram.model_validate({"samples": samples})
 
 
 def test_pydantic_buffer_bundle_codec_supports_discriminated_type_adapters() -> None:

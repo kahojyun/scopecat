@@ -81,6 +81,8 @@ class IqOffsetCouplingGroupDefinition:
     activation_chain_ids: tuple[str, ...]
     required_chain_ids: tuple[str, ...]
     required_output_slot_ids: tuple[str, ...] = ()
+    activation_chain_prefixes: tuple[str, ...] = ()
+    required_chain_prefixes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,7 +109,25 @@ REFERENCE_IQ_OFFSET_POLICY = IqOffsetPolicyDefinition(
         ),
     ),
 )
-IQ_OFFSET_POLICIES = (REFERENCE_IQ_OFFSET_POLICY,)
+SCALABLE_IQ_OFFSET_POLICY = IqOffsetPolicyDefinition(
+    id="reference_lab.iq-offset.drive-bank.v1",
+    coupling_groups=(
+        IqOffsetCouplingGroupDefinition(
+            id="drive-awg.outputs",
+            activation_chain_ids=(),
+            required_chain_ids=(),
+            required_output_slot_ids=(DRIVE_AWG_OFFSET_GUARD_SLOT_ID,),
+            activation_chain_prefixes=("drive-",),
+            required_chain_prefixes=("drive-",),
+        ),
+        IqOffsetCouplingGroupDefinition(
+            id="readout-awg.outputs",
+            activation_chain_ids=("readout",),
+            required_chain_ids=("readout",),
+        ),
+    ),
+)
+IQ_OFFSET_POLICIES = (REFERENCE_IQ_OFFSET_POLICY, SCALABLE_IQ_OFFSET_POLICY)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,7 +157,12 @@ def grouped_iq_offset_policy(
     channel_groups: dict[AwgChannelId, str] = {}
     for definition in sorted(groups, key=lambda group: group.id):
         activation_outputs: list[OutputOffsetRequirement] = []
-        for chain_id in definition.activation_chain_ids:
+        activation_chain_ids = _matching_chain_ids(
+            definition.activation_chain_ids,
+            prefixes=definition.activation_chain_prefixes,
+            configured_chain_ids=configured_chain_ids,
+        )
+        for chain_id in activation_chain_ids:
             previous_group = activation_chain_groups.get(chain_id)
             if previous_group is not None:
                 raise ValueError(
@@ -147,7 +172,12 @@ def grouped_iq_offset_policy(
             activation_chain_groups[chain_id] = definition.id
             activation_outputs.extend(chain_outputs.get(chain_id, ()))
         selected_outputs: list[OutputOffsetRequirement] = []
-        for chain_id in definition.required_chain_ids:
+        selected_chain_ids = _matching_chain_ids(
+            definition.required_chain_ids,
+            prefixes=definition.required_chain_prefixes,
+            configured_chain_ids=configured_chain_ids,
+        )
+        for chain_id in selected_chain_ids:
             required_chain_ids.add(chain_id)
             selected_outputs.extend(chain_outputs.get(chain_id, ()))
         for slot_id in definition.required_output_slot_ids:
@@ -193,6 +223,26 @@ def grouped_iq_offset_policy(
     return IqOffsetCouplingPolicy(
         id=policy.id,
         coupling_groups=tuple(resolved_groups),
+    )
+
+
+def _matching_chain_ids(
+    explicit: Sequence[str],
+    *,
+    prefixes: Sequence[str],
+    configured_chain_ids: set[str],
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            (
+                *explicit,
+                *(
+                    chain_id
+                    for chain_id in sorted(configured_chain_ids)
+                    if any(chain_id.startswith(prefix) for prefix in prefixes)
+                ),
+            )
+        )
     )
 
 
@@ -348,6 +398,7 @@ __all__ = [
     "IQ_OFFSET_OUTPUT_SLOTS",
     "IQ_OFFSET_POLICIES",
     "REFERENCE_IQ_OFFSET_POLICY",
+    "SCALABLE_IQ_OFFSET_POLICY",
     "AwgChannelId",
     "IqOffsetCouplingGroupDefinition",
     "IqOffsetCouplingPolicy",

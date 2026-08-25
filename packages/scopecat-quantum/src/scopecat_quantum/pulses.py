@@ -13,6 +13,7 @@ import math
 from collections.abc import Iterator
 from dataclasses import InitVar, dataclass, field, replace
 from decimal import Decimal
+from heapq import heappop, heappush
 
 from scopecat import Quantity
 
@@ -887,24 +888,44 @@ def _ordered_placed_leaves(placed: list[_PlacedLeaf]) -> tuple[_PlacedLeaf, ...]
 
     ordered: list[_PlacedLeaf] = []
     for start in sorted(by_start):
-        remaining = list(by_start[start])
-        ids_at_start = {event.leaf.id for event in remaining}
-        emitted: set[PulseEventId] = set()
-        while remaining:
-            ready = [
-                event
-                for event in remaining
-                if not (
-                    (event.sequence_predecessors & ids_at_start).difference(emitted)
-                )
-            ]
-            if not ready:
-                msg = "pulse sequence precedence unexpectedly contains a cycle"
-                raise RuntimeError(msg)
-            selected = min(ready, key=_event_sort_key)
-            ordered.append(selected)
-            emitted.add(selected.leaf.id)
-            remaining.remove(selected)
+        events = by_start[start]
+        events_by_id = {event.leaf.id: event for event in events}
+        ids_at_start = events_by_id.keys()
+        indegree: dict[PulseEventId, int] = {}
+        successors: dict[PulseEventId, list[PulseEventId]] = {}
+        for event in events:
+            dependencies = event.sequence_predecessors & ids_at_start
+            indegree[event.leaf.id] = len(dependencies)
+            for predecessor in dependencies:
+                successors.setdefault(predecessor, []).append(event.leaf.id)
+
+        ready: list[tuple[tuple[object, ...], int, PulseEventId]] = []
+        for ordinal, event in enumerate(events):
+            if indegree[event.leaf.id] == 0:
+                heappush(ready, (_event_sort_key(event), ordinal, event.leaf.id))
+
+        emitted_count = 0
+        while ready:
+            _, _, event_id = heappop(ready)
+            event = events_by_id[event_id]
+            ordered.append(event)
+            emitted_count += 1
+            for successor_id in successors.get(event_id, ()):
+                successor_indegree = indegree[successor_id] - 1
+                indegree[successor_id] = successor_indegree
+                if successor_indegree == 0:
+                    successor = events_by_id[successor_id]
+                    heappush(
+                        ready,
+                        (
+                            _event_sort_key(successor),
+                            len(events) + emitted_count,
+                            successor_id,
+                        ),
+                    )
+        if emitted_count != len(events):
+            msg = "pulse sequence precedence unexpectedly contains a cycle"
+            raise RuntimeError(msg)
     return tuple(ordered)
 
 

@@ -16,16 +16,20 @@ from ._analysis import (
 )
 from ._ir import (
     Coupler,
+    CouplerSet,
     ProgramBindingError,
     ProgramInput,
     QuantumFragment,
     Qubit,
+    QubitPairSet,
     QubitSet,
     _ConditionalFragment,
     _ExpandedFragment,
     _FragmentCall,
     _FragmentHandle,
+    _ParallelCouplerEachFragment,
     _ParallelEachFragment,
+    _ParallelQubitPairEachFragment,
     _QuantumParallelFragment,
     _QuantumRepeatFragment,
     _QuantumSequenceFragment,
@@ -88,7 +92,12 @@ def _expand_fragment_calls(
                 for branch in value.branches
             ),
         )
-    if isinstance(value, _ParallelEachFragment):
+    if isinstance(
+        value,
+        _ParallelEachFragment
+        | _ParallelCouplerEachFragment
+        | _ParallelQubitPairEachFragment,
+    ):
         return replace(
             value,
             operation=_expand_fragment_calls(value.operation, bindings, stack=stack),
@@ -114,8 +123,8 @@ def _evaluate_fragment_call(
         if isinstance(formal, Qubit | Coupler):
             resolved[name] = actual
             continue
-        if isinstance(formal, QubitSet):
-            raise AssertionError("quantum fragments cannot declare QubitSet ports")
+        if isinstance(formal, QubitSet | CouplerSet | QubitPairSet):
+            raise AssertionError("quantum fragments cannot declare entity-set ports")
         selected = bindings[actual.id] if isinstance(actual, ProgramInput) else actual
         try:
             resolved[name] = coerce_literal(

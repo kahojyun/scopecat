@@ -187,8 +187,7 @@ def config_apply(
 
     state = "[green]applied[/green]" if result.changed else "[green]in sync[/green]"
     console.print(
-        f"{state} entry={result.receipt.entry.id} "
-        f"content_hash={result.source_content_hash}",
+        f"{state} entry={result.entry_id} content_hash={result.source_content_hash}",
         soft_wrap=True,
     )
 

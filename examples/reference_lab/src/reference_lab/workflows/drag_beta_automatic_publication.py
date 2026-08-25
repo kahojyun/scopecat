@@ -21,7 +21,7 @@ from reference_lab.workflows.drag_beta_publication import (
 )
 
 DRAG_BETA_PUBLICATION_POLICY_ID = "reference-lab.drag-beta-automatic-publication"
-DRAG_BETA_PUBLICATION_POLICY_VERSION = "4"
+DRAG_BETA_PUBLICATION_POLICY_VERSION = "5"
 
 
 @calibration_publication_policy(

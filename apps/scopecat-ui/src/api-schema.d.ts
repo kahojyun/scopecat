@@ -1703,7 +1703,7 @@ export interface components {
             /** Size Bytes */
             size_bytes: number;
         };
-        CommandPayloadBody: components["schemas"]["InlinePayloadBody"] | components["schemas"]["BlobPayloadBody"];
+        CommandPayloadBody: components["schemas"]["InlinePayloadBody"] | components["schemas"]["SegmentedInlinePayloadBody"] | components["schemas"]["BlobPayloadBody"];
         /**
          * CompiledArtifactInspection
          * @description Common inspection envelope shared by pre-run and running views.
@@ -5279,6 +5279,19 @@ export interface components {
             value: number;
         };
         /**
+         * SegmentedInlinePayloadBody
+         * @description One inline payload retained as independently uploadable byte segments.
+         */
+        SegmentedInlinePayloadBody: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "segmented_inline";
+            /** Segments Base64 */
+            segments_base64: string[];
+        };
+        /**
          * SerialInstrumentConnection
          * @description One locally attached serial port with explicit framing settings.
          */
@@ -5515,6 +5528,7 @@ export interface components {
                 components["schemas"]["_NonEmptyId"],
                 components["schemas"]["_NonEmptyId"]
             ];
+            entity_id?: components["schemas"]["_NonEmptyId"] | null;
             id: components["schemas"]["_NonEmptyId"];
             kind: components["schemas"]["_NonEmptyId"];
         };

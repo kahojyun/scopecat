@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import struct
+from collections.abc import Buffer
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Self, cast
 
-type BinaryBuffer = bytes | bytearray | memoryview
+type BinaryBuffer = Buffer
 type ImmutableBuffer = bytes | memoryview
 
 _MAGIC = b"SCATBND1"

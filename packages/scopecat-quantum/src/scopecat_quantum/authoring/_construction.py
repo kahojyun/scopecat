@@ -77,6 +77,8 @@ from ._ir import (
     Acquisition,
     CircuitFragment,
     Coupler,
+    CouplerSet,
+    EntitySetPort,
     Measurement,
     MeasurementResult,
     ProgramFunction,
@@ -90,12 +92,16 @@ from ._ir import (
     QuantumFragment,
     QuantumQuantity,
     Qubit,
+    QubitPair,
+    QubitPairSet,
     QubitSet,
     RepeatCount,
     _ConditionalFragment,
     _DelayFragment,
+    _ParallelCouplerEachFragment,
     _ParallelEachFragment,
     _ParallelFragment,
+    _ParallelQubitPairEachFragment,
     _PlayFragment,
     _QuantumParallelFragment,
     _QuantumRepeatFragment,
@@ -485,17 +491,45 @@ def parallel(
     return _QuantumParallelFragment(branches=branches)
 
 
+@overload
 def parallel_each(
     entity_set: QubitSet,
     operation: Callable[[Qubit], QuantumFragment],
     /,
+) -> QuantumFragment: ...
+
+
+@overload
+def parallel_each(
+    entity_set: CouplerSet,
+    operation: Callable[[Coupler], QuantumFragment],
+    /,
+) -> QuantumFragment: ...
+
+
+@overload
+def parallel_each(
+    entity_set: QubitPairSet,
+    operation: Callable[[QubitPair], QuantumFragment],
+    /,
+) -> QuantumFragment: ...
+
+
+def parallel_each(
+    entity_set: QubitSet | CouplerSet | QubitPairSet,
+    operation: Callable[..., QuantumFragment],
+    /,
 ) -> QuantumFragment:
-    """Retain one parallel operation over a variable-size qubit set."""
+    """Retain one parallel operation over a variable-size entity set."""
 
     body = operation(entity_set.item)
+    if isinstance(entity_set, QubitSet):
+        return _ParallelEachFragment(entity_set=entity_set, operation=body)
     if _summarize_fragment(body).has_realtime:
-        raise ValueError("real-time control is not supported under parallel_each")
-    return _ParallelEachFragment(entity_set=entity_set, operation=body)
+        raise ValueError("real-time control is supported only for qubit parallel_each")
+    if isinstance(entity_set, CouplerSet):
+        return _ParallelCouplerEachFragment(entity_set=entity_set, operation=body)
+    return _ParallelQubitPairEachFragment(entity_set=entity_set, operation=body)
 
 
 def switch(
@@ -736,7 +770,7 @@ def _close_program(
     body: QuantumFragment,
     *,
     elements: SequenceCollection[PulseElement] = (),
-    entity_sets: SequenceCollection[QubitSet] = (),
+    entity_sets: SequenceCollection[EntitySetPort] = (),
     formal_inputs: SequenceCollection[ProgramInput] | None = None,
     description: str | None = None,
 ) -> Program:
@@ -904,8 +938,11 @@ def _quantum_function_contract(
             cast("object", parameter.annotation),
         )
         argument = _program_function_argument(parameter.name, annotation)
-        if isinstance(argument, QubitSet) and not allow_entity_sets:
-            raise TypeError(f"{kind} functions cannot declare QubitSet ports")
+        if (
+            isinstance(argument, QubitSet | CouplerSet | QubitPairSet)
+            and not allow_entity_sets
+        ):
+            raise TypeError(f"{kind} functions cannot declare entity-set ports")
         parameters.append(argument)
     return _QuantumFunctionContract(signature, tuple(parameters))
 

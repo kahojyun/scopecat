@@ -167,6 +167,7 @@ if TYPE_CHECKING:
     )
     from scopecat.sdk.structured_payloads import (
         FrozenFloat64Vector,
+        FrozenInt16Vector,
         StructuredPayloadError,
         StructuredValueCodec,
         pydantic_buffer_bundle_codec,
@@ -268,6 +269,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "FrozenFloat64Vector": (
         "scopecat.sdk.structured_payloads",
         "FrozenFloat64Vector",
+    ),
+    "FrozenInt16Vector": (
+        "scopecat.sdk.structured_payloads",
+        "FrozenInt16Vector",
     ),
     "StructuredPayloadError": (
         "scopecat.sdk.structured_payloads",

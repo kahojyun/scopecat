@@ -14,6 +14,7 @@ from scopecat.program.table_values import (
     LiteralTableSource,
     ParameterTableSource,
     TableSource,
+    TopologyConnectionSetSource,
     TopologyEntitySetSource,
     literal_table_source,
 )
@@ -65,7 +66,8 @@ def bind_table_source(
         LiteralTableSource
         | ParameterTableSource
         | InputTableSource
-        | TopologyEntitySetSource,
+        | TopologyEntitySetSource
+        | TopologyConnectionSetSource,
     ):
         return value
     return literal_table_source(

@@ -59,15 +59,25 @@ from ._inspection import (
 from ._ir import (
     QUANTUM_PROGRAM_DIALECT_ID,
     QUANTUM_PROGRAM_DIALECT_VERSION,
+    CouplerSet,
+    EntitySetPort,
     ProgramFunction,
     ProgramInput,
     ProgramPort,
     ProgramResults,
     PulseElement,
     QuantumFragment,
+    QubitPairSet,
     QubitSet,
 )
-from ._selection import QubitSelectionIntent, qubit_selection_value_ref
+from ._selection import (
+    CouplerSelectionIntent,
+    QubitPairSelectionIntent,
+    QubitSelectionIntent,
+    coupler_selection_value_ref,
+    qubit_pair_selection_value_ref,
+    qubit_selection_value_ref,
+)
 
 
 class _ProgramFunctionContract(Protocol):
@@ -156,7 +166,7 @@ class Program:
     ir_id: QuantumProgramId
     body: QuantumFragment
     elements: tuple[PulseElement, ...]
-    entity_sets: tuple[QubitSet, ...]
+    entity_sets: tuple[EntitySetPort, ...]
     inputs: tuple[ProgramInput, ...]
     results: ProgramResults
     description: str | None = None
@@ -449,6 +459,24 @@ def _normalize_program_input(
             value_type,
             path=("inputs", port.id),
         )
+    if isinstance(port, CouplerSet):
+        if isinstance(value, CouplerSelectionIntent):
+            return coupler_selection_value_ref(value, port.value_type)
+        rows = _entity_set_rows(value, port=port, column="coupler")
+        return internal_literal_value_ref(
+            rows,
+            port.value_type,
+            path=("inputs", port.id),
+        )
+    if isinstance(port, QubitPairSet):
+        if isinstance(value, QubitPairSelectionIntent):
+            return qubit_pair_selection_value_ref(value, port.value_type)
+        rows = _qubit_pair_set_rows(value, port=port)
+        return internal_literal_value_ref(
+            rows,
+            port.value_type,
+            path=("inputs", port.id),
+        )
     normalized = coerce_literal(
         value_type,
         value,
@@ -458,17 +486,39 @@ def _normalize_program_input(
 
 
 def _qubit_set_rows(value: object, *, port: QubitSet) -> tuple[dict[str, object], ...]:
+    return _entity_set_rows(value, port=port, column="qubit")
+
+
+def _entity_set_rows(
+    value: object,
+    *,
+    port: QubitSet | CouplerSet,
+    column: str,
+) -> tuple[dict[str, object], ...]:
     if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        raise TypeError(f"inputs.{port.id}: expected a sequence of logical qubits")
+        raise TypeError(f"inputs.{port.id}: expected a sequence of logical entities")
     selected: list[dict[str, object]] = []
     for item in value:
         if isinstance(item, Mapping):
             selected.append(dict(cast("Mapping[str, object]", item)))
         else:
-            selected.append({"qubit": item})
+            selected.append({column: item})
     if not selected:
-        raise ValueError(f"inputs.{port.id}: qubit set must not be empty")
+        raise ValueError(f"inputs.{port.id}: entity set must not be empty")
     return tuple(selected)
+
+
+def _qubit_pair_set_rows(
+    value: object,
+    *,
+    port: QubitPairSet,
+) -> tuple[dict[str, object], ...]:
+    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
+        raise TypeError(f"inputs.{port.id}: expected a sequence of qubit-pair rows")
+    rows = tuple(dict(cast("Mapping[str, object]", item)) for item in value)
+    if not rows:
+        raise ValueError(f"inputs.{port.id}: qubit-pair set must not be empty")
+    return rows
 
 
 def _normalize_shots(shots: ComputeInput) -> ComputeInput:

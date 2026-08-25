@@ -1,0 +1,4 @@
+[lab]
+bootstrap = "scale_benchmark_project.application:create_bootstrap"
+application = "scale_benchmark_project.application:create_application"
+instrument_backend = "scale_benchmark_project.application:create_backend"

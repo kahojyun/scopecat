@@ -12,6 +12,12 @@ BENCHMARK_CASES = (
         summary="Production scan latency, working set, and durable retention",
     ),
     BenchmarkCase(
+        id="scale-suite",
+        kind="e2e",
+        module="benchmarks.e2e.scale_suite",
+        summary="Named 1/4/16/64-qubit acceptance and benchmark profiles",
+    ),
+    BenchmarkCase(
         id="adaptive-context",
         kind="component",
         module="benchmarks.component.adaptive_context",

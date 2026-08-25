@@ -62,6 +62,7 @@ from scopecat.daemon.wire import (
     RunInstrumentProvisionReceipt,
     RunSubmission,
 )
+from scopecat.kernel.content_identity import sha256_content_hash_segments
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.config import (
@@ -71,8 +72,10 @@ from scopecat.records.config import (
 )
 from scopecat.records.content import (
     BlobPayloadBody,
+    CommandPayload,
     ContentEntry,
     InlinePayloadBody,
+    SegmentedInlinePayloadBody,
     command_payload_from_bytes,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot
@@ -700,6 +703,62 @@ def test_invoke_externalizes_inline_payload_before_command_post() -> None:
     assert isinstance(payload.body, InlinePayloadBody)
     assert isinstance(posted_payload.body, BlobPayloadBody)
     assert posted_payload.body.ref == payload.content_hash
+
+
+def test_segmented_payload_upload_streams_exact_content() -> None:
+    requests: list[httpx2.Request] = []
+    segments = (b"bundle-prefix", memoryview(b"waveform-samples"))
+    content_hash = sha256_content_hash_segments(segments)
+    payload = CommandPayload(
+        id="segmented-program",
+        schema_id="pulse_program",
+        codec_id="tests.segmented",
+        codec_version=1,
+        media_type="application/octet-stream",
+        content_format="attachment_bundle",
+        content_hash=content_hash,
+        size_bytes=sum(memoryview(segment).nbytes for segment in segments),
+        body=SegmentedInlinePayloadBody.from_segments(segments),
+    )
+    command = InvokeCommand(
+        command_id="segmented-invoke",
+        instrument_id="source-0",
+        resource_id="source-0",
+        interface_id="test.play_program/v1",
+        operation_id="play",
+        arguments=[
+            InstrumentOperationArgument(
+                id="program",
+                value=StateValue(PayloadRef(payload_id=payload.id)),
+            )
+        ],
+        payloads={payload.id: payload},
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        if request.method == "PUT":
+            return _model(
+                PayloadObjectReceipt(
+                    ref=content_hash,
+                    content_hash=content_hash,
+                    size_bytes=payload.size_bytes,
+                ),
+                status_code=201,
+            )
+        return _model(InvokeReceipt(status="invoked"))
+
+    client = DaemonClient(
+        "http://daemon.local/",
+        transport=httpx2.MockTransport(handler),
+    )
+
+    assert client.invoke_instrument("session-1", "source-0", command).status == (
+        "invoked"
+    )
+    assert [request.method for request in requests] == ["PUT", "POST"]
+    assert requests[0].content == b"".join(segments)
+    assert int(requests[0].headers["content-length"]) == payload.size_bytes
 
 
 def test_payload_object_put_retries_once_after_transport_failure() -> None:

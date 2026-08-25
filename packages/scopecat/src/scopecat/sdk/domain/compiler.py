@@ -11,6 +11,28 @@ from scopecat.sdk.domain.execution import PreparedDomainExecution
 
 
 @dataclass(frozen=True, slots=True)
+class DomainBatchPreparationLimits:
+    """Core-enforced bounds for one compiler candidate preparation."""
+
+    max_points: int
+    max_retained_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class DomainBatchPreparationCost:
+    """Stable working set retained by one prepared candidate closure.
+
+    ``retained_bytes`` accounts for compiler-owned bulk buffers and serialized
+    content that remain reachable after ``prepare_batch`` returns. Ordinary
+    Python object headers need not be estimated. The closure must not grow this
+    retained working set when exact subranges are compiled.
+    """
+
+    analyzed_point_count: int
+    retained_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
 class DomainBatchCandidate:
     """Reusable analysis of one candidate point prefix.
 
@@ -21,6 +43,7 @@ class DomainBatchCandidate:
     """
 
     compatible_point_count: int
+    preparation_cost: DomainBatchPreparationCost
     _compile: Callable[[DomainBatchRequest], PreparedDomainExecution] = field(
         repr=False,
         compare=False,
@@ -46,8 +69,11 @@ class DomainCompiler(Protocol):
         """Return the physical footprint reserved before batch compilation."""
         ...
 
-    def initial_batch_max_points(self, point_count: int) -> int:
-        """Bound the first candidate without resolving its point-local inputs."""
+    def initial_batch_preparation_limits(
+        self,
+        point_count: int,
+    ) -> DomainBatchPreparationLimits:
+        """Bound candidate points and retained bytes before resolving inputs."""
         ...
 
     def prepare_batch(self, request: DomainBatchRequest) -> DomainBatchCandidate:
@@ -65,5 +91,7 @@ class DomainCompiler(Protocol):
 
 __all__ = [
     "DomainBatchCandidate",
+    "DomainBatchPreparationCost",
+    "DomainBatchPreparationLimits",
     "DomainCompiler",
 ]

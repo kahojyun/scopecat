@@ -12,6 +12,7 @@ from scopecat_quantum.inspection import build_quantum_program_inspection_snapsho
 from scopecat_quantum.program_targets import prepare_quantum_target_entry
 from scopecat_quantum.programs import (
     Conditional,
+    ParallelEach,
     Repeat,
     Sequence,
     materialize_quantum_pulse_program,
@@ -21,6 +22,7 @@ from scopecat_quantum.pulse_implementations import ResolvedPulseImplementations
 from scopecat_quantum.pulses import iter_pulse_leaves, schedule
 from scopecat_quantum.realtime import (
     RealtimeConditional,
+    RealtimeParallel,
     RealtimeRepeat,
     RealtimeSequence,
     ScheduledBlock,
@@ -233,12 +235,45 @@ def test_realtime_control_is_rejected_under_parallel_composition() -> None:
     with pytest.raises(ValueError, match="under parallel"):
         authoring.parallel(_correction(qubit), feedback)
 
+
+def test_parallel_each_retains_entity_local_realtime_feedback() -> None:
+    def feedback_body(qubit: authoring.Qubit) -> authoring.QuantumFragment:
+        state = _classified_acquire(qubit)
+        return authoring.sequence(
+            state,
+            authoring.switch(state.result, {1: _correction(qubit)}),
+        )
+
     qubits = authoring.QubitSet(
         _id="qubits",
         _item=authoring.qubit("qubits[]"),
     )
-    with pytest.raises(ValueError, match="under parallel_each"):
-        authoring.parallel_each(qubits, lambda _qubit: feedback)
+    declaration = authoring._close_program(
+        "parallel-feedback",
+        authoring.parallel_each(qubits, feedback_body),
+        entity_sets=(qubits,),
+    )
+    bound = authoring.bind(declaration, {"qubits": ("q0", "q1")})
+    assert isinstance(bound.program.body, ParallelEach)
+    plan = plan_quantum_pulse_lowering(
+        bound.verified,
+        ResolvedPulseImplementations(),
+        output_id=PulseProgramId("parallel-feedback-pulses"),
+    )
+    target = prepare_quantum_target_entry(
+        TargetCompileEntryId("parallel-feedback-point"),
+        plan,
+    ).program
+
+    assert isinstance(target.body, RealtimeParallel)
+    assert len(target.body.branches) == 2
+    assert {
+        next(segment for segment in slot.id.scope if segment in {"q0", "q1"})
+        for slot in target.acquisition_slots
+    } == {
+        "q0",
+        "q1",
+    }
 
 
 def test_result_producing_repeats_reject_mismatch_and_nesting() -> None:

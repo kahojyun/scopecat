@@ -206,7 +206,7 @@ def test_quantum_compiler_uses_a_one_point_initial_probe() -> None:
     provider = ReferenceLabProvider(seed=7)
     compiler = QuantumLabCompiler(target=_configured_target(config, provider))
 
-    assert compiler.initial_batch_max_points(1000) == 1
+    assert compiler.initial_batch_preparation_limits(1000).max_points == 1
 
 
 def test_parallel_qubit_set_compiles_to_one_entity_axis_result_group() -> None:

@@ -26,7 +26,11 @@ from scopecat.records.config import (
 from scopecat.sdk.domain.batch import (
     DomainBatchRequest,
 )
-from scopecat.sdk.domain.compiler import DomainBatchCandidate
+from scopecat.sdk.domain.compiler import (
+    DomainBatchCandidate,
+    DomainBatchPreparationCost,
+    DomainBatchPreparationLimits,
+)
 from scopecat.sdk.domain.execution import PreparedDomainExecution
 from scopecat_testkit.authoring import simple_experiment
 from scopecat_testkit.domain import domain_call
@@ -104,12 +108,22 @@ class _RejectingDomainCompiler:
     def instrument_ids(self) -> tuple[str, ...]:
         return ()
 
-    def initial_batch_max_points(self, point_count: int) -> int:
-        return point_count
+    def initial_batch_preparation_limits(
+        self,
+        point_count: int,
+    ) -> DomainBatchPreparationLimits:
+        return DomainBatchPreparationLimits(
+            max_points=point_count,
+            max_retained_bytes=1024 * 1024,
+        )
 
     def prepare_batch(self, request: DomainBatchRequest) -> DomainBatchCandidate:
         return DomainBatchCandidate(
             compatible_point_count=len(request.points),
+            preparation_cost=DomainBatchPreparationCost(
+                analyzed_point_count=len(request.points),
+                retained_bytes=0,
+            ),
             _compile=self._compile_batch,
         )
 

@@ -10,6 +10,7 @@ implementation.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import os
@@ -49,9 +50,12 @@ from reference_lab.bench_interfaces import (
     TRIGGER_START_PROGRAM_IDEMPOTENT,
 )
 from reference_lab.compiler import QuantumLabCompiler
-from reference_lab.configuration import bootstrap_config
+from reference_lab.configuration import EXAMPLE_ROOT, bootstrap_config
 from reference_lab.parameters import (
     DRIVE_LO_A,
+    DRIVE_LO_B,
+    IQ_CHAIN,
+    IQ_CHAINS,
     LO_FREQUENCY,
     LO_POWER,
     QUBITS,
@@ -64,8 +68,13 @@ from reference_lab.payloads import (
     materialize_awg_program,
     reference_lab_payload_codecs,
 )
+from reference_lab.physical_policies import (
+    SCALABLE_IQ_OFFSET_POLICY,
+    ensure_grouped_iq_offsets,
+)
 from reference_lab.provider import ReferenceLabProvider
 from reference_lab.quantum_runner import (
+    BINARY_IQ_DISCRIMINATOR,
     prepare_quantum_hardware,
     quantum_capture,
 )
@@ -81,7 +90,9 @@ from scopecat.kernel.entity import EntityRef
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.planning.provider_binding import resolve_instrument_contract_catalog
 from scopecat.planning.system import ExperimentSystem
-from scopecat.records.config import ConfigProfileSnapshot
+from scopecat.project import load_project
+from scopecat.records.config import ConfigProfileSnapshot, SystemSpec
+from scopecat.records.parameter import ParameterSnapshot
 from scopecat.sdk.instruments import (
     DriverAcquisition,
     DriverCatalog,
@@ -103,15 +114,22 @@ from scopecat_instruments import rf_source
 from scopecat_quantum import authoring as q
 from scopecat_quantum.measurement_computes import (
     BinaryIqProbabilityProducts,
+    binary_iq_probabilities,
 )
 from scopecat_server import LocalDaemonRuntime  # noqa: TID251
 from scopecat_server.instruments.backend import (  # noqa: TID251
     LocalInstrumentBackendEndpoint,
 )
+from scopecat_server.lifecycle import start_project, stop_project  # noqa: TID251
 from scopecat_testkit.instrument_host import compose_test_instruments
 from scopecat_testkit.server.in_process_lab import in_process_lab  # noqa: TID251
 
-type RunnerName = Literal["adhoc", "scopecat-core", "scopecat"]
+type RunnerName = Literal[
+    "adhoc",
+    "scopecat-core",
+    "scopecat",
+    "scopecat-deployed",
+]
 type ProfileName = Literal[
     "drag_beta_integrated_iq",
     "fixed_program_host_lo_sweep",
@@ -121,7 +139,12 @@ type ProfileName = Literal[
 type RetentionMode = Literal["discard", "summary", "bit-shots", "iq-and-bits"]
 type AcquisitionDspPolicy = Literal["prefer_device", "target"]
 _RUNNERS: tuple[RunnerName, ...] = ("adhoc", "scopecat")
-_ALL_RUNNERS: tuple[RunnerName, ...] = ("adhoc", "scopecat-core", "scopecat")
+_ALL_RUNNERS: tuple[RunnerName, ...] = (
+    "adhoc",
+    "scopecat-core",
+    "scopecat",
+    "scopecat-deployed",
+)
 _PROFILE_ALIASES: dict[str, ProfileName] = {
     "dense": "drag_beta_integrated_iq",
     "lo-sweep": "fixed_program_host_lo_sweep",
@@ -137,6 +160,11 @@ _RETENTION_MODES: tuple[RetentionMode, ...] = (
 _SINGLE_QUBIT_PROFILES: tuple[ProfileName, ...] = (
     "drag_beta_integrated_iq",
     "fixed_program_host_lo_sweep",
+)
+_MAX_SYNTHETIC_QUBITS = 64
+_SYNTHETIC_QUBITS_PER_AWG = 16
+_DEPLOYED_PROJECT_FIXTURE = (
+    Path(__file__).parents[1] / "fixtures" / "deployed_scale_project"
 )
 _Q0 = EntityRef(id="q0", kind="logical_qubit")
 
@@ -232,12 +260,25 @@ class HostMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class DeploymentProcessMetrics:
+    """Startup and concurrent RSS for the real local deployment topology."""
+
+    daemon_start_s: float
+    client_peak_rss_bytes: int
+    daemon_peak_rss_bytes: int
+    instrument_peak_rss_bytes: int
+    combined_starting_rss_bytes: int
+    combined_peak_rss_bytes: int
+    combined_peak_rss_growth_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
 class BenchmarkResult:
     """One isolated benchmark worker result."""
 
     schema: Literal["scopecat.benchmark_result.v1"]
     case_id: Literal["scan-execution"]
-    case_version: Literal[8]
+    case_version: Literal[9]
     kind: Literal["e2e"]
     revision: str
     runner: RunnerName
@@ -263,6 +304,7 @@ class BenchmarkResult:
     control_and_provenance_bytes: int
     durable_bytes: int
     durable_file_count: int
+    deployment: DeploymentProcessMetrics | None = None
 
 
 class ExperimentTimeline:
@@ -350,6 +392,79 @@ class PeakRssSampler:
     def _sample(self) -> None:
         while not self._stop.wait(self._interval_s):
             self.observe()
+
+
+class DeploymentRssSampler:
+    """Sample the three persistent processes in the local deployment topology."""
+
+    def __init__(
+        self,
+        *,
+        daemon_pid: int,
+        instrument_pid: int,
+        interval_s: float = 0.005,
+    ) -> None:
+        self._processes = {
+            "client": psutil.Process(),
+            "daemon": psutil.Process(daemon_pid),
+            "instrument": psutil.Process(instrument_pid),
+        }
+        self._interval_s = interval_s
+        self._peaks = dict.fromkeys(self._processes, 0)
+        self._combined_peak = 0
+        self._combined_starting = self._observe()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._sample, daemon=True)
+
+    def __enter__(self) -> Self:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._stop.set()
+        self._thread.join()
+        self._observe()
+
+    @property
+    def client_peak_bytes(self) -> int:
+        return self._peaks["client"]
+
+    @property
+    def daemon_peak_bytes(self) -> int:
+        return self._peaks["daemon"]
+
+    @property
+    def instrument_peak_bytes(self) -> int:
+        return self._peaks["instrument"]
+
+    @property
+    def combined_starting_bytes(self) -> int:
+        return self._combined_starting
+
+    @property
+    def combined_peak_bytes(self) -> int:
+        return self._combined_peak
+
+    @property
+    def combined_growth_bytes(self) -> int:
+        return self._combined_peak - self._combined_starting
+
+    def _observe(self) -> int:
+        rss_by_process: dict[str, int] = {}
+        for name, process in self._processes.items():
+            try:
+                rss = int(cast("int", process.memory_info().rss))
+            except psutil.NoSuchProcess:
+                rss = 0
+            rss_by_process[name] = rss
+            self._peaks[name] = max(self._peaks[name], rss)
+        combined = sum(rss_by_process.values())
+        self._combined_peak = max(self._combined_peak, combined)
+        return combined
+
+    def _sample(self) -> None:
+        while not self._stop.wait(self._interval_s):
+            self._observe()
 
 
 class LatestWaveformView:
@@ -596,7 +711,7 @@ def run_ad_hoc(
     return BenchmarkResult(
         schema=BENCHMARK_RESULT_SCHEMA,
         case_id="scan-execution",
-        case_version=8,
+        case_version=9,
         kind="e2e",
         revision=git_revision(),
         runner="adhoc",
@@ -681,7 +796,7 @@ def run_scopecat_core(
     return BenchmarkResult(
         schema=BENCHMARK_RESULT_SCHEMA,
         case_id="scan-execution",
-        case_version=8,
+        case_version=9,
         kind="e2e",
         revision=git_revision(),
         runner="scopecat-core",
@@ -781,7 +896,7 @@ def run_scopecat(
     return BenchmarkResult(
         schema=BENCHMARK_RESULT_SCHEMA,
         case_id="scan-execution",
-        case_version=8,
+        case_version=9,
         kind="e2e",
         revision=git_revision(),
         runner="scopecat",
@@ -810,6 +925,192 @@ def run_scopecat(
     )
 
 
+def run_scopecat_deployed(
+    scenario: ScanScenario,
+    root: Path,
+    *,
+    host_label: str = "local",
+) -> BenchmarkResult:
+    """Run through real loopback HTTP and a spawned instrument worker."""
+
+    config = _benchmark_config(scenario)
+    _prepare_deployed_project(root, config=config, scenario=scenario)
+    project = load_project(root / "scopecat.toml")
+    startup_started = time.perf_counter_ns()
+    daemon = start_project(project)
+    daemon_start_s = _seconds(time.perf_counter_ns() - startup_started)
+    try:
+        telemetry_path = root / "benchmark-telemetry.jsonl"
+        instrument_pid = _wait_for_instrument_worker(telemetry_path)
+        with project.connect(daemon.base_url, operator="benchmark") as lab:
+            selected_config = lab.resolve_config()
+            started_ns = time.perf_counter_ns()
+            with DeploymentRssSampler(
+                daemon_pid=daemon.pid,
+                instrument_pid=instrument_pid,
+            ) as memory:
+                run = lab.execute_invocation(
+                    _scopecat_invocation(scenario),
+                    config=selected_config,
+                )
+                finished_ns = time.perf_counter_ns()
+            if run.status != "completed":
+                raise RuntimeError(f"Scopecat run ended as {run.status}")
+            points_completed = _completed_point_count(run, scenario)
+        events = _read_deployment_telemetry(telemetry_path)
+        daemon_events = _read_deployment_telemetry(
+            root / "benchmark-daemon-telemetry.jsonl"
+        )
+        phases = _deployment_phase_metrics(
+            events,
+            started_ns=started_ns,
+            finished_ns=finished_ns,
+        )
+        awg_loads = tuple(event for event in events if event["kind"] == "awg_load")
+        triggers = tuple(event for event in events if event["kind"] == "trigger")
+        collects = tuple(event for event in events if event["kind"] == "collect")
+        waveform_bytes = sum(
+            cast("int", event["waveform_bytes"]) for event in awg_loads
+        )
+        max_batch_bytes = max(
+            cast("int", event["waveform_batch_bytes"]) for event in triggers
+        )
+        live_waveform_bytes = (
+            cast("int", collects[-1]["live_waveform_bytes"]) if collects else 0
+        )
+        spool_events = tuple(
+            event for event in daemon_events if event["kind"] == "payload_spool"
+        )
+        if not spool_events:
+            raise RuntimeError("deployed benchmark did not observe payload spooling")
+        payload_spool_bytes = cast("int", spool_events[-1]["current_bytes"])
+        peak_payload_spool_bytes = max(
+            cast("int", event["peak_bytes"]) for event in spool_events
+        )
+        deployment = DeploymentProcessMetrics(
+            daemon_start_s=daemon_start_s,
+            client_peak_rss_bytes=memory.client_peak_bytes,
+            daemon_peak_rss_bytes=memory.daemon_peak_bytes,
+            instrument_peak_rss_bytes=memory.instrument_peak_bytes,
+            combined_starting_rss_bytes=memory.combined_starting_bytes,
+            combined_peak_rss_bytes=memory.combined_peak_bytes,
+            combined_peak_rss_growth_bytes=memory.combined_growth_bytes,
+        )
+    finally:
+        stop_project(project)
+
+    state_root = root / ".scopecat"
+    durable_bytes, durable_files = _tree_size(state_root)
+    object_store_bytes, object_store_files = _tree_size(state_root / "objects")
+    measurement_dataset_bytes = _scopecat_measurement_bytes(state_root)
+    return BenchmarkResult(
+        schema=BENCHMARK_RESULT_SCHEMA,
+        case_id="scan-execution",
+        case_version=9,
+        kind="e2e",
+        revision=git_revision(),
+        runner="scopecat-deployed",
+        scenario=scenario,
+        host=_host_metadata(host_label),
+        phases=phases,
+        starting_rss_bytes=deployment.combined_starting_rss_bytes,
+        peak_rss_bytes=deployment.combined_peak_rss_bytes,
+        peak_rss_growth_bytes=deployment.combined_peak_rss_growth_bytes,
+        points_completed=points_completed,
+        trigger_count=len(triggers),
+        acquired_result_bytes=_acquired_result_bytes(scenario),
+        selected_result_bytes=_selected_result_bytes(scenario),
+        waveform_bytes_rendered=waveform_bytes,
+        waveform_bytes_uploaded=waveform_bytes,
+        max_waveform_batch_bytes=max_batch_bytes,
+        live_waveform_bytes_retained=live_waveform_bytes,
+        payload_spool_bytes_at_finish=payload_spool_bytes,
+        peak_payload_spool_bytes=peak_payload_spool_bytes,
+        object_store_bytes=object_store_bytes,
+        object_store_file_count=object_store_files,
+        measurement_dataset_bytes=measurement_dataset_bytes,
+        control_and_provenance_bytes=durable_bytes - measurement_dataset_bytes,
+        durable_bytes=durable_bytes,
+        durable_file_count=durable_files,
+        deployment=deployment,
+    )
+
+
+def _prepare_deployed_project(
+    root: Path,
+    *,
+    config: ConfigProfileSnapshot,
+    scenario: ScanScenario,
+) -> None:
+    shutil.copytree(_DEPLOYED_PROJECT_FIXTURE / "src", root / "src")
+    shutil.copytree(
+        EXAMPLE_ROOT / "src" / "reference_lab",
+        root / "src" / "reference_lab",
+    )
+    shutil.copy2(
+        _DEPLOYED_PROJECT_FIXTURE / "scopecat.toml",
+        root / "scopecat.toml",
+    )
+    (root / "benchmark-config.json").write_text(
+        config.model_dump_json(),
+        encoding="utf-8",
+    )
+    (root / "benchmark-run.json").write_text(
+        json.dumps(
+            {
+                "live_waveform": scenario.live_waveform,
+                "point_delay_s": scenario.point_delay_s,
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _wait_for_instrument_worker(path: Path, *, timeout_s: float = 10.0) -> int:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        events = _read_deployment_telemetry(path)
+        ready = tuple(event for event in events if event["kind"] == "worker_ready")
+        if ready:
+            return cast("int", ready[-1]["worker_pid"])
+        time.sleep(0.01)
+    raise RuntimeError("deployed benchmark instrument worker did not report ready")
+
+
+def _read_deployment_telemetry(path: Path) -> tuple[dict[str, object], ...]:
+    if not path.is_file():
+        return ()
+    return tuple(
+        cast("dict[str, object]", json.loads(line))
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    )
+
+
+def _deployment_phase_metrics(
+    events: Sequence[dict[str, object]],
+    *,
+    started_ns: int,
+    finished_ns: int,
+) -> PhaseMetrics:
+    trigger_times = tuple(
+        cast("int", event["time_ns"]) for event in events if event["kind"] == "trigger"
+    )
+    collect_times = tuple(
+        cast("int", event["time_ns"]) for event in events if event["kind"] == "collect"
+    )
+    if not trigger_times or not collect_times:
+        raise RuntimeError("deployed benchmark did not observe trigger and collection")
+    return PhaseMetrics(
+        prepare_s=_seconds(trigger_times[0] - started_ns),
+        active_s=_seconds(collect_times[-1] - trigger_times[0]),
+        finalize_s=_seconds(finished_ns - collect_times[-1]),
+        wall_s=_seconds(finished_ns - started_ns),
+        first_result_s=_seconds(collect_times[0] - started_ns),
+    )
+
+
 def _daemon_client(transport: TestClient) -> DaemonClient:
     def send(request: httpx2.Request) -> httpx2.Response:
         response = transport.request(
@@ -832,6 +1133,8 @@ def _daemon_client(transport: TestClient) -> DaemonClient:
 
 def _benchmark_config(scenario: ScanScenario) -> ConfigProfileSnapshot:
     config = bootstrap_config()
+    if scenario.qubit_count > _configured_qubit_count(config):
+        config = _scaled_benchmark_config(config, scenario)
     target = config.domain_target
     assert target is not None
     configuration = target.configuration.copy()
@@ -850,6 +1153,314 @@ def _benchmark_config(scenario: ScanScenario) -> ConfigProfileSnapshot:
                     )
                 }
             )
+        }
+    )
+
+
+def _configured_qubit_count(config: ConfigProfileSnapshot) -> int:
+    return sum(
+        entity.kind == "logical_qubit" for entity in config.system.topology.entities
+    )
+
+
+def _synthetic_drive_awg_id(awg_index: int) -> str:
+    return "drive-awg" if awg_index == 0 else f"drive-awg-{awg_index}"
+
+
+def _synthetic_drive_channel_id(qubit_index: int, channel_offset: int) -> str:
+    awg_index, local_index = divmod(qubit_index, _SYNTHETIC_QUBITS_PER_AWG)
+    return (
+        f"{_synthetic_drive_awg_id(awg_index)}:"
+        f"drive.awg{awg_index}.ch{2 * local_index + channel_offset}"
+    )
+
+
+def _scaled_benchmark_config(
+    config: ConfigProfileSnapshot,
+    scenario: ScanScenario,
+) -> ConfigProfileSnapshot:
+    """Expand the virtual reference hardware for a scalable waveform profile."""
+
+    qubit_count = scenario.qubit_count
+    qubit_ids = [f"q{index}" for index in range(qubit_count)]
+    system_document = cast(
+        "dict[str, object]",
+        config.system.model_dump(mode="json"),
+    )
+    topology = cast("dict[str, object]", system_document["topology"])
+    entities = cast("list[dict[str, object]]", topology["entities"])
+    topology["entities"] = [
+        *(
+            entity
+            for entity in entities
+            if cast("str", entity["kind"]) != "logical_qubit"
+        ),
+        *(
+            {"id": qubit_id, "kind": "logical_qubit", "metadata": {}}
+            for qubit_id in qubit_ids
+        ),
+    ]
+    connections = cast("list[dict[str, object]]", topology["connections"])
+    topology["connections"] = [
+        *(
+            connection
+            for connection in connections
+            if cast("str", connection["kind"]) != "nearest_neighbor"
+        ),
+        *(
+            {
+                "id": f"q{index}-q{index + 1}",
+                "kind": "nearest_neighbor",
+                "endpoints": [f"q{index}", f"q{index + 1}"],
+            }
+            for index in range(qubit_count - 1)
+        ),
+    ]
+
+    routing = cast("dict[str, object]", system_document["routing"])
+    routes = cast("list[dict[str, object]]", routing["routes"])
+    routes_by_id = {cast("str", route["id"]): route for route in routes}
+    drive_route_templates = {
+        route_id: routes_by_id[route_id] for route_id in ("drive-awg-i", "drive-awg-q")
+    }
+    drive_routes: list[dict[str, object]] = []
+    awg_count = math.ceil(qubit_count / _SYNTHETIC_QUBITS_PER_AWG)
+    for awg_index in range(awg_count):
+        instrument_id = _synthetic_drive_awg_id(awg_index)
+        start = awg_index * _SYNTHETIC_QUBITS_PER_AWG
+        awg_qubit_ids = qubit_ids[start : start + _SYNTHETIC_QUBITS_PER_AWG]
+        for base_route_id, channel_offset in (("drive-awg-i", 1), ("drive-awg-q", 2)):
+            template = drive_route_templates[base_route_id]
+            endpoints = cast("list[dict[str, object]]", template["endpoints"])
+            drive_routes.append(
+                {
+                    **(
+                        template
+                        if awg_index == 0
+                        else {
+                            **template,
+                            "id": f"{base_route_id}-{awg_index}",
+                        }
+                    ),
+                    "instrument_id": instrument_id,
+                    "entity_ids": awg_qubit_ids,
+                    "endpoints": [
+                        *(
+                            copy.deepcopy(endpoint)
+                            for endpoint in endpoints
+                            if endpoint.get("entity_id") is None
+                        ),
+                        *(
+                            {
+                                "interface_id": (
+                                    "reference_lab.analog_waveform_output/v1"
+                                ),
+                                "entity_id": qubit_id,
+                                "channel_id": (
+                                    f"drive.awg{awg_index}.ch"
+                                    f"{2 * local_index + channel_offset}"
+                                ),
+                                "component_path": [
+                                    "outputs",
+                                    f"ch{2 * local_index + channel_offset}",
+                                ],
+                            }
+                            for local_index, qubit_id in enumerate(awg_qubit_ids)
+                        ),
+                    ],
+                }
+            )
+    routing["routes"] = [
+        *(
+            route
+            for route in routes
+            if cast("str", route["id"]) not in drive_route_templates
+        ),
+        *drive_routes,
+    ]
+    for route_id in ("readout-awg-i", "readout-awg-q", "readout"):
+        routes_by_id[route_id]["entity_ids"] = qubit_ids
+    remaining_qubits = qubit_ids[4:]
+    split = len(remaining_qubits) // 2
+    routes_by_id["drive-a"]["entity_ids"] = [
+        *qubit_ids[:2],
+        *remaining_qubits[:split],
+    ]
+    routes_by_id["drive-b"]["entity_ids"] = [
+        *qubit_ids[2:4],
+        *remaining_qubits[split:],
+    ]
+
+    digitizer_route = routes_by_id["readout-digitizer"]
+    digitizer_endpoints = cast(
+        "list[dict[str, object]]",
+        digitizer_route["endpoints"],
+    )
+    digitizer_route["entity_ids"] = qubit_ids
+    digitizer_route["endpoints"] = [
+        *(
+            endpoint
+            for endpoint in digitizer_endpoints
+            if endpoint.get("entity_id") is None
+        ),
+        *(
+            {
+                "interface_id": "reference_lab.digitizer_input/v1",
+                "entity_id": qubit_id,
+                "channel_id": f"demod{index}",
+                "component_path": ["inputs", "ch1"],
+            }
+            for index, qubit_id in enumerate(qubit_ids)
+        ),
+    ]
+    first_awg_qubit_count = min(qubit_count, _SYNTHETIC_QUBITS_PER_AWG)
+    guard_channel = 2 * first_awg_qubit_count + 1
+    guard_endpoint = cast(
+        "list[dict[str, object]]",
+        routes_by_id["drive-awg-offset-guard"]["endpoints"],
+    )[0]
+    guard_endpoint["channel_id"] = f"drive.awg0.ch{guard_channel}"
+    guard_endpoint["component_path"] = ["outputs", f"ch{guard_channel}"]
+
+    registry = cast("dict[str, object]", system_document["instrument_registry"])
+    instruments = cast("list[dict[str, object]]", registry["instruments"])
+    drive_awg_template = next(
+        instrument for instrument in instruments if instrument["id"] == "drive-awg"
+    )
+    drive_awgs: list[dict[str, object]] = []
+    for awg_index in range(awg_count):
+        drive_awg = copy.deepcopy(drive_awg_template)
+        instrument_id = _synthetic_drive_awg_id(awg_index)
+        drive_awg["id"] = instrument_id
+        drive_awg["exclusivity_key"] = instrument_id
+        connection = cast("dict[str, object]", drive_awg["connection"])
+        options = cast("dict[str, object]", connection["options"])
+        qubits_on_awg = min(
+            _SYNTHETIC_QUBITS_PER_AWG,
+            qubit_count - awg_index * _SYNTHETIC_QUBITS_PER_AWG,
+        )
+        options["output_count"] = 2 * qubits_on_awg + (awg_index == 0)
+        drive_awgs.append(drive_awg)
+    registry["instruments"] = [
+        *(instrument for instrument in instruments if instrument["id"] != "drive-awg"),
+        *drive_awgs,
+    ]
+
+    target = cast("dict[str, object]", system_document["domain_target"])
+    target_configuration = cast("dict[str, object]", target["configuration"])
+    iq_offset_policy = cast(
+        "dict[str, object]",
+        target_configuration["iq_offset_policy"],
+    )
+    iq_offset_policy["policy_id"] = "reference_lab.iq-offset.drive-bank.v1"
+    target_configuration["iq_chains"] = [
+        *(
+            {
+                "chain_id": f"drive-{qubit_id}",
+                "i_channel_id": _synthetic_drive_channel_id(index, 1),
+                "q_channel_id": _synthetic_drive_channel_id(index, 2),
+            }
+            for index, qubit_id in enumerate(qubit_ids)
+        ),
+        {
+            "chain_id": "readout",
+            "i_channel_id": "readout-awg:readout.awg0.ch1",
+            "q_channel_id": "readout-awg:readout.awg0.ch2",
+        },
+    ]
+    target_instrument_ids = cast("list[str]", target["instrument_ids"])
+    target["instrument_ids"] = [
+        *(
+            instrument_id
+            for instrument_id in target_instrument_ids
+            if instrument_id != "drive-awg"
+        ),
+        *(_synthetic_drive_awg_id(index) for index in range(awg_count)),
+    ]
+    capabilities = cast(
+        "dict[str, object]",
+        target_configuration["capabilities"],
+    )
+    entry_bytes = (
+        scenario.physical_channel_count
+        * scenario.waveform_sample_count
+        * np.dtype(np.float64).itemsize
+    )
+    capabilities["max_program_waveform_bytes"] = max(
+        cast("int", capabilities["max_program_waveform_bytes"]),
+        entry_bytes,
+    )
+
+    parameter_document = cast(
+        "dict[str, object]",
+        config.parameter_snapshot.model_dump(mode="json"),
+    )
+    parameter_values = cast(
+        "list[dict[str, object]]",
+        parameter_document["values"],
+    )
+    parameter_tables = {cast("str", value["id"]): value for value in parameter_values}
+    parameter_tables["qubits"]["rows"] = [
+        {
+            "qubit": {
+                "id": qubit_id,
+                "kind": "logical_qubit",
+                "metadata": {},
+            },
+            "drag_beta": {"value": 0.5, "unit": "ns"},
+            "quarter_turn_duration": {"value": 16.0, "unit": "ns"},
+            "quarter_turn_amplitude": {"value": 0.2, "unit": "arb"},
+            "quarter_turn_sigma": {"value": 4.0, "unit": "ns"},
+            "drive_carrier_frequency": {
+                "value": 4.8e9 + (index % 4) * 0.1e9,
+                "unit": "Hz",
+            },
+        }
+        for index, qubit_id in enumerate(qubit_ids)
+    ]
+    parameter_tables["readout_resonators"]["rows"] = [
+        {
+            "resonator": {
+                "id": qubit_id,
+                "kind": "logical_qubit",
+                "metadata": {},
+            },
+            "resonance_frequency": {
+                "value": 5.0e9 + (index % 4) * 0.2e9,
+                "unit": "Hz",
+            },
+            "linewidth": {"value": 2.0e6, "unit": "Hz"},
+            "flux_sweet_spot": {"value": 0.0, "unit": "V"},
+        }
+        for index, qubit_id in enumerate(qubit_ids)
+    ]
+    parameter_tables["iq_chains"]["rows"] = [
+        *(
+            {
+                "chain": f"drive-{qubit_id}",
+                "mixer_ii": 1.0,
+                "mixer_iq": 0.0,
+                "mixer_qi": 0.0,
+                "mixer_qq": 1.0,
+                "mixer_i_offset": {"value": 0.0, "unit": "V"},
+                "mixer_q_offset": {"value": 0.0, "unit": "V"},
+            }
+            for qubit_id in qubit_ids
+        ),
+        {
+            "chain": "readout",
+            "mixer_ii": 1.0,
+            "mixer_iq": 0.0,
+            "mixer_qi": 0.0,
+            "mixer_qq": 1.0,
+            "mixer_i_offset": {"value": 0.0, "unit": "V"},
+            "mixer_q_offset": {"value": 0.0, "unit": "V"},
+        },
+    ]
+    return config.model_copy(
+        update={
+            "system": SystemSpec.model_validate(system_document),
+            "parameter_snapshot": ParameterSnapshot.model_validate(parameter_document),
         }
     )
 
@@ -1225,15 +1836,97 @@ def _scopecat_invocation(scenario: ScanScenario) -> sc.ExperimentInvocation:
         if scenario.profile == "multiqubit_result_retention":
             _select_multiqubit_results(experiment, call, scenario)
             return
-        probabilities: BinaryIqProbabilityProducts = experiment.use(
-            quantum_capture(
+        probabilities: BinaryIqProbabilityProducts
+        if scenario.qubit_count > _configured_qubit_count(bootstrap_config()):
+            probabilities = _capture_scaled_quantum_program(
+                experiment,
                 call.with_shots(scenario.shots),
-                prepare_los=scenario.profile != "fixed_program_host_lo_sweep",
+                qubit_count=scenario.qubit_count,
             )
-        )
+        else:
+            probabilities = experiment.use(
+                quantum_capture(
+                    call.with_shots(scenario.shots),
+                    prepare_los=scenario.profile != "fixed_program_host_lo_sweep",
+                )
+            )
         experiment.alias(probabilities.probability_1)
 
     return benchmark_scan()
+
+
+def _capture_scaled_quantum_program(
+    experiment: sc.ExperimentContext,
+    call: q.QuantumProgramCall,
+    *,
+    qubit_count: int,
+) -> BinaryIqProbabilityProducts:
+    qubits = tuple(
+        EntityRef(id=f"q{index}", kind="logical_qubit") for index in range(qubit_count)
+    )
+    selected_qubits = sc.each(*qubits)
+    ensure_grouped_iq_offsets(
+        experiment,
+        qubits=selected_qubits,
+        drive_iq_chains=tuple(
+            (
+                qubit,
+                IQ_CHAINS.row(IQ_CHAIN.key(f"drive-{qubit.id}")),
+            )
+            for qubit in qubits
+        ),
+        policy=SCALABLE_IQ_OFFSET_POLICY,
+    )
+    remaining_qubits = qubits[4:]
+    split = len(remaining_qubits) // 2
+    drive_a_qubit_ids = {
+        *(qubit.id for qubit in qubits[:2]),
+        *(qubit.id for qubit in remaining_qubits[:split]),
+    }
+    drive_los = rf_source(experiment, for_=selected_qubits, role="drive-lo")
+    drive_los.ensure(
+        frequency=sc.PerEntity(
+            tuple(
+                (
+                    qubit,
+                    (
+                        DRIVE_LO_A[LO_FREQUENCY].ref
+                        if qubit.id in drive_a_qubit_ids
+                        else DRIVE_LO_B[LO_FREQUENCY].ref
+                    ),
+                )
+                for qubit in qubits
+            )
+        ),
+        power=sc.PerEntity(
+            tuple(
+                (
+                    qubit,
+                    (
+                        DRIVE_LO_A[LO_POWER].ref
+                        if qubit.id in drive_a_qubit_ids
+                        else DRIVE_LO_B[LO_POWER].ref
+                    ),
+                )
+                for qubit in qubits
+            )
+        ),
+        output_enabled=True,
+        reference_source="external",
+    )
+    readout_lo = rf_source(experiment, for_=selected_qubits, role="readout-lo")
+    readout_lo.ensure(
+        frequency=READOUT_LO[LO_FREQUENCY].ref,
+        power=READOUT_LO[LO_POWER].ref,
+        output_enabled=True,
+        reference_source="external",
+    )
+    results = experiment.use(call.with_compiler_inputs(qubits=QUBITS.ref))
+    return binary_iq_probabilities(
+        experiment,
+        results.iq_shots,
+        discriminator=BINARY_IQ_DISCRIMINATOR,
+    )
 
 
 def _render_ad_hoc_point(
@@ -1322,6 +2015,8 @@ def _worker(args: BenchmarkArguments) -> int:
         result = run_ad_hoc(scenario, root, host_label=args.host_label)
     elif runner == "scopecat-core":
         result = run_scopecat_core(scenario, root, host_label=args.host_label)
+    elif runner == "scopecat-deployed":
+        result = run_scopecat_deployed(scenario, root, host_label=args.host_label)
     else:
         result = run_scopecat(scenario, root, host_label=args.host_label)
     print(
@@ -1611,9 +2306,10 @@ def _selected_qubit_counts(
     selected = _positive_ints(value, label="qubit counts")
     if len(set(selected)) != len(selected):
         raise ValueError("qubit counts must be unique")
-    if any(count > available for count in selected):
+    if any(count > _MAX_SYNTHETIC_QUBITS for count in selected):
         raise ValueError(
-            f"qubit counts exceed the configured {available}-qubit topology"
+            "qubit counts exceed the benchmark's "
+            f"{_MAX_SYNTHETIC_QUBITS}-qubit synthetic topology limit"
         )
     return selected
 
@@ -1626,7 +2322,7 @@ def _validate_runner_compatibility(
     if acquisition_dsp_policy == "target" and "adhoc" in runners:
         raise ValueError(
             "the ad hoc runner does not model raw-trace transport or target-side "
-            "DSP; use --runners scopecat-core,scopecat with "
+            "DSP; use --runners scopecat-core,scopecat,scopecat-deployed with "
             "--acquisition-dsp target"
         )
 

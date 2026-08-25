@@ -7,11 +7,11 @@ from typing import cast, overload, override
 
 from scopecat.compiler.point_domain import MaterializedPoint
 from scopecat.compiler.relations.context import EvalContext
-from scopecat.compiler.relations.evaluation import evaluate_scalar
+from scopecat.compiler.relations.evaluation import evaluate_scalar, evaluate_table_value
 from scopecat.compiler.value_resolution import BoundValueResolver
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.points import AcceptedRunPoint, PointProposalAttempt
-from scopecat.kernel.value_types import Scalar
+from scopecat.kernel.value_types import Scalar, Table
 from scopecat.measurements.points import RunPointCatalog, RunPointContract
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCatalog
@@ -22,6 +22,7 @@ from scopecat.program.expressions import (
     LiteralArrayExpr,
     ScalarExpr,
 )
+from scopecat.program.table_values import TableSource
 
 
 def project_measurement_catalog(
@@ -173,6 +174,22 @@ def project_static_value_record_candidates(
                 )
                 for point in selected_points
             )
+            continue
+        value_type = bound.program.value_types[value_id]
+        if isinstance(value_type, Table):
+            for point in selected_points:
+                parameters = bound_points.point_parameters[point.logical_ordinal]
+                candidates.append(
+                    ValueRecordCandidate(
+                        logical_point_id=point.logical_id,
+                        value_id=value_id,
+                        value=evaluate_table_value(
+                            cast("TableSource", expression),
+                            value_type,
+                            EvalContext(params=parameters, point_row=point.row),
+                        ),
+                    )
+                )
             continue
         if not isinstance(expression, ScalarExpr) or isinstance(
             expression,
