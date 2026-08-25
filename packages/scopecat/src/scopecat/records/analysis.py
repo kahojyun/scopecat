@@ -715,8 +715,15 @@ class ProjectAnalysisSubject(_AnalysisContentModel):
     kind: Literal["project"] = "project"
 
 
+class SampleAnalysisSubject(_AnalysisContentModel):
+    """A longitudinal publication whose scientific subject is one sample."""
+
+    kind: Literal["sample"] = "sample"
+    sample_id: _NonEmptyText
+
+
 type AnalysisSubject = Annotated[
-    RunAnalysisSubject | ProjectAnalysisSubject,
+    RunAnalysisSubject | ProjectAnalysisSubject | SampleAnalysisSubject,
     Field(discriminator="kind"),
 ]
 

@@ -17,6 +17,9 @@ from scopecat.daemon.views import (
     ProjectAnalysisPage,
     ProjectAnalysisSummary,
     ProjectAnalysisView,
+    SampleAnalysisPage,
+    SampleAnalysisSummary,
+    SampleAnalysisView,
 )
 from scopecat.daemon.wire import AnalysisSaveCommand, AnalysisSaveReceipt
 from scopecat.kernel.errors import CheckFailed, Conflict, DataIntegrityError, NotFound
@@ -28,8 +31,10 @@ from scopecat.records.analysis import (
     AnalysisRecord,
     MeasurementAnalysisRecordInput,
     ProjectAnalysisDecisionReference,
+    ProjectAnalysisSubject,
     PublishedAnalysisRecordInput,
     RunAnalysisSubject,
+    SampleAnalysisSubject,
 )
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.content import ContentEntry
@@ -47,6 +52,7 @@ from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
 
 from ..errors import BackendConflict, BackendNotFound
 from .runs import analysis_input_from_payload, analysis_output_from_payload
+from .samples import SampleService
 
 
 class AnalysisService:
@@ -58,10 +64,12 @@ class AnalysisService:
         repository: SQLiteAnalysisRepository,
         services: ProjectStateServices,
         control: SQLiteControlPlane,
+        samples: SampleService,
     ) -> None:
         self._repository = repository
         self._services = services
         self._control = control
+        self._samples = samples
         self._publication_lock = Lock()
 
     def list(
@@ -71,10 +79,49 @@ class AnalysisService:
         before: int | None = None,
     ) -> ProjectAnalysisPage:
         with self._analysis_errors():
-            page = self._repository.list_summaries(limit=limit, before=before)
+            page = self._repository.list_summaries(
+                subject=ProjectAnalysisSubject(),
+                limit=limit,
+                before=before,
+            )
             return ProjectAnalysisPage(
                 items=tuple(
                     ProjectAnalysisSummary(
+                        entry=summary.record,
+                        title=summary.title,
+                        key=summary.analysis_key,
+                        revision=summary.revision,
+                        publication_hash=summary.publication_hash,
+                        published_at=summary.published_at,
+                        step_id=summary.step_id,
+                        input_count=summary.input_count,
+                        output_count=summary.output_count,
+                    )
+                    for summary in page.items
+                ),
+                next_cursor=page.next_cursor,
+            )
+
+    def list_sample(
+        self,
+        sample_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> SampleAnalysisPage:
+        with self._analysis_errors():
+            self._samples.get(sample_id)
+            subject = SampleAnalysisSubject(sample_id=sample_id)
+            page = self._repository.list_summaries(
+                subject=subject,
+                limit=limit,
+                before=before,
+            )
+            return SampleAnalysisPage(
+                sample_id=sample_id,
+                items=tuple(
+                    SampleAnalysisSummary(
+                        sample_id=sample_id,
                         entry=summary.record,
                         title=summary.title,
                         key=summary.analysis_key,
@@ -102,6 +149,24 @@ class AnalysisService:
                     raise exact_error
             return self._view(publication.record.id)
 
+    def get_sample(self, sample_id: str, selector: str) -> SampleAnalysisView:
+        with self._analysis_errors():
+            self._samples.get(sample_id)
+            subject = SampleAnalysisSubject(sample_id=sample_id)
+            try:
+                publication = self._repository.read_publication(
+                    selector,
+                    subject=subject,
+                )
+            except NotFound as exact_error:
+                publication = self._repository.latest_publication(
+                    artifact_slug(selector, fallback="analysis"),
+                    subject=subject,
+                )
+                if publication is None:
+                    raise exact_error
+            return self._sample_view(publication.record.id, subject=subject)
+
     def list_contents(
         self,
         analysis_id: str,
@@ -125,7 +190,43 @@ class AnalysisService:
         with self._analysis_errors():
             return self._repository.read_content(analysis_id, selector)
 
+    def list_sample_contents(
+        self,
+        sample_id: str,
+        analysis_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ProjectAnalysisContentPage:
+        self.get_sample(sample_id, analysis_id)
+        return self.list_contents(analysis_id, limit=limit, before=before)
+
+    def sample_content(
+        self,
+        sample_id: str,
+        analysis_id: str,
+        selector: str,
+    ) -> ContentEntry:
+        self.get_sample(sample_id, analysis_id)
+        return self.content(analysis_id, selector)
+
     def save(self, command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
+        if not isinstance(command.subject, ProjectAnalysisSubject):
+            raise BackendConflict("project analysis endpoint requires project subject")
+        return self._save(command)
+
+    def save_sample(
+        self,
+        sample_id: str,
+        command: AnalysisSaveCommand,
+    ) -> AnalysisSaveReceipt:
+        subject = SampleAnalysisSubject(sample_id=sample_id)
+        if command.subject != subject:
+            raise BackendConflict("sample analysis subject does not match its path")
+        self._samples.get(sample_id)
+        return self._save(command)
+
+    def _save(self, command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
         from scopecat.analysis.service import (
             MeasurementAnalysisInput,
             prepare_project_analysis,
@@ -144,6 +245,7 @@ class AnalysisService:
                 outputs=tuple(
                     analysis_output_from_payload(item) for item in command.outputs
                 ),
+                subject=command.subject,
             )
             input_run_ids: set[str] = set()
             for input_ref in inputs:
@@ -156,9 +258,14 @@ class AnalysisService:
                 else:
                     input_run_ids.update(
                         self._input_run_ids(
-                            self._view(input_ref.source.analysis_record_id)
+                            self._owned_view(
+                                input_ref.source.analysis_record_id,
+                                subject=subject,
+                            )
                         )
                     )
+            if isinstance(command.subject, SampleAnalysisSubject):
+                self._require_sample_input_runs(command.subject, input_run_ids)
             if prepared.publication is not None:
                 publication = self._repository.prepare_publication(prepared.publication)
                 with self._control.write_transaction() as connection:
@@ -177,10 +284,19 @@ class AnalysisService:
                                 for run_id in sorted(input_run_ids)
                             ],
                         }
+                        if isinstance(command.subject, SampleAnalysisSubject):
+                            event_payload["sample_id"] = command.subject.sample_id
                         self._control.append_event_in_transaction(
                             connection,
                             DurableEventInput(
-                                kind="project_analysis_saved",
+                                kind=(
+                                    "sample_analysis_saved"
+                                    if isinstance(
+                                        command.subject,
+                                        SampleAnalysisSubject,
+                                    )
+                                    else "project_analysis_saved"
+                                ),
                                 payload=event_payload,
                             ),
                         )
@@ -190,13 +306,56 @@ class AnalysisService:
                 inputs=command.inputs,
             )
 
+    def _require_sample_input_runs(
+        self,
+        subject: SampleAnalysisSubject,
+        run_ids: set[str],
+    ) -> None:
+        for run_id in run_ids:
+            snapshot = self._services.runs.read_snapshot(run_id)
+            if not any(
+                binding.sample_id == subject.sample_id for binding in snapshot.samples
+            ):
+                raise BackendConflict(
+                    f"analysis input run {run_id!r} is not bound to sample "
+                    f"{subject.sample_id!r}"
+                )
+
     def content_bytes(
         self,
         analysis_id: str,
         selector: str,
     ) -> AnalysisContentBytesView:
+        return self._content_bytes(
+            analysis_id,
+            selector,
+            subject=ProjectAnalysisSubject(),
+        )
+
+    def sample_content_bytes(
+        self,
+        sample_id: str,
+        analysis_id: str,
+        selector: str,
+    ) -> AnalysisContentBytesView:
+        return self._content_bytes(
+            analysis_id,
+            selector,
+            subject=SampleAnalysisSubject(sample_id=sample_id),
+        )
+
+    def _content_bytes(
+        self,
+        analysis_id: str,
+        selector: str,
+        *,
+        subject: ProjectAnalysisSubject | SampleAnalysisSubject,
+    ) -> AnalysisContentBytesView:
         with self._analysis_errors():
-            publication = self._repository.read_publication(analysis_id)
+            publication = self._repository.read_publication(
+                analysis_id,
+                subject=subject,
+            )
             entry = self._repository.read_content(analysis_id, selector)
             if entry.role == "dataset":
                 ref = dataset_content_ref(dataset_id=entry.id, kind=entry.kind)
@@ -378,7 +537,7 @@ class AnalysisService:
 
     def _input_run_ids(
         self,
-        view: ProjectAnalysisView,
+        view: ProjectAnalysisView | SampleAnalysisView,
         *,
         visited: frozenset[str] | None = None,
     ) -> set[str]:
@@ -398,11 +557,24 @@ class AnalysisService:
                 continue
             run_ids.update(
                 self._input_run_ids(
-                    self._view(input_ref.source.analysis_record_id),
+                    self._owned_view(
+                        input_ref.source.analysis_record_id,
+                        subject=subject,
+                    ),
                     visited=lineage,
                 )
             )
         return run_ids
+
+    def _owned_view(
+        self,
+        record_id: str,
+        *,
+        subject: ProjectAnalysisSubject | SampleAnalysisSubject,
+    ) -> ProjectAnalysisView | SampleAnalysisView:
+        if isinstance(subject, SampleAnalysisSubject):
+            return self._sample_view(record_id, subject=subject)
+        return self._view(record_id)
 
     def _view(self, record_id: str) -> ProjectAnalysisView:
         publication = self._repository.read_publication(record_id)
@@ -412,6 +584,25 @@ class AnalysisService:
             AnalysisRecord,
         )
         return ProjectAnalysisView(
+            entry=publication.record,
+            analysis=record,
+            published_at=publication.published_at,
+        )
+
+    def _sample_view(
+        self,
+        record_id: str,
+        *,
+        subject: SampleAnalysisSubject,
+    ) -> SampleAnalysisView:
+        publication = self._repository.read_publication(record_id, subject=subject)
+        record = self._repository.read_model(
+            record_id,
+            record_content_ref(record_id=record_id, kind="analysis"),
+            AnalysisRecord,
+        )
+        return SampleAnalysisView(
+            sample_id=subject.sample_id,
             entry=publication.record,
             analysis=record,
             published_at=publication.published_at,

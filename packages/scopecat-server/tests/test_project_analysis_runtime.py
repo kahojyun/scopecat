@@ -64,7 +64,7 @@ from scopecat.control.models import (
     RunPlanSummary,
     RunResourceRequirement,
 )
-from scopecat.daemon.client import DaemonClient
+from scopecat.daemon.client import DaemonClient, DaemonConflictError
 from scopecat.daemon.wire import (
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
@@ -80,6 +80,7 @@ from scopecat.daemon.wire import (
     MeasurementHeaderCommand,
     MeasurementSealCommand,
     RunSubmission,
+    SampleCreateCommand,
     TerminalRunCommitCommand,
 )
 from scopecat.execution.evidence import build_terminal_contents
@@ -119,6 +120,7 @@ from scopecat.records.parameter_change import (
 )
 from scopecat.records.run import ConfigRegistryRunConfigSource
 from scopecat.records.run_request import RunRequest
+from scopecat.records.sample import SampleRevisionDraft, SampleSelector
 
 from scopecat_server import BackendConflict, BackendNotFound, LocalDaemonRuntime
 from scopecat_server.storage.sqlite.calibration_cohorts import (
@@ -558,6 +560,87 @@ def test_project_analysis_compares_completed_runs_and_reloads_outputs(
         )
         assert restored.id == "analysis-candidate-verification-r2"
         assert restored.artifact("report").text().endswith("Reviewed comparison.\n")
+
+
+def test_sample_analysis_is_scoped_to_runs_bound_to_that_sample(tmp_path: Path) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        runtime.application.samples.create(
+            SampleCreateCommand(
+                operation_id="create:die-1",
+                sample_id="die-1",
+                kind="die",
+                actor="operator",
+                content=SampleRevisionDraft(display_name="Die 1"),
+            )
+        )
+        submission = _submission("sample-analysis-run").model_copy(
+            update={
+                "request": RunRequest(
+                    experiment_id="scratch",
+                    samples=(SampleSelector(sample_id="die-1"),),
+                )
+            }
+        )
+        sample_run_id = _complete_signal_run(
+            runtime,
+            submission_id="sample-analysis-run",
+            signal=0.9,
+            submission=submission,
+        )
+        other_run_id = _complete_signal_run(
+            runtime,
+            submission_id="other-analysis-run",
+            signal=1.2,
+        )
+
+        with TestClient(runtime.app()) as transport:
+            lab = LabClient(_daemon_client(transport))
+            sample_run = lab.get_run(sample_run_id)
+            other_run = lab.get_run(other_run_id)
+
+            @analysis_step(id="sample-health")
+            def sample_health(context: AnalysisContext) -> Analysis:
+                data = context.measurements(sample_run, id="signal")
+                return context.result("Sample health").fact(
+                    "signal",
+                    cast("float", data.data_vars["signal"].values[0]),
+                )
+
+            published = lab.analyze(sample_health(), sample="die-1")
+
+            assert published.view.analysis.subject.sample_id == "die-1"
+            assert published.id.startswith("analysis-sample-")
+            assert lab.analysis_summaries().items == ()
+            sample_page = lab.analysis_summaries(sample="die-1")
+            assert [item.entry.id for item in sample_page.items] == [published.id]
+            assert (
+                lab.published_analysis("sample-health", sample="die-1").id
+                == published.id
+            )
+
+            @analysis_step(id="mixed-sample-health")
+            def mixed_sample_health(context: AnalysisContext) -> Analysis:
+                context.measurements(sample_run, id="sample")
+                context.measurements(other_run, id="other")
+                return context.result("Mixed sample health").fact("valid", False)
+
+            with pytest.raises(
+                DaemonConflictError,
+                match="is not bound to sample",
+            ):
+                lab.analyze(mixed_sample_health(), sample="die-1")
+
+            record_id = published.id
+
+    with (
+        LocalDaemonRuntime(tmp_path) as restarted,
+        TestClient(restarted.app()) as transport,
+    ):
+        restored = LabClient(_daemon_client(transport)).published_analysis(
+            record_id,
+            sample="die-1",
+        )
+        assert restored.view.analysis.subject.sample_id == "die-1"
 
 
 def test_project_analysis_allocates_distinct_revisions_for_concurrent_saves(

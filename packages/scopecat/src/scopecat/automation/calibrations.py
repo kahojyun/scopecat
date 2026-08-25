@@ -105,11 +105,19 @@ class CalibrationTargetRef(_CalibrationModel):
 
     kind: _NonEmptyText
     id: _NonEmptyText
+    sample_id: _NonEmptyText | None = None
+    context_id: _NonEmptyText | None = None
 
     @field_validator("kind", "id")
     @classmethod
     def validate_identity(cls, value: str) -> str:
         return _non_blank(value, field_name="calibration target identity")
+
+    @model_validator(mode="after")
+    def validate_sample_scope(self) -> CalibrationTargetRef:
+        if self.context_id is not None and self.sample_id is None:
+            raise ValueError("calibration target context requires a sample")
+        return self
 
 
 class CalibrationConfigSourceRef(_CalibrationModel):

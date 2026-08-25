@@ -53,6 +53,8 @@ from scopecat.records.analysis import (
     AnalysisFigureViewSpec,
     AnalysisPublishedOutputReference,
     AnalysisTableViewSpec,
+    ProjectAnalysisSubject,
+    SampleAnalysisSubject,
     analysis_record_id,
 )
 from scopecat.records.config import (
@@ -581,6 +583,10 @@ class AnalysisSaveCommand(_WireModel):
 
     title: NonEmptyText
     analysis_key: NonEmptyText
+    subject: ProjectAnalysisSubject | SampleAnalysisSubject = Field(
+        default_factory=ProjectAnalysisSubject,
+        discriminator="kind",
+    )
     step_id: NonEmptyText | None = None
     inputs: tuple[AnalysisInputPayload, ...] = ()
     executions: tuple[AnalysisExecution, ...] = ()

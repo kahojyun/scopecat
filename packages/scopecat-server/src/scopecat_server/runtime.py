@@ -156,6 +156,7 @@ class LocalDaemonRuntime:
                 repository=analyses,
                 services=services,
                 control=control,
+                samples=samples,
             )
             config_service = ConfigService(
                 control=control,

@@ -417,6 +417,40 @@ class ProjectAnalysisPage(_ViewModel):
     next_cursor: int | None = Field(default=None, ge=1)
 
 
+class SampleAnalysisView(_ViewModel):
+    """One longitudinal analysis record scoped to a stable sample."""
+
+    sample_id: str
+    entry: ContentEntry
+    analysis: AnalysisRecord
+    published_at: datetime
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> SampleAnalysisView:
+        if (
+            self.entry.role != "record"
+            or self.entry.kind != "analysis"
+            or self.analysis.subject.kind != "sample"
+            or self.analysis.subject.sample_id != self.sample_id
+        ):
+            raise ValueError("sample analysis view identity is inconsistent")
+        return self
+
+
+class SampleAnalysisSummary(ProjectAnalysisSummary):
+    """Bounded list projection for one sample analysis publication."""
+
+    sample_id: str
+
+
+class SampleAnalysisPage(_ViewModel):
+    """Newest-first keyset page for one sample's analyses."""
+
+    sample_id: str
+    items: tuple[SampleAnalysisSummary, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
 class ProjectAnalysisContentPage(_ViewModel):
     """Newest-first keyset page of project-analysis-owned content."""
 
@@ -788,6 +822,9 @@ __all__ = [
     "RunResourceView",
     "RunSummary",
     "RunSummaryPage",
+    "SampleAnalysisPage",
+    "SampleAnalysisSummary",
+    "SampleAnalysisView",
     "SamplePage",
     "SampleSummary",
     "SampleView",

@@ -146,6 +146,8 @@ from scopecat.daemon.views import (
     RunDetail,
     RunRequestView,
     RunSummaryPage,
+    SampleAnalysisPage,
+    SampleAnalysisView,
     SamplePage,
     SampleView,
 )
@@ -414,6 +416,73 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/samples/{{sample_id}}")
     def get_sample(sample_id: str) -> SampleView:
         return application.samples.get(sample_id)
+
+    @app.get(f"{_API_PREFIX}/samples/{{sample_id}}/analyses")
+    def list_sample_analyses(
+        sample_id: str,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> SampleAnalysisPage:
+        return application.analyses.list_sample(
+            sample_id,
+            limit=limit,
+            before=before,
+        )
+
+    @app.post(f"{_API_PREFIX}/samples/{{sample_id}}/analyses", status_code=201)
+    def save_sample_analysis(
+        sample_id: str,
+        command: AnalysisSaveCommand,
+    ) -> AnalysisSaveReceipt:
+        return application.analyses.save_sample(sample_id, command)
+
+    @app.get(f"{_API_PREFIX}/samples/{{sample_id}}/analyses/{{selector}}")
+    def get_sample_analysis(sample_id: str, selector: str) -> SampleAnalysisView:
+        return application.analyses.get_sample(sample_id, selector)
+
+    @app.get(f"{_API_PREFIX}/samples/{{sample_id}}/analyses/{{analysis_id}}/contents")
+    def list_sample_analysis_contents(
+        sample_id: str,
+        analysis_id: str,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> ProjectAnalysisContentPage:
+        return application.analyses.list_sample_contents(
+            sample_id,
+            analysis_id,
+            limit=limit,
+            before=before,
+        )
+
+    @app.get(
+        f"{_API_PREFIX}/samples/{{sample_id}}/analyses/{{analysis_id}}/"
+        "contents/{selector}"
+    )
+    def get_sample_analysis_content(
+        sample_id: str,
+        analysis_id: str,
+        selector: str,
+    ) -> ContentEntry:
+        return application.analyses.sample_content(
+            sample_id,
+            analysis_id,
+            selector,
+        )
+
+    @app.get(
+        f"{_API_PREFIX}/samples/{{sample_id}}/analyses/{{analysis_id}}/"
+        "contents/{selector}/bytes"
+    )
+    def get_sample_analysis_content_bytes(
+        sample_id: str,
+        analysis_id: str,
+        selector: str,
+    ) -> AnalysisContentBytesView:
+        return application.analyses.sample_content_bytes(
+            sample_id,
+            analysis_id,
+            selector,
+        )
 
     @app.post(f"{_API_PREFIX}/samples/{{sample_id}}/revisions")
     def revise_sample(

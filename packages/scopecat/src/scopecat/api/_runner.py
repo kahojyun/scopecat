@@ -281,7 +281,7 @@ class _DaemonRunner:
         description: str | None,
         metadata: Mapping[str, MetadataValue] | None,
         operator: str | None,
-        samples: tuple[SampleSelector, ...],
+        samples: tuple[SampleSelector, ...] = (),
     ) -> PlannedRun:
         selected_source = config_source
         if config is None:

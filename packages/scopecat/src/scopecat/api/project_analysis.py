@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
 from scopecat.analysis.datasets import DerivedDataset, DerivedDatasetSchema
@@ -17,12 +17,19 @@ from scopecat.api._remote import analysis_input_payload, analysis_output_payload
 from scopecat.api.published_analysis import PublishedAnalysis
 from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.views import (
+    AnalysisContentBytesView,
     ProjectAnalysisPage,
     ProjectAnalysisView,
+    SampleAnalysisPage,
+    SampleAnalysisView,
 )
 from scopecat.daemon.wire import AnalysisSaveCommand
 from scopecat.kernel.json_types import JsonValue
-from scopecat.records.analysis import AnalysisExecution
+from scopecat.records.analysis import (
+    AnalysisExecution,
+    ProjectAnalysisSubject,
+    SampleAnalysisSubject,
+)
 from scopecat.records.content import ContentEntry
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.runs.data import (
@@ -38,6 +45,9 @@ class RemoteProjectAnalysisOperations:
     """Publication owner and typed content source for one daemon project."""
 
     client: DaemonClient
+    subject: ProjectAnalysisSubject | SampleAnalysisSubject = field(
+        default_factory=ProjectAnalysisSubject
+    )
 
     def save_analysis(
         self,
@@ -52,15 +62,19 @@ class RemoteProjectAnalysisOperations:
     ) -> SavedAnalysis:
         if parameter_proposals:
             raise TypeError("project analysis cannot publish parameter proposals yet")
-        receipt = self.client.save_project_analysis(
-            AnalysisSaveCommand(
-                title=title,
-                analysis_key=analysis_key,
-                step_id=step_id,
-                inputs=tuple(analysis_input_payload(item) for item in inputs),
-                executions=tuple(executions),
-                outputs=tuple(analysis_output_payload(item) for item in outputs),
-            )
+        command = AnalysisSaveCommand(
+            title=title,
+            analysis_key=analysis_key,
+            subject=self.subject,
+            step_id=step_id,
+            inputs=tuple(analysis_input_payload(item) for item in inputs),
+            executions=tuple(executions),
+            outputs=tuple(analysis_output_payload(item) for item in outputs),
+        )
+        receipt = (
+            self.client.save_sample_analysis(self.subject.sample_id, command)
+            if isinstance(self.subject, SampleAnalysisSubject)
+            else self.client.save_project_analysis(command)
         )
         return SavedAnalysis(
             record=receipt.record,
@@ -71,19 +85,25 @@ class RemoteProjectAnalysisOperations:
         )
 
     def published_analysis(self, selector: str) -> PublishedAnalysis:
-        return PublishedAnalysis(
-            source=self, view=self.client.project_analysis(selector)
-        )
+        return PublishedAnalysis(source=self, view=self.view(selector))
 
     def summaries(
         self,
         *,
         limit: int = 100,
         before: int | None = None,
-    ) -> ProjectAnalysisPage:
+    ) -> ProjectAnalysisPage | SampleAnalysisPage:
+        if isinstance(self.subject, SampleAnalysisSubject):
+            return self.client.sample_analyses(
+                self.subject.sample_id,
+                limit=limit,
+                before=before,
+            )
         return self.client.project_analyses(limit=limit, before=before)
 
-    def view(self, selector: str) -> ProjectAnalysisView:
+    def view(self, selector: str) -> ProjectAnalysisView | SampleAnalysisView:
+        if isinstance(self.subject, SampleAnalysisSubject):
+            return self.client.sample_analysis(self.subject.sample_id, selector)
         return self.client.project_analysis(selector)
 
     def _load_analysis_dataset(
@@ -91,7 +111,7 @@ class RemoteProjectAnalysisOperations:
         analysis_id: str,
         selector: str,
     ) -> DerivedDataset:
-        content = self.client.project_analysis_content_bytes(analysis_id, selector)
+        content = self._analysis_content_bytes(analysis_id, selector)
         if content.entry.data_schema is None:
             raise ValueError("analysis dataset is missing its semantic schema")
         return DerivedDataset.from_arrow_ipc(
@@ -104,6 +124,12 @@ class RemoteProjectAnalysisOperations:
         analysis_id: str,
         selector: str,
     ) -> ContentEntry:
+        if isinstance(self.subject, SampleAnalysisSubject):
+            return self.client.sample_analysis_content(
+                self.subject.sample_id,
+                analysis_id,
+                selector,
+            )
         return self.client.project_analysis_content(analysis_id, selector)
 
     def _analysis_artifact_bytes(
@@ -113,12 +139,25 @@ class RemoteProjectAnalysisOperations:
         *,
         expected_kind: str | None = None,
     ) -> RunArtifactBytesResult:
-        content = self.client.project_analysis_content_bytes(analysis_id, selector)
+        content = self._analysis_content_bytes(analysis_id, selector)
         _require_kind(content.entry.kind, expected_kind)
         return RunArtifactBytesResult(
             artifact=content.entry,
             content=content.content_bytes(),
         )
+
+    def _analysis_content_bytes(
+        self,
+        analysis_id: str,
+        selector: str,
+    ) -> AnalysisContentBytesView:
+        if isinstance(self.subject, SampleAnalysisSubject):
+            return self.client.sample_analysis_content_bytes(
+                self.subject.sample_id,
+                analysis_id,
+                selector,
+            )
+        return self.client.project_analysis_content_bytes(analysis_id, selector)
 
     def _analysis_artifact_text(
         self,

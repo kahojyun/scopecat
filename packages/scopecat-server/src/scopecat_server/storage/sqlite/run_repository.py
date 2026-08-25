@@ -278,7 +278,7 @@ class SQLiteRunRepository:
                 self._require_run_row(connection, run_id)
                 return list_publications(
                     connection,
-                    run_id=run_id,
+                    subject=RunAnalysisSubject(run_id=run_id),
                     limit=limit,
                     before=before,
                 )
@@ -298,7 +298,7 @@ class SQLiteRunRepository:
                 self._require_run_row(connection, run_id)
                 publication = read_publication(
                     connection,
-                    run_id=run_id,
+                    subject=RunAnalysisSubject(run_id=run_id),
                     record_id=record_id,
                 )
             if publication is None:
@@ -320,7 +320,7 @@ class SQLiteRunRepository:
                 self._require_run_row(connection, run_id)
                 return latest_publication(
                     connection,
-                    run_id=run_id,
+                    subject=RunAnalysisSubject(run_id=run_id),
                     analysis_key=analysis_key,
                 )
         except NotFound:

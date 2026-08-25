@@ -353,6 +353,27 @@ def test_calibration_key_is_logical_across_version_and_procedure_changes() -> No
     )
 
 
+def test_calibration_key_isolated_by_sample_and_context() -> None:
+    shared = {"kind": "qubit", "id": "q0"}
+    first = CalibrationTargetRef(**shared, sample_id="die-1", context_id="cooldown-1")
+    second = CalibrationTargetRef(**shared, sample_id="die-2", context_id="cooldown-1")
+    remounted = CalibrationTargetRef(
+        **shared,
+        sample_id="die-1",
+        context_id="cooldown-2",
+    )
+
+    keys = {
+        calibration_key("drag", first),
+        calibration_key("drag", second),
+        calibration_key("drag", remounted),
+    }
+
+    assert len(keys) == 3
+    with pytest.raises(ValidationError, match="context requires a sample"):
+        CalibrationTargetRef(**shared, context_id="cooldown-1")
+
+
 def test_attempt_carries_flat_dependency_evidence_and_exact_freshness() -> None:
     dependency_success, _ = _success(
         definition=_definition(definition_id="readout"),

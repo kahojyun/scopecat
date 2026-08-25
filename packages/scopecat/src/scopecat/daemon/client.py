@@ -133,6 +133,8 @@ from scopecat.daemon.views import (
     RunDetail,
     RunRequestView,
     RunSummaryPage,
+    SampleAnalysisPage,
+    SampleAnalysisView,
     SamplePage,
     SampleView,
 )
@@ -863,7 +865,7 @@ class DaemonClient:
         limit: int = 100,
         before: int | None = None,
     ) -> SamplePage:
-        params: dict[str, int] = {"limit": limit}
+        params: dict[str, str | int] = {"limit": limit}
         if before is not None:
             params["before"] = before
         return self._get_model(
@@ -877,6 +879,95 @@ class DaemonClient:
             f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}",
             SampleView,
         )
+
+    def sample_analyses(
+        self,
+        sample_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> SampleAnalysisPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}/analyses",
+            SampleAnalysisPage,
+            params=params,
+        )
+
+    def sample_analysis(self, sample_id: str, selector: str) -> SampleAnalysisView:
+        return self._get_model(
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}/analyses/"
+            f"{quote(selector, safe='')}",
+            SampleAnalysisView,
+        )
+
+    def save_sample_analysis(
+        self,
+        sample_id: str,
+        command: AnalysisSaveCommand,
+    ) -> AnalysisSaveReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}/analyses",
+            command,
+            AnalysisSaveReceipt,
+        )
+
+    def sample_analysis_contents(
+        self,
+        sample_id: str,
+        analysis_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ProjectAnalysisContentPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            self._sample_analysis_content_path(sample_id, analysis_id, ""),
+            ProjectAnalysisContentPage,
+            params=params,
+        )
+
+    def sample_analysis_content(
+        self,
+        sample_id: str,
+        analysis_id: str,
+        selector: str,
+    ) -> ContentEntry:
+        return self._get_model(
+            self._sample_analysis_content_path(sample_id, analysis_id, selector),
+            ContentEntry,
+        )
+
+    def sample_analysis_content_bytes(
+        self,
+        sample_id: str,
+        analysis_id: str,
+        selector: str,
+    ) -> AnalysisContentBytesView:
+        path = self._sample_analysis_content_path(
+            sample_id,
+            analysis_id,
+            selector,
+        )
+        return self._get_model(f"{path}/bytes", AnalysisContentBytesView)
+
+    @staticmethod
+    def _sample_analysis_content_path(
+        sample_id: str,
+        analysis_id: str,
+        selector: str,
+    ) -> str:
+        path = (
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}/analyses/"
+            f"{quote(analysis_id, safe='')}/contents"
+        )
+        if selector:
+            return f"{path}/{quote(selector, safe='')}"
+        return path
 
     def create_sample(
         self,

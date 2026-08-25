@@ -29,12 +29,13 @@ from scopecat.automation.calibration_definition import CalibrationRegistry
 from scopecat.config.candidates import CandidateConfig
 from scopecat.control.models import ControlRunState
 from scopecat.daemon.client import DaemonClient
-from scopecat.daemon.views import DaemonHealth, ProjectAnalysisPage
+from scopecat.daemon.views import DaemonHealth, ProjectAnalysisPage, SampleAnalysisPage
 from scopecat.inspection import CompiledProgramInspectionQuery
 from scopecat.planning.preview import PreviewCoordinateMode
 from scopecat.planning.preview_models import ExperimentPreview
 from scopecat.planning.system import ExperimentSystemBuilder
 from scopecat.program.values import MetadataValue
+from scopecat.records.analysis import SampleAnalysisSubject
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.run import RunConfigSource
 from scopecat.records.sample import SampleSelector
@@ -269,11 +270,12 @@ class LabClient:
         title: str,
         *,
         key: str | None = None,
+        sample: SampleSpec | None = None,
     ) -> AnalysisContext:
-        """Start a project publication over explicit completed-run inputs."""
+        """Start a project or sample publication over explicit completed runs."""
 
         return AnalysisContext(
-            owner=self._analyses,
+            owner=self._analysis_owner(sample),
             default_title=title,
             default_key=key,
         )
@@ -283,12 +285,13 @@ class LabClient:
         step: AnalysisStep,
         *,
         key: str | None = None,
+        sample: SampleSpec | None = None,
     ) -> PublishedAnalysis:
         """Run and durably publish one project-level analysis step."""
 
         analysis = step.run(
             AnalysisContext(
-                owner=self._analyses,
+                owner=self._analysis_owner(sample),
                 default_title=step.id,
                 default_key=key or step.id,
                 step_id=step.id,
@@ -307,13 +310,30 @@ class LabClient:
         *,
         limit: int = 100,
         before: int | None = None,
-    ) -> ProjectAnalysisPage:
+        sample: SampleSpec | None = None,
+    ) -> ProjectAnalysisPage | SampleAnalysisPage:
         """Load a bounded history page without fetching publication bodies."""
 
-        return self._analyses.summaries(limit=limit, before=before)
+        return self._analysis_owner(sample).summaries(limit=limit, before=before)
 
-    def published_analysis(self, selector: str) -> PublishedAnalysis:
-        return self._analyses.published_analysis(selector)
+    def published_analysis(
+        self,
+        selector: str,
+        *,
+        sample: SampleSpec | None = None,
+    ) -> PublishedAnalysis:
+        return self._analysis_owner(sample).published_analysis(selector)
+
+    def _analysis_owner(
+        self,
+        sample: SampleSpec | None,
+    ) -> RemoteProjectAnalysisOperations:
+        if sample is None:
+            return self._analyses
+        return RemoteProjectAnalysisOperations(
+            self._client,
+            subject=SampleAnalysisSubject(sample_id=_sample_id(sample)),
+        )
 
     def get_run(self, run: RunSelector | RunHandle) -> RunHandle:
         run_id = run_handle_id(run)
@@ -550,6 +570,14 @@ def _sample_selectors(
     if isinstance(sample, SampleHandle):
         return (sample.selector(),)
     return (SampleSelector(sample_id=sample),)
+
+
+def _sample_id(sample: SampleSpec) -> str:
+    if isinstance(sample, SampleSelector):
+        return sample.sample_id
+    if isinstance(sample, SampleHandle):
+        return sample.id
+    return sample
 
 
 __all__ = [

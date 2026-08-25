@@ -8,8 +8,10 @@ from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from scopecat.records.analysis import AnalysisSubject
+from scopecat.records.analysis import AnalysisSubject, ProjectAnalysisSubject
 from scopecat.records.content import BytesWrite, ContentEntry, ModelWrite
+
+_PROJECT_SUBJECT = ProjectAnalysisSubject()
 
 
 class AnalysisPublicationSummary(BaseModel):
@@ -68,15 +70,23 @@ class AnalysisRepository(Protocol):
     def list_summaries(
         self,
         *,
+        subject: AnalysisSubject = _PROJECT_SUBJECT,
         limit: int,
         before: int | None,
     ) -> AnalysisPublicationPage: ...
 
-    def read_publication(self, record_id: str) -> AnalysisPublicationSummary: ...
+    def read_publication(
+        self,
+        record_id: str,
+        *,
+        subject: AnalysisSubject = _PROJECT_SUBJECT,
+    ) -> AnalysisPublicationSummary: ...
 
     def latest_publication(
         self,
         analysis_key: str,
+        *,
+        subject: AnalysisSubject = _PROJECT_SUBJECT,
     ) -> AnalysisPublicationSummary | None: ...
 
     def list_contents(
