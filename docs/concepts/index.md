@@ -5,6 +5,8 @@ Scopecat workflows:
 
 - [Experiment authoring dataflow](experiment-dataflow.md) explains availability,
   shape, point plans, compute placement, and durable results.
+- [Chips and physical samples](samples.md) explains stable physical identity,
+  immutable revisions, run bindings, longitudinal analysis, and sample maps.
 - [Analysis publication](analysis-publication.md) explains the boundary between
   ordinary numerical Python and durable derived outputs.
 - [Glossary](glossary.md) defines the user-facing vocabulary shared by Python,

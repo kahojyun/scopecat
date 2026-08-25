@@ -923,6 +923,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/samples": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Samples */
+        get: operations["list_samples_api_v1_samples_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/samples/{sample_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sample */
+        get: operations["get_sample_api_v1_samples__sample_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/samples/{sample_id}/analyses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sample Analyses */
+        get: operations["list_sample_analyses_api_v1_samples__sample_id__analyses_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/samples/{sample_id}/analyses/{selector}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sample Analysis */
+        get: operations["get_sample_analysis_api_v1_samples__sample_id__analyses__selector__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1472,7 +1540,7 @@ export interface components {
         };
         AnalysisRecordInput: components["schemas"]["MeasurementAnalysisRecordInput"] | components["schemas"]["PublishedAnalysisRecordInput"];
         AnalysisRecordOutput: components["schemas"]["AnalysisFactRecordOutput"] | components["schemas"]["AnalysisDatasetRecordOutput"] | components["schemas"]["AnalysisArtifactRecordOutput"] | components["schemas"]["AnalysisTableRecordOutput"] | components["schemas"]["AnalysisFigureRecordOutput"] | components["schemas"]["AnalysisParameterProposalRecordOutput"];
-        AnalysisSubject: components["schemas"]["RunAnalysisSubject"] | components["schemas"]["ProjectAnalysisSubject"];
+        AnalysisSubject: components["schemas"]["RunAnalysisSubject"] | components["schemas"]["ProjectAnalysisSubject"] | components["schemas"]["SampleAnalysisSubject"];
         /**
          * AnalysisTable
          * @description A bounded, display-ready scalar table with an explicit column schema.
@@ -5196,6 +5264,11 @@ export interface components {
             outcome?: components["schemas"]["RunOutcome-Output"] | null;
             /** Run Id */
             run_id: string;
+            /**
+             * Samples
+             * @default []
+             */
+            samples: components["schemas"]["SampleBinding"][];
         };
         /**
          * RunSummary
@@ -5236,6 +5309,264 @@ export interface components {
             point_index?: number | null;
             /** Run Id */
             run_id?: string | null;
+        };
+        /**
+         * SampleAnalysisPage
+         * @description Newest-first keyset page for one sample's analyses.
+         */
+        SampleAnalysisPage: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["SampleAnalysisSummary"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+            /** Sample Id */
+            sample_id: string;
+        };
+        /**
+         * SampleAnalysisSubject
+         * @description A longitudinal publication whose scientific subject is one sample.
+         */
+        SampleAnalysisSubject: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "sample";
+            sample_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * SampleAnalysisSummary
+         * @description Bounded list projection for one sample analysis publication.
+         */
+        SampleAnalysisSummary: {
+            entry: components["schemas"]["ContentEntry"];
+            /** Input Count */
+            input_count: number;
+            /** Key */
+            key: string;
+            /** Output Count */
+            output_count: number;
+            /** Publication Hash */
+            publication_hash: string;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Revision */
+            revision: number;
+            /** Sample Id */
+            sample_id: string;
+            /** Step Id */
+            step_id?: string | null;
+            /** Title */
+            title: string;
+        };
+        /**
+         * SampleAnalysisView
+         * @description One longitudinal analysis record scoped to a stable sample.
+         */
+        SampleAnalysisView: {
+            analysis: components["schemas"]["AnalysisRecord"];
+            entry: components["schemas"]["ContentEntry"];
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Sample Id */
+            sample_id: string;
+        };
+        /**
+         * SampleArtifactRef
+         * @description External design, image, report, or data reference associated with a sample.
+         */
+        SampleArtifactRef: {
+            id: components["schemas"]["_NonEmptyText"];
+            media_type?: components["schemas"]["_NonEmptyText"] | null;
+            title: components["schemas"]["_NonEmptyText"];
+            uri: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * SampleBinding
+         * @description Exact sample provenance frozen into an accepted run.
+         */
+        SampleBinding: {
+            content_hash: components["schemas"]["Sha256ContentHash"];
+            context_id?: components["schemas"]["_NonEmptyText"] | null;
+            display_name: components["schemas"]["_NonEmptyText"];
+            kind: components["schemas"]["_NonEmptyText"];
+            /** Revision */
+            revision: number;
+            role: components["schemas"]["_NonEmptyText"];
+            sample_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * SampleGeometry
+         * @description Optional domain-neutral geometry used by sample-map projections.
+         */
+        SampleGeometry: {
+            /** Height */
+            height?: number | null;
+            /**
+             * Kind
+             * @default cartesian
+             * @constant
+             */
+            kind: "cartesian";
+            /**
+             * Points
+             * @default []
+             */
+            points: components["schemas"]["SampleGeometryPoint"][];
+            unit?: components["schemas"]["_NonEmptyText"] | null;
+            /** Width */
+            width?: number | null;
+        };
+        /**
+         * SampleGeometryPoint
+         * @description One entity position in a bounded two-dimensional sample projection.
+         */
+        SampleGeometryPoint: {
+            entity_id: components["schemas"]["_NonEmptyText"];
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /** @enum {string} */
+        SampleLifecycleStatus: "received" | "available" | "mounted" | "retired" | "damaged";
+        /**
+         * SamplePage
+         * @description Newest-first bounded sample registry page.
+         */
+        SamplePage: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["SampleSummary"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+        };
+        /**
+         * SampleRecord
+         * @description Stable identity and current immutable revision of one physical sample.
+         */
+        SampleRecord: {
+            /** Active Revision */
+            active_revision: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            id: components["schemas"]["_NonEmptyText"];
+            kind: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * SampleRelation
+         * @description One typed relationship from this sample to another stable sample.
+         */
+        SampleRelation: {
+            kind: components["schemas"]["_NonEmptyText"];
+            sample_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * SampleRevision
+         * @description One immutable descriptive snapshot of a physical sample.
+         */
+        SampleRevision: {
+            actor: components["schemas"]["_NonEmptyText"];
+            content: components["schemas"]["SampleRevisionDraft-Output"];
+            content_hash: components["schemas"]["Sha256ContentHash"];
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at?: string;
+            /** Revision */
+            revision: number;
+            sample_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * SampleRevisionDraft
+         * @description Complete user-owned content for the next immutable sample revision.
+         */
+        "SampleRevisionDraft-Output": {
+            /**
+             * Aliases
+             * @default []
+             */
+            aliases: components["schemas"]["_NonEmptyText"][];
+            /**
+             * Artifacts
+             * @default []
+             */
+            artifacts: components["schemas"]["SampleArtifactRef"][];
+            design_ref?: components["schemas"]["_NonEmptyText"] | null;
+            display_name: components["schemas"]["_NonEmptyText"];
+            geometry?: components["schemas"]["SampleGeometry"] | null;
+            /** Properties */
+            properties?: {
+                [key: string]: components["schemas"]["pydantic__types__JsonValue"];
+            };
+            /**
+             * Relations
+             * @default []
+             */
+            relations: components["schemas"]["SampleRelation"][];
+            /** @default available */
+            status: components["schemas"]["SampleLifecycleStatus"];
+            /**
+             * Tags
+             * @default []
+             */
+            tags: components["schemas"]["_NonEmptyText"][];
+            topology?: components["schemas"]["Topology-Output"] | null;
+        };
+        /**
+         * SampleSummary
+         * @description One sample's active revision and bounded run-history aggregates.
+         */
+        SampleSummary: {
+            /** Last Run At */
+            last_run_at?: string | null;
+            record: components["schemas"]["SampleRecord"];
+            revision: components["schemas"]["SampleRevision"];
+            /**
+             * Run Count
+             * @default 0
+             */
+            run_count: number;
+        };
+        /**
+         * SampleView
+         * @description Sample detail with newest-first immutable revision history.
+         */
+        SampleView: {
+            /** Last Run At */
+            last_run_at?: string | null;
+            record: components["schemas"]["SampleRecord"];
+            revision: components["schemas"]["SampleRevision"];
+            /**
+             * Revisions
+             * @default []
+             */
+            revisions: components["schemas"]["SampleRevision"][];
+            /**
+             * Run Count
+             * @default 0
+             */
+            run_count: number;
         };
         /**
          * ScalarParameterValue
@@ -6625,6 +6956,7 @@ export interface operations {
             query?: {
                 before?: number | null;
                 limit?: number;
+                sample_id?: string | null;
                 state?: components["schemas"]["ControlRunState"] | null;
             };
             header?: never;
@@ -7348,6 +7680,135 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunRecordJsonResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_samples_api_v1_samples_get: {
+        parameters: {
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SamplePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sample_api_v1_samples__sample_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sample_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sample_analyses_api_v1_samples__sample_id__analyses_get: {
+        parameters: {
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                sample_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleAnalysisPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sample_analysis_api_v1_samples__sample_id__analyses__selector__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sample_id: string;
+                selector: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleAnalysisView"];
                 };
             };
             /** @description Validation Error */

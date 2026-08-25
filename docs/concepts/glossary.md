@@ -14,13 +14,15 @@ excluded from ordinary workflows.
 | Instrument | A configured or temporary physical/virtual device available through typed capabilities. | Controlling a device or diagnosing its availability. |
 | Capability | Typed state and operations that describe what compatible instruments can do. | Authoring direct control or experiment work independent of a driver. |
 | Route | Accepted configuration that connects a logical purpose to physical capability endpoints. | Integrating a lab or diagnosing why a resource cannot be selected. |
-| Entity | A logical experimental subject, such as a sample or qubit, retained in provenance. | Selecting or comparing work by subject. |
+| Sample | One stable physical experimental subject, such as a chip or specimen, with immutable descriptive revisions. | Registering physical subjects, binding them to runs, or comparing their history. |
+| Sample revision | One immutable snapshot of a sample's lifecycle, metadata, topology, geometry, relations, and references. | Correcting or extending what is known about a physical subject. |
+| Entity | A logical part of a configuration or sample topology, such as a qubit, site, or channel endpoint. Sample-local entity identity is qualified by its containing sample. | Selecting or comparing work by subject or part. |
 | Experiment | Reusable authored work that declares inputs, points, effects, and results without executing them. | Defining or composing a measurement procedure. |
 | Run | One admitted execution of an experiment with concrete inputs and configuration. | Previewing, executing, cancelling, or inspecting work. |
 | Point | One logical coordinate row in a run's authored point domain. | Selecting, grouping, or interpreting measurements. |
 | Measurement | Immutable recorded data produced by a run, with declared identity, type, unit, shape, and availability. | Inspecting or analyzing acquired results. |
 | Result | The authored return structure that determines the ordinary durable output of an experiment. | Defining what downstream users should receive from a run. |
-| Analysis | One immutable publication of derived facts, datasets, artifacts, views, and proposals owned by a source run or by the project for cross-run conclusions. | Preserving conclusions from ordinary numerical Python. |
+| Analysis | One immutable publication of derived facts, datasets, artifacts, views, and proposals owned by a source run, a sample, or the project. | Preserving run conclusions, sample history, or cross-run project conclusions from ordinary numerical Python. |
 | Proposal | An analysis output that describes a reviewable parameter change and its evidence. | Evaluating a candidate configuration. |
 
 ## Vocabulary design checks

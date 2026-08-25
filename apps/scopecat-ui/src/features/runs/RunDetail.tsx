@@ -1,4 +1,4 @@
-import { AlertTriangle, Unlock } from "lucide-react";
+import { AlertTriangle, Boxes, ChevronRight, Unlock } from "lucide-react";
 import type {
   MeasurementTracePreview,
   RunDomainDecisionPage,
@@ -69,6 +69,7 @@ export function RunDetail({
   attentionError,
   attentionPending,
   onResolveAttention,
+  onOpenSample,
 }: {
   run: ProjectRun;
   events: ProjectEvent[];
@@ -110,6 +111,7 @@ export function RunDetail({
   attentionError: Error | null;
   attentionPending: boolean;
   onResolveAttention: () => void;
+  onOpenSample?: (sampleId: string) => void;
 }) {
   return (
     <>
@@ -173,6 +175,37 @@ export function RunDetail({
           </div>
         </dl>
       </header>
+
+      {run.samples.length > 0 && (
+        <section
+          className="mt-[18px] flex flex-wrap items-center gap-2 rounded-md border border-line bg-panel-soft px-3 py-2.5"
+          aria-label="Bound samples"
+        >
+          <span className="mr-1 inline-flex items-center gap-2 text-[0.62rem] font-extrabold tracking-[0.08em] text-text-dim uppercase">
+            <Boxes size={14} aria-hidden="true" />
+            Samples
+          </span>
+          {run.samples.map((sample) => (
+            <button
+              key={`${sample.role}:${sample.sample_id}:${sample.context_id ?? ""}`}
+              className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-[rgb(128_163_207_/_20%)] bg-accent-soft px-2.5 py-1.5 text-left text-[0.66rem] text-text-soft hover:border-line-strong hover:bg-panel-strong disabled:cursor-default"
+              type="button"
+              title={`${sample.sample_id} · exact revision ${sample.revision}`}
+              disabled={!onOpenSample}
+              onClick={() => onOpenSample?.(sample.sample_id)}
+            >
+              <span className="grid gap-0.5">
+                <strong className="font-[650] text-accent">{sample.display_name}</strong>
+                <span className="text-[0.58rem] text-text-dim">
+                  {sample.role} · r{sample.revision}
+                  {sample.context_id ? ` · ${sample.context_id}` : ""}
+                </span>
+              </span>
+              {onOpenSample && <ChevronRight size={13} aria-hidden="true" />}
+            </button>
+          ))}
+        </section>
+      )}
 
       {run.status === "attention_required" && (
         <div

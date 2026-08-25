@@ -100,6 +100,10 @@ _OPERATIONS = {
     ("/api/v1/runs/{run_id}/point-plan/decisions", "get"),
     ("/api/v1/runs/{run_id}/point-plan/resolve", "post"),
     ("/api/v1/runs/{run_id}/records/{selector}/json", "get"),
+    ("/api/v1/samples", "get"),
+    ("/api/v1/samples/{sample_id}", "get"),
+    ("/api/v1/samples/{sample_id}/analyses", "get"),
+    ("/api/v1/samples/{sample_id}/analyses/{selector}", "get"),
 }
 
 # Binary endpoints do not reference their decoded models in OpenAPI. The UI still

@@ -300,6 +300,7 @@ class RunService:
         limit: int,
         before: int | None,
         state: ControlRunState | None,
+        sample_id: str | None = None,
     ) -> RunSummaryPage:
         with self._control.read_transaction() as connection:
             page = self._control.list_runs_in_transaction(
@@ -307,6 +308,7 @@ class RunService:
                 limit=limit,
                 before=before,
                 state=state,
+                sample_id=sample_id,
             )
             return RunSummaryPage(
                 items=tuple(

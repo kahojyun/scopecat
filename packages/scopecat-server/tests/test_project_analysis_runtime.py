@@ -96,6 +96,7 @@ from scopecat.records.analysis import (
     ProjectAnalysisSubject,
     PublishedAnalysisRecordInput,
     RunAnalysisSubject,
+    SampleAnalysisSubject,
 )
 from scopecat.records.config import (
     ConfigProfileSnapshot,
@@ -608,6 +609,7 @@ def test_sample_analysis_is_scoped_to_runs_bound_to_that_sample(tmp_path: Path) 
 
             published = lab.analyze(sample_health(), sample="die-1")
 
+            assert isinstance(published.view.analysis.subject, SampleAnalysisSubject)
             assert published.view.analysis.subject.sample_id == "die-1"
             assert published.id.startswith("analysis-sample-")
             assert lab.analysis_summaries().items == ()
@@ -640,6 +642,7 @@ def test_sample_analysis_is_scoped_to_runs_bound_to_that_sample(tmp_path: Path) 
             record_id,
             sample="die-1",
         )
+        assert isinstance(restored.view.analysis.subject, SampleAnalysisSubject)
         assert restored.view.analysis.subject.sample_id == "die-1"
 
 

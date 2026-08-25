@@ -180,6 +180,7 @@ class SQLiteControlPlane:
         limit: int = 50,
         before: int | None = None,
         state: ControlRunState | None = None,
+        sample_id: str | None = None,
     ) -> RunPage:
         """Return newest runs first, continuing toward older admissions."""
 
@@ -189,6 +190,7 @@ class SQLiteControlPlane:
                 limit=limit,
                 before=before,
                 state=state,
+                sample_id=sample_id,
             )
 
     def list_runs_in_transaction(
@@ -198,57 +200,42 @@ class SQLiteControlPlane:
         limit: int = 50,
         before: int | None = None,
         state: ControlRunState | None = None,
+        sample_id: str | None = None,
     ) -> RunPage:
         """Read one newest-first page through an existing SQLite snapshot."""
 
         _page_size(limit)
-        if before is None and state is None:
-            rows = _all(
-                connection.execute(
-                    """
-                    SELECT * FROM scheduler_runs
-                    ORDER BY sequence DESC
-                    LIMIT ?
-                    """,
-                    (limit + 1,),
-                )
+        clauses: list[str] = []
+        parameters: list[str | int] = []
+        if before is not None:
+            clauses.append("scheduler_runs.sequence < ?")
+            parameters.append(before)
+        if state is not None:
+            clauses.append("scheduler_runs.state = ?")
+            parameters.append(state)
+        if sample_id is not None:
+            clauses.append(
+                "EXISTS ("
+                "SELECT 1 FROM run_sample_bindings AS sample_binding "
+                "WHERE sample_binding.run_id = scheduler_runs.run_id "
+                "AND sample_binding.sample_id = ?"
+                ")"
             )
-        elif before is None:
-            rows = _all(
-                connection.execute(
-                    """
-                    SELECT * FROM scheduler_runs
-                    WHERE state = ?
-                    ORDER BY sequence DESC
-                    LIMIT ?
-                    """,
-                    (state, limit + 1),
-                )
+            parameters.append(sample_id)
+        where = "" if not clauses else f"WHERE {' AND '.join(clauses)}"
+        parameters.append(limit + 1)
+        rows = _all(
+            connection.execute(
+                f"""
+                SELECT scheduler_runs.*
+                FROM scheduler_runs
+                {where}
+                ORDER BY scheduler_runs.sequence DESC
+                LIMIT ?
+                """,  # noqa: S608 - fragments are fixed internal clauses
+                parameters,
             )
-        elif state is None:
-            rows = _all(
-                connection.execute(
-                    """
-                    SELECT * FROM scheduler_runs
-                    WHERE sequence < ?
-                    ORDER BY sequence DESC
-                    LIMIT ?
-                    """,
-                    (before, limit + 1),
-                )
-            )
-        else:
-            rows = _all(
-                connection.execute(
-                    """
-                    SELECT * FROM scheduler_runs
-                    WHERE sequence < ? AND state = ?
-                    ORDER BY sequence DESC
-                    LIMIT ?
-                    """,
-                    (before, state, limit + 1),
-                )
-            )
+        )
         items = tuple(_run(row) for row in rows[:limit])
         next_cursor = None if len(rows) <= limit else items[-1].sequence
         return RunPage(items=items, next_cursor=next_cursor)

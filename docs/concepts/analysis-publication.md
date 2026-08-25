@@ -366,10 +366,12 @@ Python type registry or import application types while reopening a run; code
 that only needs generic inspection can continue to use `fact(...)` and read its
 JSON value directly.
 
-Analysis currently belongs to one completed run or to a project publication
-over explicit completed-run snapshots. Live checkpoints, orchestration retries,
-schedules, recurring calibration state, and continuously changing cohorts
-belong to a future workflow model. They should not be encoded as hidden state in
-an analysis. Future streaming analysis may reuse the same execution and
-publication primitives, but its cursors, windows, checkpoint state, and
-finalization policy belong to that workflow rather than to the analysis record.
+Analysis belongs to one completed run, one stable sample, or a project
+publication over explicit completed-run snapshots. A sample publication accepts
+only input runs bound to that sample; see [Chips and physical samples](samples.md).
+Live checkpoints, orchestration retries, schedules, recurring calibration
+state, and continuously changing cohorts belong to a future workflow model.
+They should not be encoded as hidden state in an analysis. Future streaming
+analysis may reuse the same execution and publication primitives, but its
+cursors, windows, checkpoint state, and finalization policy belong to that
+workflow rather than to the analysis record.

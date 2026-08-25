@@ -77,6 +77,7 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.records.analysis import (
     AnalysisFact,
+    AnalysisSubject,
     MeasurementAnalysisRecordInput,
     ProjectAnalysisDecisionReference,
     ProjectAnalysisSubject,
@@ -711,7 +712,7 @@ class _FakeProcedureOperations:
 @dataclass(slots=True)
 class _FakePublishedAnalysis:
     id: str
-    subject: RunAnalysisSubject | ProjectAnalysisSubject
+    subject: AnalysisSubject
     inputs: tuple[MeasurementAnalysisRecordInput, ...] = ()
     proposals: tuple[ParameterChangeProposal, ...] = ()
     decision: AnalysisFact | None = None

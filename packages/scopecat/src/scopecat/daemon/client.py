@@ -1192,12 +1192,15 @@ class DaemonClient:
         limit: int = 50,
         before: int | None = None,
         state: ControlRunState | None = None,
+        sample_id: str | None = None,
     ) -> RunSummaryPage:
         params: dict[str, str | int] = {"limit": limit}
         if before is not None:
             params["before"] = before
         if state is not None:
             params["state"] = state
+        if sample_id is not None:
+            params["sample_id"] = sample_id
         return self._get_model(f"{_API_PREFIX}/runs", RunSummaryPage, params=params)
 
     def get_run(self, run_id: str) -> RunDetail:

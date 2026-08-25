@@ -131,6 +131,22 @@ def test_sample_revision_and_run_binding_survive_restart(tmp_path: Path) -> None
             revision["revision"] for revision in detail_response.json()["revisions"]
         ] == [2, 1]
 
+        sample_runs_response = transport.get(
+            "/api/v1/runs",
+            params={"sample_id": "die-1"},
+        )
+        assert sample_runs_response.status_code == 200
+        assert [
+            item["snapshot"]["run_id"] for item in sample_runs_response.json()["items"]
+        ] == [admission.run_id]
+        assert (
+            transport.get(
+                "/api/v1/runs",
+                params={"sample_id": "wafer-1"},
+            ).json()["items"]
+            == []
+        )
+
         run_id = admission.run_id
 
     with LocalDaemonRuntime(tmp_path) as restarted:

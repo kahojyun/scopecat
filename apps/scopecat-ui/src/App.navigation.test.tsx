@@ -75,6 +75,29 @@ vi.mock("./features/analyses/AnalysesWorkspace", () => ({
   ),
 }));
 
+vi.mock("./features/samples/SamplesWorkspace", () => ({
+  SamplesWorkspace: ({
+    onOpenRun,
+    onSelectSample,
+    selectedSampleId,
+  }: {
+    onOpenRun: (runId: string) => void;
+    onSelectSample: (sampleId: string) => void;
+    selectedSampleId?: string;
+  }) => (
+    <div>
+      Sample workspace
+      <span>Selected sample {selectedSampleId ?? "none"}</span>
+      <button type="button" onClick={() => onOpenRun("run-2")}>
+        Open sample run
+      </button>
+      <button type="button" onClick={() => onSelectSample("chip-b22")}>
+        Select next sample
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock("./features/instruments/InstrumentsWorkspace", () => ({
   InstrumentsWorkspace: () => <div>Instrument workspace</div>,
 }));
@@ -150,6 +173,46 @@ afterEach(() => {
 });
 
 describe("config provenance navigation", () => {
+  it("restores a sample deep link and opens its run", async () => {
+    window.history.replaceState(null, "", "/?sample=chip-a17#samples");
+    renderApp();
+
+    expect(await screen.findByText("Selected sample chip-a17")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Samples" })).toHaveAttribute("aria-current", "page");
+
+    fireEvent.click(screen.getByRole("button", { name: "Select next sample" }));
+    expect(window.location.search).toBe("?sample=chip-b22");
+    expect(window.location.hash).toBe("#samples");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open sample run" }));
+    expect(window.location.search).toBe("?run=run-2");
+    expect(window.location.hash).toBe("");
+  });
+
+  it("opens an exact run binding in the sample workspace", async () => {
+    const run = projectRun("run-1");
+    run.samples = [
+      {
+        role: "subject",
+        sample_id: "chip-a17",
+        revision: 2,
+        content_hash: `sha256:${"a".repeat(64)}`,
+        kind: "chip",
+        display_name: "Chip A17",
+      },
+    ];
+    vi.mocked(getRuns).mockResolvedValue({ items: [run] });
+    vi.mocked(getRun).mockResolvedValue(run);
+    window.history.replaceState(null, "", "/?run=run-1");
+    renderApp();
+
+    fireEvent.click(await screen.findByTitle("chip-a17 · exact revision 2"));
+
+    expect(await screen.findByText("Selected sample chip-a17")).toBeVisible();
+    expect(window.location.search).toBe("?sample=chip-a17");
+    expect(window.location.hash).toBe("#samples");
+  });
+
   it("restores the analyses route and opens an input in the Runs view", async () => {
     window.history.replaceState(null, "", "/#analyses");
     renderApp();
@@ -748,6 +811,7 @@ function projectRun(runId: string): ProjectRun {
       recordIds: [],
     },
     resources: [],
+    samples: [],
     contents: [],
   };
 }

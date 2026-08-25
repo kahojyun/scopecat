@@ -127,9 +127,14 @@ class SQLiteSampleStore:
         try:
             summary = _summary(row)
             return SampleView(
-                **summary.model_dump(),
+                record=summary.record,
+                revision=summary.revision,
+                run_count=summary.run_count,
+                last_run_at=summary.last_run_at,
                 revisions=tuple(
-                    SampleRevision.model_validate_json(item["revision_json"])
+                    SampleRevision.model_validate_json(
+                        cast("str", item["revision_json"])
+                    )
                     for item in revision_rows
                 ),
             )
@@ -208,7 +213,7 @@ class SQLiteSampleStore:
             row = _sample_row(connection, sample_id)
             if row is None:
                 raise BackendNotFound(f"unknown sample {sample_id!r}")
-            record = SampleRecord.model_validate_json(row["record_json"])
+            record = SampleRecord.model_validate_json(cast("str", row["record_json"]))
             if record.active_revision != command.expected_revision:
                 raise BackendConflict(
                     f"sample {sample_id!r} is at revision "
@@ -315,7 +320,7 @@ class SQLiteSampleStore:
         row = _sample_row(connection, selector.sample_id)
         if row is None:
             raise BackendNotFound(f"unknown sample {selector.sample_id!r}")
-        record = SampleRecord.model_validate_json(row["record_json"])
+        record = SampleRecord.model_validate_json(cast("str", row["record_json"]))
         selected_revision = selector.revision or record.active_revision
         revision_row = cast(
             "sqlite3.Row | None",
@@ -332,7 +337,9 @@ class SQLiteSampleStore:
             raise BackendNotFound(
                 f"sample {selector.sample_id!r} has no revision {selected_revision}"
             )
-        revision = SampleRevision.model_validate_json(revision_row["revision_json"])
+        revision = SampleRevision.model_validate_json(
+            cast("str", revision_row["revision_json"])
+        )
         return SampleBinding(
             role=selector.role,
             sample_id=selector.sample_id,
@@ -399,7 +406,9 @@ class SQLiteSampleStore:
             raise BackendConflict(
                 "sample operation id already exists with different content"
             )
-        return SampleMutationReceipt.model_validate_json(row["receipt_json"])
+        return SampleMutationReceipt.model_validate_json(
+            cast("str", row["receipt_json"])
+        )
 
     @staticmethod
     def _record_operation(
@@ -433,8 +442,8 @@ def _sample_row(
 def _summary(row: sqlite3.Row) -> SampleSummary:
     encoded_last_run = cast("str | None", row["last_run_at"])
     return SampleSummary(
-        record=SampleRecord.model_validate_json(row["record_json"]),
-        revision=SampleRevision.model_validate_json(row["revision_json"]),
+        record=SampleRecord.model_validate_json(cast("str", row["record_json"])),
+        revision=SampleRevision.model_validate_json(cast("str", row["revision_json"])),
         run_count=cast("int", row["run_count"]),
         last_run_at=(
             None

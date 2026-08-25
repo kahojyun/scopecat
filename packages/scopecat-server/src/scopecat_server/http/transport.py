@@ -1034,11 +1034,13 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         limit: Annotated[int, Query(ge=1, le=500)] = 50,
         before: Annotated[int | None, Query(ge=1)] = None,
         state: ControlRunState | None = None,
+        sample_id: str | None = None,
     ) -> RunSummaryPage:
         return application.runs.list_runs(
             limit=limit,
             before=before,
             state=state,
+            sample_id=sample_id,
         )
 
     @app.post(f"{_API_PREFIX}/runs", status_code=201)

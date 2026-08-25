@@ -13,6 +13,7 @@ import type {
   MeasurementDatasetSchema,
   MeasurementRecord,
   PointCoordinateSpec,
+  SampleBinding,
 } from "./api-contract";
 
 export type PresentationRunStatus =
@@ -86,6 +87,7 @@ export interface ProjectRun {
   pointPlan: RunPointPlanProgress;
   plan: RunPlanSummary;
   resources: RunResource[];
+  samples: SampleBinding[];
   contents: ContentEntry[];
 }
 
@@ -178,7 +180,7 @@ export interface AnalysisPublication {
   revision: number;
   publicationHash: string;
   publishedAt: string;
-  subject: "run" | "project";
+  subject: "run" | "project" | "sample";
   inputs: AnalysisRecordInput[];
   executions: AnalysisExecution[];
   outputs: AnalysisOutput[];

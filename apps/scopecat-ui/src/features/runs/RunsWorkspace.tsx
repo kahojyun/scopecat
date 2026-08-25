@@ -68,6 +68,7 @@ export function RunsWorkspace({
   healthPending,
   healthReachable,
   daemonUnavailable,
+  onOpenSample,
 }: {
   selectedRunId?: string;
   onSelectRun: (runId: string) => void;
@@ -75,6 +76,7 @@ export function RunsWorkspace({
   healthPending: boolean;
   healthReachable: boolean;
   daemonUnavailable: boolean;
+  onOpenSample?: (sampleId: string) => void;
 }) {
   const queryClient = useQueryClient();
   const { requestConfirmation, confirmationDialog } = useConfirmationDialog();
@@ -591,6 +593,7 @@ export function RunsWorkspace({
                   onConfirm: () => attentionMutation.mutate(selectedRun.runId),
                 });
               }}
+              onOpenSample={onOpenSample}
             />
           ) : runsQuery.isPending ? (
             <DetailEmpty
@@ -723,6 +726,15 @@ function RunListItem({
           >
             {run.stateLabel}
           </span>
+          {run.samples.slice(0, 2).map((sample) => (
+            <span
+              key={`${sample.role}:${sample.sample_id}`}
+              className="rounded-[5px] border border-[rgb(128_163_207_/_18%)] bg-accent-soft px-1.5 py-[3px] text-[0.59rem] leading-none text-accent"
+              title={`${sample.role}: ${sample.sample_id} revision ${sample.revision}`}
+            >
+              {sample.display_name}
+            </span>
+          ))}
         </span>
       </span>
       <ChevronRight
@@ -817,6 +829,15 @@ function filterRuns(runs: ProjectRun[], filter: FilterKey, search: string): Proj
     return [
       run.runId,
       run.experimentId,
+      run.displayName,
+      ...run.tags,
+      ...run.samples.flatMap((sample) => [
+        sample.sample_id,
+        sample.display_name,
+        sample.kind,
+        sample.role,
+        sample.context_id,
+      ]),
       ...run.resources.flatMap((resource) => [resource.id, resource.kind]),
     ]
       .filter((value) => value !== undefined)

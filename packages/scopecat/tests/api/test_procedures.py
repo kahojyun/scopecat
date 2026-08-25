@@ -59,6 +59,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.records.analysis import (
     AnalysisFact,
     AnalysisRecord,
+    AnalysisSubject,
     MeasurementAnalysisRecordInput,
     ProjectAnalysisSubject,
     RunAnalysisSubject,
@@ -182,8 +183,13 @@ class _UnavailableAnalysisSession:
         del step, key
         raise AssertionError("analysis publication is outside this acceptance test")
 
-    def published_analysis(self, selector: str) -> PublishedAnalysis:
-        del selector
+    def published_analysis(
+        self,
+        selector: str,
+        *,
+        sample: str | None = None,
+    ) -> PublishedAnalysis:
+        del selector, sample
         raise httpx2.ReadError("analysis evidence is temporarily unavailable")
 
 
@@ -230,7 +236,7 @@ class _ActivationConfig:
 
 @dataclass(frozen=True, slots=True)
 class _FakeAnalysisRecord:
-    subject: RunAnalysisSubject | ProjectAnalysisSubject
+    subject: AnalysisSubject
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,7 +249,7 @@ class _ExactPublishedAnalysis:
         self,
         *,
         record_id: str,
-        subject: RunAnalysisSubject | ProjectAnalysisSubject,
+        subject: AnalysisSubject,
         proposals: tuple[ParameterChangeProposal, ...] = (),
         decision: AnalysisFact | None = None,
     ) -> None:
@@ -296,7 +302,13 @@ class _ExactAnalysisSession:
         del step, key
         raise AssertionError("analysis publication is outside this acceptance test")
 
-    def published_analysis(self, selector: str) -> PublishedAnalysis:
+    def published_analysis(
+        self,
+        selector: str,
+        *,
+        sample: str | None = None,
+    ) -> PublishedAnalysis:
+        del sample
         if selector != self._verification.id:
             raise KeyError(selector)
         return cast("PublishedAnalysis", cast("object", self._verification))
@@ -403,8 +415,13 @@ class _UnknownProjectAnalysisSession:
         del step, key
         raise httpx2.ReadError("analysis response was lost")
 
-    def published_analysis(self, selector: str) -> PublishedAnalysis:
-        del selector
+    def published_analysis(
+        self,
+        selector: str,
+        *,
+        sample: str | None = None,
+    ) -> PublishedAnalysis:
+        del selector, sample
         response = httpx2.Response(
             404,
             request=httpx2.Request("GET", "http://daemon.local/analysis"),
