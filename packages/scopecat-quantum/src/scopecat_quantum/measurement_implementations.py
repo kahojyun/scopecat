@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
 
@@ -92,15 +92,26 @@ class MeasurementPulseImplementation:
     id: PulseImplementationId
     key: MeasurementPulseImplementationKey
     pulse_template: PulseProgram
+    fingerprint: str = field(init=False)
 
     def __post_init__(self) -> None:
         _validate_measurement_template(self.pulse_template, self.key)
-
-    @property
-    def fingerprint(self) -> str:
-        """Identify the exact resolved template, including point-effective values."""
-
-        return stable_content_hash(content_fingerprint(self))
+        object.__setattr__(
+            self,
+            "fingerprint",
+            stable_content_hash(
+                content_fingerprint(
+                    {
+                        "schema": (
+                            "scopecat_quantum.measurement_pulse_implementation.v1"
+                        ),
+                        "id": self.id,
+                        "key": self.key,
+                        "pulse_template": self.pulse_template,
+                    }
+                )
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)

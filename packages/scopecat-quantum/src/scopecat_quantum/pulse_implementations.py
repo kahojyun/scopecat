@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
@@ -29,7 +29,6 @@ from scopecat_quantum.measurement_implementations import (
 from scopecat_quantum.pulses import (
     PulseProgram,
     pulse_leaf_owners,
-    schedule,
 )
 
 
@@ -117,6 +116,7 @@ class GatePulseImplementation:
     key: GatePulseImplementationKey
     pulse_template: PulseProgram
     resources: tuple[CouplerId, ...] = ()
+    fingerprint: str = field(init=False)
 
     def __post_init__(self) -> None:
         resources = tuple(self.resources)
@@ -126,7 +126,6 @@ class GatePulseImplementation:
         if self.pulse_template.acquisition_slots:
             msg = "gate implementation pulse templates cannot declare acquisition slots"
             raise ValueError(msg)
-        schedule(self.pulse_template)
         owners = set(pulse_leaf_owners(self.pulse_template.body))
         allowed_owners = {*self.key.operands, *resources}
         foreign_owners = owners - allowed_owners
@@ -147,12 +146,21 @@ class GatePulseImplementation:
             msg = f"gate implementation declares unused coupler resources: {rendered}"
             raise ValueError(msg)
         object.__setattr__(self, "resources", resources)
-
-    @property
-    def fingerprint(self) -> str:
-        """Identify the exact resolved template, including point-effective values."""
-
-        return stable_content_hash(content_fingerprint(self))
+        object.__setattr__(
+            self,
+            "fingerprint",
+            stable_content_hash(
+                content_fingerprint(
+                    {
+                        "schema": "scopecat_quantum.gate_pulse_implementation.v1",
+                        "id": self.id,
+                        "key": self.key,
+                        "pulse_template": self.pulse_template,
+                        "resources": resources,
+                    }
+                )
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
