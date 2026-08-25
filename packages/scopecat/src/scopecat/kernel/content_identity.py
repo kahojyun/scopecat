@@ -34,7 +34,7 @@ def sha256_json_hash(value: object) -> str:
     return f"sha256:{stable_content_hash(value)}"
 
 
-def sha256_content_hash(content: bytes) -> str:
+def sha256_content_hash(content: Buffer) -> str:
     """Identify an exact byte representation with an explicit hash algorithm."""
 
     return f"sha256:{hashlib.sha256(content).hexdigest()}"

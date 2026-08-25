@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import AsyncIterable, Iterable, Mapping
+from collections.abc import AsyncIterable, Buffer, Iterable, Mapping
+from contextlib import suppress
 from dataclasses import dataclass
+from io import BytesIO
+from mmap import ACCESS_READ, mmap
 from tempfile import TemporaryFile
 from threading import RLock
 from typing import BinaryIO, Literal
@@ -34,14 +37,23 @@ type CommandPayloadScope = tuple[Literal["run", "session"], str, str]
 class _StoredPayloadObject:
     size_bytes: int
     content: bytes | BinaryIO
+    mapping: mmap | None = None
 
-    def read(self) -> bytes:
+    def materialize(self, content_format: str) -> Buffer:
         if isinstance(self.content, bytes):
             return self.content
+        if content_format == "attachment_bundle":
+            if self.mapping is None:
+                self.mapping = mmap(self.content.fileno(), 0, access=ACCESS_READ)
+            return self.mapping
         self.content.seek(0)
         return self.content.read()
 
     def close(self) -> None:
+        mapping, self.mapping = self.mapping, None
+        if mapping is not None:
+            with suppress(BufferError):
+                mapping.close()
         if not isinstance(self.content, bytes):
             self.content.close()
 
@@ -129,8 +141,15 @@ class CommandPayloadService:
                 limit=self._max_object_bytes,
                 boundary="payload object upload",
             )
-        # Ownership transfers to the scoped object store after verification.
-        spool = TemporaryFile(mode="w+b")  # noqa: SIM115
+        # Small declared uploads stay in memory. Larger or undeclared streams
+        # spill immediately, and underestimated streams roll over at the same
+        # bounded threshold.
+        spool: BytesIO | BinaryIO = (
+            BytesIO()
+            if declared_size_bytes is not None
+            and declared_size_bytes <= self._max_inline_bytes
+            else TemporaryFile(mode="w+b")  # noqa: SIM115
+        )
         digest = hashlib.sha256()
         size_bytes = 0
         try:
@@ -141,6 +160,11 @@ class CommandPayloadService:
                     limit=self._max_object_bytes,
                     boundary="payload object upload",
                 )
+                if isinstance(spool, BytesIO) and size_bytes > self._max_inline_bytes:
+                    rolled = TemporaryFile(mode="w+b")  # noqa: SIM115
+                    rolled.write(spool.getvalue())
+                    spool.close()
+                    spool = rolled
                 digest.update(chunk)
                 spool.write(chunk)
             actual_hash = f"sha256:{digest.hexdigest()}"
@@ -149,11 +173,17 @@ class CommandPayloadService:
                     "payload object content hash mismatch: "
                     f"expected {expected_content_hash}, got {actual_hash}"
                 )
-            spool.seek(0)
+            stored_content: bytes | BinaryIO
+            if isinstance(spool, BytesIO):
+                stored_content = spool.getvalue()
+                spool.close()
+            else:
+                spool.seek(0)
+                stored_content = spool
             self._store_object(
                 scope,
                 actual_hash,
-                _StoredPayloadObject(size_bytes=size_bytes, content=spool),
+                _StoredPayloadObject(size_bytes=size_bytes, content=stored_content),
             )
         except BaseException:
             spool.close()
@@ -231,7 +261,7 @@ class CommandPayloadService:
     ) -> tuple[dict[str, BackendPayload], ...]:
         """Resolve an ordered batch atomically before any hardware action."""
 
-        content_by_ref: dict[str, bytes] = {}
+        content_by_ref: dict[str, Buffer] = {}
         return tuple(
             self._materialize_payloads(
                 payloads,
@@ -246,7 +276,7 @@ class CommandPayloadService:
         payloads: Mapping[str, CommandPayload],
         *,
         scope: CommandPayloadScope,
-        content_by_ref: dict[str, bytes],
+        content_by_ref: dict[str, Buffer],
     ) -> dict[str, BackendPayload]:
         return {
             payload_id: self._materialize_payload(
@@ -309,7 +339,7 @@ class CommandPayloadService:
         payload: CommandPayload,
         *,
         scope: CommandPayloadScope,
-        content_by_ref: dict[str, bytes],
+        content_by_ref: dict[str, Buffer],
     ) -> BackendPayload:
         self._require_size(
             payload.size_bytes,
@@ -324,7 +354,11 @@ class CommandPayloadService:
             if content is None:
                 with self._lock:
                     stored = self._objects_by_scope.get(scope, {}).get(body.ref)
-                    content = None if stored is None else stored.read()
+                    content = (
+                        None
+                        if stored is None
+                        else stored.materialize(payload.content_format)
+                    )
                 if stored is None or content is None:
                     raise CommandPayloadError(
                         f"payload object was not found in command scope: {body.ref}"
@@ -431,7 +465,7 @@ class CommandPayloadService:
             raise CommandPayloadTooLarge(f"{boundary} exceeds {limit} byte limit")
 
 
-def _verify_payload(payload: CommandPayload, content: bytes) -> None:
+def _verify_payload(payload: CommandPayload, content: Buffer) -> None:
     try:
         payload.verify_content(content)
     except ValueError as error:

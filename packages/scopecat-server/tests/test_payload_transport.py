@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 from collections.abc import AsyncIterator, Callable
+from mmap import mmap
 from pathlib import Path
 from typing import Literal, override
 
@@ -24,7 +25,11 @@ from scopecat.daemon.wire import (
 from scopecat.kernel.content_identity import sha256_content_hash
 from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
-from scopecat.records.content import CommandPayload, command_payload_from_bytes
+from scopecat.records.content import (
+    BlobPayloadBody,
+    CommandPayload,
+    command_payload_from_bytes,
+)
 from scopecat.records.run_request import RunRequest
 from scopecat.sdk.attachments import AttachmentBundle
 from scopecat.sdk.instruments import (
@@ -572,6 +577,53 @@ def test_payload_materialization_restores_attachment_bundle_parts() -> None:
     restored = materialized[payload.id].content.require_bundle()
     assert restored.header == b'{"program":"readout"}'
     assert tuple(map(bytes, restored.attachments)) == (b"first", b"second")
+
+
+def test_streamed_attachment_bundle_materializes_from_file_mapping() -> None:
+    content = EncodedPayloadContent.from_bundle(
+        AttachmentBundle(
+            header=b'{"program":"mapped"}',
+            attachments=(memoryview(b"0123456789abcdef"),),
+        )
+    )
+    payload = command_payload_from_encoded_content(
+        id="mapped-program",
+        schema_id="tests.bundle/v1",
+        codec_id="tests.bundle",
+        codec_version=1,
+        media_type="application/vnd.tests.bundle",
+        content=content,
+    )
+    flat = content.to_bytes()
+    service = CommandPayloadService(max_inline_bytes=8)
+    scope = session_payload_scope("session", "mapped")
+
+    async def chunks() -> AsyncIterator[bytes]:
+        yield flat[:7]
+        yield flat[7:]
+
+    asyncio.run(
+        service.put_object_stream(
+            chunks(),
+            scope=scope,
+            expected_content_hash=payload.content_hash,
+            declared_size_bytes=len(flat),
+        )
+    )
+    blob = payload.model_copy(
+        update={"body": BlobPayloadBody(ref=payload.content_hash)}
+    )
+    materialized = service.materialize_payloads({payload.id: blob}, scope=scope)
+
+    restored = materialized[payload.id].content.require_bundle()
+    assert restored.header == b'{"program":"mapped"}'
+    assert tuple(map(bytes, restored.attachments)) == (b"0123456789abcdef",)
+    assert isinstance(restored.attachments[0], memoryview)
+    assert isinstance(restored.attachments[0].obj, mmap)
+
+    del restored, materialized
+    service.release(scope)
+    assert service.spooled_size_bytes() == 0
 
 
 def test_closed_direct_session_cannot_leave_an_uploaded_payload(

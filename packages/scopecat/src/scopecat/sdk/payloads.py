@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Buffer, Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal, Protocol, Self, cast, override
@@ -42,14 +42,14 @@ class EncodedPayloadContent:
     @classmethod
     def from_flat_bytes(
         cls,
-        content: bytes,
+        content: Buffer,
         content_format: PayloadContentFormat,
         /,
         *,
         limits: AttachmentBundleLimits | None = None,
     ) -> Self:
         if content_format == "bytes":
-            return cls.from_bytes(content)
+            return cls.from_bytes(bytes(content))
         return cls.from_bundle(
             AttachmentBundle.from_bytes(content)
             if limits is None

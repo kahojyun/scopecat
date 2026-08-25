@@ -230,9 +230,9 @@ class CommandPayload(BaseModel):
             raise ValueError("payload blob ref must equal content_hash")
         return self
 
-    def verify_content(self, content: bytes) -> None:
+    def verify_content(self, content: Buffer) -> None:
         verified = cast(
-            "tuple[str, bytes] | None",
+            "tuple[str, Buffer] | None",
             self.__dict__.get("_verified_content"),
         )
         if (
@@ -241,7 +241,7 @@ class CommandPayload(BaseModel):
             and verified[1] is content
         ):
             return
-        if len(content) != self.size_bytes:
+        if memoryview(content).nbytes != self.size_bytes:
             raise ValueError(
                 "payload byte length does not match its declared size_bytes"
             )
