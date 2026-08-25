@@ -23,6 +23,7 @@ from scopecat.sdk.payloads import (
 from scopecat.sdk.structured_payloads import (
     STRUCTURED_PAYLOAD_MEDIA_TYPE,
     FrozenFloat64Vector,
+    FrozenInt16Vector,
     StructuredPayloadError,
     pydantic_buffer_bundle_codec,
     pydantic_buffer_bundle_value_codec,
@@ -53,6 +54,17 @@ class _FrozenVectorProgram(BaseModel):
     samples: FrozenFloat64Vector
 
 
+class _FrozenInt16VectorProgram(BaseModel):
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="forbid",
+        frozen=True,
+        strict=True,
+    )
+
+    samples: FrozenInt16Vector
+
+
 class _LeftProgram(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -76,6 +88,7 @@ type _ProgramVariant = Annotated[
 def test_payload_codec_tools_are_available_from_the_public_facade() -> None:
     assert sc.PayloadContract is PayloadContract
     assert sc.FrozenFloat64Vector is FrozenFloat64Vector
+    assert sc.FrozenInt16Vector is FrozenInt16Vector
     assert sc.StructuredValueCodec.__name__ == "StructuredValueCodec"
     assert sc.byte_payload_codec is byte_payload_codec
     assert sc.pydantic_buffer_bundle_codec is pydantic_buffer_bundle_codec
@@ -341,6 +354,23 @@ def test_frozen_float64_vector_snapshots_numeric_input() -> None:
     assert value.samples.dtype == np.dtype(np.float64)
     assert not value.samples.flags.writeable
     np.testing.assert_array_equal(value.samples, np.arange(4, dtype=np.float64))
+
+
+def test_frozen_int16_vector_snapshots_integer_input() -> None:
+    source = np.arange(4, dtype=np.int64)
+
+    value = _FrozenInt16VectorProgram.model_validate({"samples": source})
+    source[0] = 99
+
+    assert value.samples.dtype == np.dtype(np.int16)
+    assert not value.samples.flags.writeable
+    np.testing.assert_array_equal(value.samples, np.arange(4, dtype=np.int16))
+
+
+@pytest.mark.parametrize("samples", ([0.5], [np.iinfo(np.int16).max + 1]))
+def test_frozen_int16_vector_rejects_non_codes(samples: list[float | int]) -> None:
+    with pytest.raises(ValueError, match=r"integer values|signed 16-bit"):
+        _FrozenInt16VectorProgram.model_validate({"samples": samples})
 
 
 def test_pydantic_buffer_bundle_codec_supports_discriminated_type_adapters() -> None:

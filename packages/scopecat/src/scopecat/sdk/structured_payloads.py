@@ -60,6 +60,32 @@ type FrozenFloat64Vector = Annotated[
 ]
 
 
+def _frozen_int16_vector(value: object) -> NDArray[np.int16]:
+    try:
+        source = np.asarray(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("array value must be an integer vector") from error
+    if source.ndim != 1:
+        raise ValueError("array value must be one-dimensional")
+    if source.dtype.kind not in "iu":
+        raise ValueError("array value must contain integer values")
+    if source.size and (
+        np.min(source) < np.iinfo(np.int16).min
+        or np.max(source) > np.iinfo(np.int16).max
+    ):
+        raise ValueError("array value must fit signed 16-bit samples")
+    return cast(
+        "NDArray[np.int16]",
+        freeze_ndarray(np.asarray(source, dtype=np.int16)),
+    )
+
+
+type FrozenInt16Vector = Annotated[
+    NDArray[np.int16],
+    BeforeValidator(_frozen_int16_vector),
+]
+
+
 class StructuredPayloadError(ValueError):
     """A structured payload cannot be encoded or violates its wire contract."""
 
@@ -380,6 +406,7 @@ __all__ = [
     "STRUCTURED_PAYLOAD_CODEC_VERSION",
     "STRUCTURED_PAYLOAD_MEDIA_TYPE",
     "FrozenFloat64Vector",
+    "FrozenInt16Vector",
     "StructuredPayloadError",
     "StructuredValueCodec",
     "pydantic_buffer_bundle_codec",
