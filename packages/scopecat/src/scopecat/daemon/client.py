@@ -234,7 +234,7 @@ type _PayloadUploadContent = bytes | tuple[Buffer, ...]
 _API_PREFIX = "/api/v1"
 _NEXT_OFFSET_HEADER = "X-Scopecat-Next-Offset"
 _SNAPSHOT_SIZE_HEADER = "X-Scopecat-Snapshot-Size"
-_PAYLOAD_UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024
+_PAYLOAD_UPLOAD_CHUNK_BYTES = 1024 * 1024
 # The daemon owns operation deadlines; a read timeout would make a completed
 # hardware command ambiguous to its caller.
 _DEFAULT_TIMEOUT = httpx2.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
