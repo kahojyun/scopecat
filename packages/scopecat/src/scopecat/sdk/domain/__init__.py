@@ -24,7 +24,12 @@ if TYPE_CHECKING:
         DomainBatchInputs,
         DomainBatchRequest,
     )
-    from scopecat.sdk.domain.compiler import DomainBatchCandidate, DomainCompiler
+    from scopecat.sdk.domain.compiler import (
+        DomainBatchCandidate,
+        DomainBatchPreparationCost,
+        DomainBatchPreparationLimits,
+        DomainCompiler,
+    )
     from scopecat.sdk.domain.evidence import DomainExecutionEvidence
     from scopecat.sdk.domain.execution import (
         DomainResidencyAddress,
@@ -140,6 +145,14 @@ _EXPORTS = {
         "scopecat.sdk.domain.compiler",
         "DomainBatchCandidate",
     ),
+    "DomainBatchPreparationCost": (
+        "scopecat.sdk.domain.compiler",
+        "DomainBatchPreparationCost",
+    ),
+    "DomainBatchPreparationLimits": (
+        "scopecat.sdk.domain.compiler",
+        "DomainBatchPreparationLimits",
+    ),
     "DomainCompiler": ("scopecat.sdk.domain.compiler", "DomainCompiler"),
     "DomainPreparationBuilder": (
         "scopecat.sdk.domain.preparation",
@@ -176,6 +189,8 @@ __all__ = [
     "CompiledWaveformInspection",
     "DomainBatchCandidate",
     "DomainBatchInputs",
+    "DomainBatchPreparationCost",
+    "DomainBatchPreparationLimits",
     "DomainBatchRequest",
     "DomainCallView",
     "DomainCompiler",

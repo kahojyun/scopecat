@@ -90,6 +90,8 @@ from scopecat.records.config import (
 )
 from scopecat.sdk.domain.compiler import (
     DomainBatchCandidate,
+    DomainBatchPreparationCost,
+    DomainBatchPreparationLimits,
     DomainCompiler,
 )
 from scopecat.sdk.domain.execution import DomainStateAddress, PreparedDomainExecution
@@ -1078,13 +1080,15 @@ def _coverage_operations(
     total_point_count = sum(len(block) for block in point_blocks)
     if not total_point_count:
         return
+    max_candidate_retained_bytes: int | None = None
     if has_domain_calls:
         assert compiler is not None
-        next_batch_max_points = compiler.initial_batch_max_points(total_point_count)
-        _validate_domain_batch_max_points(
-            next_batch_max_points,
+        preparation_limits = _domain_batch_preparation_limits(
+            compiler,
             total_point_count,
         )
+        next_batch_max_points = preparation_limits.max_points
+        max_candidate_retained_bytes = preparation_limits.max_retained_bytes
     else:
         first_block_size = len(point_blocks[0])
         if first_block_size > _MAX_LOCAL_COVERAGE_BATCH_SIZE:
@@ -1107,6 +1111,7 @@ def _coverage_operations(
             assert compiler is not None
             for effect in effects:
                 if isinstance(effect, LogicalDomainExecution):
+                    assert max_candidate_retained_bytes is not None
                     batch_candidates[effect.id] = _prepare_domain_batch(
                         compiler,
                         domain_calls[effect.id],
@@ -1116,6 +1121,7 @@ def _coverage_operations(
                         batch_ordinal=next_batch_ordinals[effect.id],
                         inspection_requested=inspection_requested,
                         inspection_query=inspection_query,
+                        max_retained_bytes=max_candidate_retained_bytes,
                     )
             compatible_sizes = tuple(
                 candidate.compatible_point_count
@@ -1209,6 +1215,7 @@ def _coverage_operations(
         if has_domain_calls:
             if not next_domain_max_points:
                 raise AssertionError("domain coverage produced no continuation maximum")
+            assert compiler is not None
             next_batch_max_points = min(remaining, *next_domain_max_points)
         else:
             next_batch_max_points = min(remaining, _MAX_LOCAL_COVERAGE_BATCH_SIZE)
@@ -1313,6 +1320,7 @@ def _prepare_domain_batch(
     batch_ordinal: int,
     inspection_requested: bool,
     inspection_query: CompiledProgramInspectionQuery | None,
+    max_retained_bytes: int,
 ) -> DomainBatchCandidate:
     request = make_domain_batch_request(
         call,
@@ -1339,18 +1347,50 @@ def _prepare_domain_batch(
             "domain batch candidate compatible point count must be a positive "
             "candidate prefix ending at a legal point-block cut"
         )
+    preparation_cost = cast("object", candidate.preparation_cost)
+    if not isinstance(preparation_cost, DomainBatchPreparationCost):
+        raise TypeError(
+            "domain batch candidate preparation_cost must be DomainBatchPreparationCost"
+        )
+    analyzed = preparation_cost.analyzed_point_count
+    retained = preparation_cost.retained_bytes
+    if (
+        type(analyzed) is not int
+        or not size <= analyzed <= len(point_ordinals)
+        or type(retained) is not int
+        or not 0 <= retained <= max_retained_bytes
+    ):
+        raise ValueError(
+            "domain batch candidate preparation cost must cover its compatible "
+            "prefix and remain within the retained-byte limit"
+        )
     return candidate
 
 
-def _validate_domain_batch_max_points(
-    batch_max_points: int,
+def _domain_batch_preparation_limits(
+    compiler: DomainCompiler,
     point_count: int,
-) -> None:
-    if type(batch_max_points) is not int or not 1 <= batch_max_points <= point_count:
-        raise ValueError(
-            "domain compiler initial batch maximum must be a positive covered "
-            "point count"
+) -> DomainBatchPreparationLimits:
+    limits_value = cast(
+        "object",
+        compiler.initial_batch_preparation_limits(point_count),
+    )
+    if not isinstance(limits_value, DomainBatchPreparationLimits):
+        raise TypeError(
+            "domain compiler initial_batch_preparation_limits must return "
+            "DomainBatchPreparationLimits"
         )
+    if (
+        type(limits_value.max_points) is not int
+        or not 1 <= limits_value.max_points <= point_count
+        or type(limits_value.max_retained_bytes) is not int
+        or limits_value.max_retained_bytes < 1
+    ):
+        raise ValueError(
+            "domain compiler preparation limits must have a positive covered "
+            "point count and retained-byte budget"
+        )
+    return limits_value
 
 
 def _bounded_block_prefix(
