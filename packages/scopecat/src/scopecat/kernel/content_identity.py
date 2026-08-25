@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Buffer, Mapping, Sequence
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 from datetime import date, datetime, time
@@ -79,14 +79,7 @@ def content_fingerprint(value: object) -> object:
             "value": value.isoformat(),
         }
     if isinstance(value, bytes | bytearray | memoryview):
-        encoded_bytes = (
-            value.tobytes() if isinstance(value, memoryview) else bytes(value)
-        )
-        return {
-            "kind": "bytes",
-            "length": len(encoded_bytes),
-            "sha256": hashlib.sha256(encoded_bytes).hexdigest(),
-        }
+        return _bytes_fingerprint(cast("Buffer", value))
     if isinstance(value, EntityRef):
         return {"kind": "entity", "value": entity_identity(value)}
     if isinstance(value, PayloadValue):
@@ -182,6 +175,23 @@ def _numeric_fingerprint(value: object) -> dict[str, object]:
     return {"kind": "float", "value": encoded}
 
 
+def _bytes_fingerprint(
+    value: Buffer,
+) -> dict[str, object]:
+    buffer_identity = _contiguous_buffer_identity(value)
+    if buffer_identity is None:
+        encoded_bytes = bytes(value)
+        length = len(encoded_bytes)
+        digest = hashlib.sha256(encoded_bytes).hexdigest()
+    else:
+        length, digest = buffer_identity
+    return {
+        "kind": "bytes",
+        "length": length,
+        "sha256": digest,
+    }
+
+
 def _array_fingerprint(
     value: object,
     *,
@@ -191,23 +201,28 @@ def _array_fingerprint(
     if cast("bool", getattr(dtype, "hasobject", False)):
         msg = f"cannot fingerprint object-backed array {_type_name(value)}"
         raise TypeError(msg)
-    to_bytes = getattr(value, "tobytes", None)
-    if not callable(to_bytes):
-        msg = f"array-like value {_type_name(value)} has no stable byte codec"
-        raise TypeError(msg)
-    try:
-        encoded = to_bytes()
-    except Exception as error:
-        msg = f"array-like value {_type_name(value)} cannot be encoded"
-        raise TypeError(msg) from error
-    if not isinstance(encoded, bytes):
-        msg = f"array-like value {_type_name(value)} returned non-byte content"
-        raise TypeError(msg)
+    buffer_identity = _contiguous_buffer_identity(cast("Buffer", value))
+    if buffer_identity is None:
+        to_bytes = getattr(value, "tobytes", None)
+        if not callable(to_bytes):
+            msg = f"array-like value {_type_name(value)} has no stable byte codec"
+            raise TypeError(msg)
+        try:
+            encoded = to_bytes()
+        except Exception as error:
+            msg = f"array-like value {_type_name(value)} cannot be encoded"
+            raise TypeError(msg) from error
+        if not isinstance(encoded, bytes):
+            msg = f"array-like value {_type_name(value)} returned non-byte content"
+            raise TypeError(msg)
+        digest = hashlib.sha256(encoded).hexdigest()
+    else:
+        _, digest = buffer_identity
     strides = cast("Sequence[object] | None", getattr(value, "strides", None))
     return {
         "kind": "array",
         "type": _type_name(value),
-        "sha256": hashlib.sha256(encoded).hexdigest(),
+        "sha256": digest,
         "shape": list(shape) if shape is not None else None,
         "dtype": str(dtype) if dtype is not None else None,
         "strides": list(strides) if strides else None,
@@ -222,6 +237,16 @@ def canonical_json(value: object) -> str:
         ensure_ascii=False,
         allow_nan=False,
     )
+
+
+def _contiguous_buffer_identity(value: Buffer) -> tuple[int, str] | None:
+    try:
+        view = memoryview(value)
+    except TypeError:
+        return None
+    if not view.c_contiguous:
+        return None
+    return view.nbytes, hashlib.sha256(view).hexdigest()
 
 
 def model_wire_content_hash(model: BaseModel) -> str:
