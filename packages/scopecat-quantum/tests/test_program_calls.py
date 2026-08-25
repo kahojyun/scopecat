@@ -8,6 +8,7 @@ import pytest
 import scopecat as sc
 from scopecat.compiler.bind import bind_program
 from scopecat.compiler.frontend.resolution import compile_invocation
+from scopecat.compiler.topology_selection import TopologyEntitySetResolution
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.config.environment import build_config_environment
 from scopecat.measurements.records import EntityRecordPlan, plan_records
@@ -633,6 +634,7 @@ def test_qubit_set_can_resolve_a_topology_selection_intent() -> None:
     bound = bind_program(compiled.program, build_config_environment(config))
 
     [resolution] = bound.bindings.topology_entity_sets.values()
+    assert isinstance(resolution, TopologyEntitySetResolution)
     assert [entity.id for entity in resolution.entities] == ["q1", "q0", "q2"]
     [product] = bound.bindings.product_defs
     assert product.axes[0].entities == resolution.entities
@@ -757,7 +759,11 @@ def test_pair_set_can_resolve_a_topology_matching_intent() -> None:
     bound = bind_program(compiled.program, build_config_environment(config))
 
     [resolution] = bound.bindings.topology_entity_sets.values()
-    assert [row["coupler"].id for row in resolution.table.rows] == ["c0", "c2"]
+    resolution_rows = cast(
+        "tuple[dict[str, sc.EntityRef], ...]",
+        resolution.table.rows,
+    )
+    assert [row["coupler"].id for row in resolution_rows] == ["c0", "c2"]
     prepared = prepare_bound_points(bound)
     [execution] = bound.program.program.domain_executions
     [(_input_id, values)] = prepared.bind_domain_inputs(

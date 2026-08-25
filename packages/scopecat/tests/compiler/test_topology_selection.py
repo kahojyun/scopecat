@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 from pydantic import ValidationError
 
@@ -164,7 +166,11 @@ def test_topology_connection_selection_resolves_stable_matching_layers() -> None
         ),
         _qubit_pair_table(),
     )
-    assert [row["coupler"].id for row in all_pairs.table.rows] == ["c0", "c1", "c2"]
+    all_pair_rows = cast(
+        "tuple[dict[str, EntityRef], ...]",
+        all_pairs.table.rows,
+    )
+    assert [row["coupler"].id for row in all_pair_rows] == ["c0", "c1", "c2"]
 
     first_matching = resolve_topology_connection_set(
         topology,
@@ -176,7 +182,11 @@ def test_topology_connection_selection_resolves_stable_matching_layers() -> None
         ),
         _qubit_pair_table(),
     )
-    assert [row["coupler"].id for row in first_matching.table.rows] == ["c0", "c2"]
+    first_matching_rows = cast(
+        "tuple[dict[str, EntityRef], ...]",
+        first_matching.table.rows,
+    )
+    assert [row["coupler"].id for row in first_matching_rows] == ["c0", "c2"]
 
     second_matching = resolve_topology_connection_set(
         topology,
@@ -188,7 +198,11 @@ def test_topology_connection_selection_resolves_stable_matching_layers() -> None
         ),
         _qubit_pair_table(),
     )
-    assert [row["coupler"].id for row in second_matching.table.rows] == ["c1"]
+    second_matching_rows = cast(
+        "tuple[dict[str, EntityRef], ...]",
+        second_matching.table.rows,
+    )
+    assert [row["coupler"].id for row in second_matching_rows] == ["c1"]
 
 
 def test_topology_rejects_connections_to_unknown_entities() -> None:
