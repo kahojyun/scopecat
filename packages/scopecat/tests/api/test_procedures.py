@@ -74,6 +74,7 @@ from scopecat.runs.selectors import RunSelector
 
 class _ImmediateProcedureContext:
     procedure_run_id = "procedure-test"
+    samples: tuple[object, ...] = ()
 
     def step(
         self,
