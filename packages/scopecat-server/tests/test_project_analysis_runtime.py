@@ -605,11 +605,25 @@ def test_sample_analysis_is_scoped_to_runs_bound_to_that_sample(tmp_path: Path) 
             submission_id="other-analysis-run",
             signal=1.2,
         )
+        reference_run_id = _complete_signal_run(
+            runtime,
+            submission_id="reference-analysis-run",
+            signal=1.1,
+            submission=_submission("reference-analysis-run").model_copy(
+                update={
+                    "request": RunRequest(
+                        experiment_id="scratch",
+                        samples=(SampleSelector(sample_id="reference-1"),),
+                    )
+                }
+            ),
+        )
 
         with TestClient(runtime.app()) as transport:
             lab = LabClient(_daemon_client(transport))
             sample_run = lab.get_run(sample_run_id)
             other_run = lab.get_run(other_run_id)
+            reference_run = lab.get_run(reference_run_id)
 
             @analysis_step(id="sample-health")
             def sample_health(context: AnalysisContext) -> Analysis:
@@ -642,6 +656,24 @@ def test_sample_analysis_is_scoped_to_runs_bound_to_that_sample(tmp_path: Path) 
                 match="bound as its subject",
             ):
                 lab.analyze(reference_health(), sample="reference-1")
+
+            @analysis_step(id="sample-health")
+            def reference_sample_health(context: AnalysisContext) -> Analysis:
+                data = context.measurements(reference_run, id="signal")
+                return context.result("Reference sample health").fact(
+                    "signal",
+                    cast("float", data.data_vars["signal"].values[0]),
+                )
+
+            reference_published = lab.analyze(
+                reference_sample_health(),
+                sample="reference-1",
+            )
+            assert reference_published.id != published.id
+            assert (
+                lab.published_analysis("sample-health", sample="reference-1").id
+                == reference_published.id
+            )
 
             @analysis_step(id="mixed-sample-health")
             def mixed_sample_health(context: AnalysisContext) -> Analysis:

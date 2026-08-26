@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import httpx2
+import pytest
 from fastapi.testclient import TestClient
 from scopecat.api.lab import LabClient
 from scopecat.config.documents import load_config_snapshot_document
@@ -21,7 +22,8 @@ from scopecat.records.sample import (
     SampleSelector,
 )
 
-from scopecat_server import LocalDaemonRuntime
+from scopecat_server import BackendNotFound, LocalDaemonRuntime
+from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
 
 _FIXTURE = (
     Path(__file__).parents[3]
@@ -259,3 +261,31 @@ def test_lab_sample_facade_and_run_filter_use_stable_handles(tmp_path: Path) -> 
         assert sample.view.record.active_revision == 2
         assert tuple(item.revision for item in sample.revisions().items) == (2, 1)
         assert sample.revision(1).content.display_name == "Chip 1"
+
+
+def test_sample_mutation_rolls_back_when_its_event_cannot_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+
+        def reject_event(*_args: object) -> None:
+            raise RuntimeError("event append failed")
+
+        monkeypatch.setattr(
+            SQLiteControlPlane,
+            "append_event_in_transaction",
+            reject_event,
+        )
+        with pytest.raises(RuntimeError, match="event append failed"):
+            runtime.application.samples.create(
+                SampleCreateCommand(
+                    operation_id="atomic-sample-create",
+                    sample_id="atomic-chip",
+                    kind="chip",
+                    actor="operator",
+                    content=SampleRevisionDraft(display_name="Atomic chip"),
+                )
+            )
+        with pytest.raises(BackendNotFound, match="unknown sample"):
+            runtime.application.samples.get("atomic-chip")
