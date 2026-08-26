@@ -53,6 +53,7 @@ from scopecat.automation import (
     procedure_step_operation_id,
 )
 from scopecat.records.content import Sha256ContentHash
+from scopecat.records.sample import SampleSelector
 
 from scopecat_server.storage.sqlite.automation import (
     AutomationConflict,
@@ -102,6 +103,7 @@ class AutomationService:
                 definition=command.definition,
                 request_key=command.request_key,
                 intent=command.intent,
+                samples=command.samples,
             )
         )
 
@@ -299,6 +301,7 @@ class AutomationService:
         definition: ProcedureDefinitionRef,
         request_key: str,
         intent: ProcedureIntent,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> ProcedureRun:
         """Admit one idempotent, version-pinned procedure request."""
 
@@ -313,6 +316,7 @@ class AutomationService:
                 definition=definition,
                 request_key=request_key,
                 intent=intent,
+                samples=samples,
             )
 
     def submit_in_transaction(
@@ -322,6 +326,7 @@ class AutomationService:
         definition: ProcedureDefinitionRef,
         request_key: str,
         intent: ProcedureIntent,
+        samples: tuple[SampleSelector, ...] = (),
         at: datetime | None = None,
         require_new: bool = False,
     ) -> ProcedureRun:
@@ -330,7 +335,11 @@ class AutomationService:
         if not request_key.strip():
             raise ValueError("procedure request key must be non-empty")
         selected_intent = dict(intent)
-        intent_hash = procedure_intent_hash(definition, selected_intent)
+        intent_hash = procedure_intent_hash(
+            definition,
+            selected_intent,
+            samples=samples,
+        )
         existing = self._store.find_run_by_request_in_transaction(
             connection,
             definition.id,
@@ -353,6 +362,7 @@ class AutomationService:
             definition=definition,
             intent=selected_intent,
             intent_hash=intent_hash,
+            samples=samples,
             revision=1,
             state="ready",
             created_at=now,

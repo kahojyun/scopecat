@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx2
 from fastapi.testclient import TestClient
+from scopecat.api.lab import LabClient
 from scopecat.config.documents import load_config_snapshot_document
 from scopecat.control.models import RunPlanSummary, RunResourceRequirement
+from scopecat.daemon.client import DaemonClient
 from scopecat.daemon.wire import (
     RunSubmission,
     SampleCreateCommand,
@@ -53,6 +56,26 @@ def _submission(sample_id: str) -> RunSubmission:
                 RunResourceRequirement(id="source-0", kind="instrument"),
             ),
         ),
+    )
+
+
+def _daemon_client(transport: TestClient) -> DaemonClient:
+    def send(request: httpx2.Request) -> httpx2.Response:
+        response = transport.request(
+            request.method,
+            request.url.raw_path.decode(),
+            content=request.content,
+            headers=dict(request.headers),
+        )
+        return httpx2.Response(
+            response.status_code,
+            content=response.content,
+            headers=dict(response.headers),
+        )
+
+    return DaemonClient(
+        "http://testserver",
+        transport=httpx2.MockTransport(send),
     )
 
 
@@ -127,9 +150,45 @@ def test_sample_revision_and_run_binding_survive_restart(tmp_path: Path) -> None
 
         detail_response = transport.get("/api/v1/samples/die-1")
         assert detail_response.status_code == 200
+        assert "revisions" not in detail_response.json()
+
+        first_revision_page = transport.get(
+            "/api/v1/samples/die-1/revisions",
+            params={"limit": 1},
+        )
+        assert first_revision_page.status_code == 200
         assert [
-            revision["revision"] for revision in detail_response.json()["revisions"]
-        ] == [2, 1]
+            revision["revision"] for revision in first_revision_page.json()["items"]
+        ] == [2]
+        second_revision_page = transport.get(
+            "/api/v1/samples/die-1/revisions",
+            params={"limit": 1, "before": first_revision_page.json()["next_cursor"]},
+        )
+        assert [
+            revision["revision"] for revision in second_revision_page.json()["items"]
+        ] == [1]
+        exact_revision = transport.get("/api/v1/samples/die-1/revisions/1")
+        assert exact_revision.status_code == 200
+        assert exact_revision.json()["content"]["display_name"] == "Die 1"
+
+        events = transport.get("/api/v1/events", params={"limit": 100}).json()["items"]
+        sample_events = [
+            event
+            for event in events
+            if event["kind"] in {"sample_created", "sample_revision_activated"}
+        ]
+        assert [event["kind"] for event in sample_events] == [
+            "sample_created",
+            "sample_created",
+            "sample_revision_activated",
+        ]
+        assert sample_events[-1]["payload"] == {
+            "operation_id": "revise:die-1:2",
+            "sample_id": "die-1",
+            "revision": 2,
+            "content_hash": revise_response.json()["revision"]["content_hash"],
+            "status": "mounted",
+        }
 
         sample_runs_response = transport.get(
             "/api/v1/runs",
@@ -156,3 +215,47 @@ def test_sample_revision_and_run_binding_survive_restart(tmp_path: Path) -> None
     assert sample.record.active_revision == 2
     assert sample.run_count == 1
     assert snapshot.samples == (binding,)
+
+
+def test_sample_ids_are_url_safe_stable_identifiers(tmp_path: Path) -> None:
+    with (
+        LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        response = transport.post(
+            "/api/v1/samples",
+            json={
+                "operation_id": "invalid-sample-id",
+                "sample_id": "lot/chip-1",
+                "kind": "chip",
+                "actor": "operator",
+                "content": {"display_name": "Chip 1"},
+            },
+        )
+
+    assert response.status_code == 422
+
+
+def test_lab_sample_facade_and_run_filter_use_stable_handles(tmp_path: Path) -> None:
+    with (
+        LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        lab = LabClient(_daemon_client(transport), operator="notebook-operator")
+        sample = lab.samples.create(
+            "chip-1",
+            kind="chip",
+            content=SampleRevisionDraft(display_name="Chip 1"),
+        )
+        sample.revise(
+            SampleRevisionDraft(display_name="Chip 1 mounted", status="mounted"),
+            note="ready for measurement",
+        )
+        admission = runtime.application.submit_run(_submission(sample.id))
+
+        page = lab.runs(sample=sample)
+
+        assert tuple(run.id for run in page.items) == (admission.run_id,)
+        assert sample.view.record.active_revision == 2
+        assert tuple(item.revision for item in sample.revisions().items) == (2, 1)
+        assert sample.revision(1).content.display_name == "Chip 1"

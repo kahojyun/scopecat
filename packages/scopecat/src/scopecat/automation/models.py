@@ -23,6 +23,7 @@ from scopecat.kernel.run_outcome import utc_now
 from scopecat.records.analysis import AnalysisSubject
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.content import Sha256ContentHash
+from scopecat.records.sample import SampleSelector
 
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
@@ -87,12 +88,15 @@ class ProcedureDefinitionRef(_ProcedureModel):
 def procedure_intent_hash(
     definition: ProcedureDefinitionRef,
     intent: Mapping[str, object],
+    *,
+    samples: tuple[SampleSelector, ...] = (),
 ) -> Sha256ContentHash:
-    """Hash the exact definition and canonical JSON intent used by a worker."""
+    """Hash the exact definition, intent, and sample scope used by a worker."""
 
     identity = {
         "definition": definition.model_dump(mode="json"),
         "intent": cast("dict[str, JsonValue]", thaw_json_value(intent)),
+        "samples": [sample.model_dump(mode="json") for sample in samples],
     }
     return f"sha256:{stable_content_hash(identity)}"
 
@@ -164,6 +168,7 @@ class ProcedureRun(_ProcedureModel):
     definition: ProcedureDefinitionRef
     intent: ProcedureIntent
     intent_hash: Sha256ContentHash
+    samples: tuple[SampleSelector, ...] = ()
     revision: int = Field(ge=1)
     state: ProcedureRunState
     created_at: datetime = Field(default_factory=utc_now)
@@ -171,12 +176,30 @@ class ProcedureRun(_ProcedureModel):
     attention_reason: str | None = None
     closure: ProcedureClosure | None = None
 
+    @field_validator("samples")
+    @classmethod
+    def validate_samples(
+        cls,
+        value: tuple[SampleSelector, ...],
+    ) -> tuple[SampleSelector, ...]:
+        roles = tuple(selector.role for selector in value)
+        if len(roles) != len(set(roles)):
+            raise ValueError("procedure sample selector roles must be unique")
+        sample_ids = tuple(selector.sample_id for selector in value)
+        if len(sample_ids) != len(set(sample_ids)):
+            raise ValueError("one sample cannot fill multiple procedure roles")
+        return value
+
     @model_validator(mode="after")
     def validate_state_details(self) -> ProcedureRun:
-        expected_intent_hash = procedure_intent_hash(self.definition, self.intent)
+        expected_intent_hash = procedure_intent_hash(
+            self.definition,
+            self.intent,
+            samples=self.samples,
+        )
         if self.intent_hash != expected_intent_hash:
             raise ValueError(
-                "procedure intent hash must cover its definition and complete intent"
+                "procedure intent hash must cover its definition, intent, and samples"
             )
         if self.updated_at < self.created_at:
             raise ValueError("procedure run cannot be updated before it is created")

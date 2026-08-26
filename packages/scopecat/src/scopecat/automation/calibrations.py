@@ -31,6 +31,7 @@ from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.content import Sha256ContentHash
 from scopecat.records.run import ConfigRegistryRunConfigSource
+from scopecat.records.sample import SampleId, SampleSelector
 
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
@@ -105,7 +106,7 @@ class CalibrationTargetRef(_CalibrationModel):
 
     kind: _NonEmptyText
     id: _NonEmptyText
-    sample_id: _NonEmptyText | None = None
+    sample_id: SampleId | None = None
     context_id: _NonEmptyText | None = None
 
     @field_validator("kind", "id")
@@ -118,6 +119,21 @@ class CalibrationTargetRef(_CalibrationModel):
         if self.context_id is not None and self.sample_id is None:
             raise ValueError("calibration target context requires a sample")
         return self
+
+
+def calibration_target_sample_selectors(
+    target: CalibrationTargetRef,
+) -> tuple[SampleSelector, ...]:
+    """Return the child-run sample scope implied by a calibration target."""
+
+    if target.sample_id is None:
+        return ()
+    return (
+        SampleSelector(
+            sample_id=target.sample_id,
+            context_id=target.context_id,
+        ),
+    )
 
 
 class CalibrationConfigSourceRef(_CalibrationModel):
@@ -1444,4 +1460,5 @@ __all__ = [
     "calibration_cohort_spec_hash",
     "calibration_freshness_fingerprint",
     "calibration_key",
+    "calibration_target_sample_selectors",
 ]

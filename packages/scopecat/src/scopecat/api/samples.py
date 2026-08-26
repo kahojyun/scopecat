@@ -7,19 +7,29 @@ from typing import Protocol
 from uuid import uuid4
 
 from scopecat.daemon.client import DaemonClient
-from scopecat.daemon.views import SamplePage, SampleView
+from scopecat.daemon.views import SamplePage, SampleRevisionPage, SampleView
 from scopecat.daemon.wire import (
     SampleCreateCommand,
     SampleMutationReceipt,
     SampleReviseCommand,
 )
-from scopecat.records.sample import SampleRevisionDraft, SampleSelector
+from scopecat.records.sample import SampleRevision, SampleRevisionDraft, SampleSelector
 
 
 class SampleOperations(Protocol):
     """Storage-neutral operations used by sample handles."""
 
     def get(self, sample_id: str) -> SampleView: ...
+
+    def revisions(
+        self,
+        sample_id: str,
+        *,
+        limit: int,
+        before: int | None,
+    ) -> SampleRevisionPage: ...
+
+    def revision(self, sample_id: str, revision: int) -> SampleRevision: ...
 
     def revise(
         self,
@@ -62,6 +72,21 @@ class SampleHandle:
             revision=revision,
             context_id=context_id,
         )
+
+    def revisions(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> SampleRevisionPage:
+        return self.session.sample_operations.revisions(
+            self.id,
+            limit=limit,
+            before=before,
+        )
+
+    def revision(self, revision: int) -> SampleRevision:
+        return self.session.sample_operations.revision(self.id, revision)
 
     def revise(
         self,
@@ -113,6 +138,22 @@ class LabSampleOperations:
 
     def get(self, sample_id: str) -> SampleView:
         return self.client.get_sample(sample_id)
+
+    def revisions(
+        self,
+        sample_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> SampleRevisionPage:
+        return self.client.sample_revisions(
+            sample_id,
+            limit=limit,
+            before=before,
+        )
+
+    def revision(self, sample_id: str, revision: int) -> SampleRevision:
+        return self.client.sample_revision(sample_id, revision)
 
     def handle(self, sample_id: str) -> SampleHandle:
         self.get(sample_id)

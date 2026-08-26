@@ -136,6 +136,7 @@ from scopecat.daemon.views import (
     SampleAnalysisPage,
     SampleAnalysisView,
     SamplePage,
+    SampleRevisionPage,
     SampleView,
 )
 from scopecat.daemon.wire import (
@@ -213,6 +214,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetReceipt,
 )
 from scopecat.records.run import RunSnapshot
+from scopecat.records.sample import SampleRevision
 from scopecat.runs.data import (
     RunArtifactJsonResult,
     RunArtifactTextResult,
@@ -878,6 +880,28 @@ class DaemonClient:
         return self._get_model(
             f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}",
             SampleView,
+        )
+
+    def sample_revisions(
+        self,
+        sample_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> SampleRevisionPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}/revisions",
+            SampleRevisionPage,
+            params=params,
+        )
+
+    def sample_revision(self, sample_id: str, revision: int) -> SampleRevision:
+        return self._get_model(
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}/revisions/{revision}",
+            SampleRevision,
         )
 
     def sample_analyses(

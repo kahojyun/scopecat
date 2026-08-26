@@ -1661,7 +1661,7 @@ def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
             runs = SQLiteRunRepository(sqlite, state / "objects")
             registry = SQLiteConfigRegistryStore(sqlite, runs=runs)
             control = SQLiteControlPlane(sqlite)
-            sample_store = SQLiteSampleStore(sqlite)
+            sample_store = SQLiteSampleStore(sqlite, control=control)
             admission_services.append(
                 AdmissionService(
                     control=control,
@@ -1963,7 +1963,7 @@ def test_authority_failure_replays_a_concurrently_admitted_submission(
         runs = SQLiteRunRepository(sqlite, state / "objects")
         registry = SQLiteConfigRegistryStore(sqlite, runs=runs)
         control = SQLiteControlPlane(sqlite)
-        sample_store = SQLiteSampleStore(sqlite)
+        sample_store = SQLiteSampleStore(sqlite, control=control)
         racing = AdmissionService(
             control=control,
             runs=runs,

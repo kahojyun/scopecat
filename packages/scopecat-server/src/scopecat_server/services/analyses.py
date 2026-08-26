@@ -314,11 +314,12 @@ class AnalysisService:
         for run_id in run_ids:
             snapshot = self._services.runs.read_snapshot(run_id)
             if not any(
-                binding.sample_id == subject.sample_id for binding in snapshot.samples
+                binding.role == "subject" and binding.sample_id == subject.sample_id
+                for binding in snapshot.samples
             ):
                 raise BackendConflict(
-                    f"analysis input run {run_id!r} is not bound to sample "
-                    f"{subject.sample_id!r}"
+                    f"analysis input run {run_id!r} does not have sample "
+                    f"{subject.sample_id!r} bound as its subject"
                 )
 
     def content_bytes(

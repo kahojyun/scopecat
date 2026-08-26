@@ -6,8 +6,14 @@ import sqlite3
 from datetime import datetime
 from typing import cast
 
-from pydantic import ValidationError
-from scopecat.daemon.views import SamplePage, SampleSummary, SampleView
+from pydantic import JsonValue, ValidationError
+from scopecat.control.models import DurableEventInput
+from scopecat.daemon.views import (
+    SamplePage,
+    SampleRevisionPage,
+    SampleSummary,
+    SampleView,
+)
 from scopecat.daemon.wire import (
     SampleCreateCommand,
     SampleMutationReceipt,
@@ -25,13 +31,20 @@ from scopecat.records.sample import (
 
 from scopecat_server.errors import BackendConflict, BackendNotFound
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
+from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
 
 
 class SQLiteSampleStore:
     """Own the project sample index and run-to-sample provenance bindings."""
 
-    def __init__(self, database: SQLiteDatabase) -> None:
+    def __init__(
+        self,
+        database: SQLiteDatabase,
+        *,
+        control: SQLiteControlPlane,
+    ) -> None:
         self.sqlite = database
+        self._control = control
 
     def list_samples(
         self,
@@ -82,7 +95,7 @@ class SQLiteSampleStore:
         except ValidationError as error:
             raise BackendConflict("sample registry contains invalid records") from error
 
-    def get_sample(self, sample_id: str, *, revision_limit: int = 100) -> SampleView:
+    def get_sample(self, sample_id: str) -> SampleView:
         try:
             with self.sqlite.read_connection() as connection:
                 row = cast(
@@ -107,19 +120,6 @@ class SQLiteSampleStore:
                         (sample_id,),
                     ).fetchone(),
                 )
-                revision_rows = cast(
-                    "list[sqlite3.Row]",
-                    connection.execute(
-                        """
-                        SELECT revision_json
-                        FROM sample_revisions
-                        WHERE sample_id = ?
-                        ORDER BY revision DESC
-                        LIMIT ?
-                        """,
-                        (sample_id, revision_limit),
-                    ).fetchall(),
-                )
         except sqlite3.Error as error:
             raise BackendConflict(f"could not read sample {sample_id!r}") from error
         if row is None:
@@ -131,16 +131,89 @@ class SQLiteSampleStore:
                 revision=summary.revision,
                 run_count=summary.run_count,
                 last_run_at=summary.last_run_at,
-                revisions=tuple(
-                    SampleRevision.model_validate_json(
-                        cast("str", item["revision_json"])
-                    )
-                    for item in revision_rows
-                ),
             )
         except ValidationError as error:
             raise BackendConflict(
                 f"sample {sample_id!r} contains invalid records"
+            ) from error
+
+    def list_revisions(
+        self,
+        sample_id: str,
+        *,
+        limit: int,
+        before: int | None = None,
+    ) -> SampleRevisionPage:
+        clauses = "" if before is None else "AND revision < ?"
+        parameters: list[str | int] = [sample_id]
+        if before is not None:
+            parameters.append(before)
+        parameters.append(limit + 1)
+        try:
+            with self.sqlite.read_connection() as connection:
+                if _sample_row(connection, sample_id) is None:
+                    raise BackendNotFound(f"unknown sample {sample_id!r}")
+                rows = cast(
+                    "list[sqlite3.Row]",
+                    connection.execute(
+                        f"""
+                        SELECT revision, revision_json
+                        FROM sample_revisions
+                        WHERE sample_id = ? {clauses}
+                        ORDER BY revision DESC
+                        LIMIT ?
+                        """,  # noqa: S608 - clause is a fixed internal fragment
+                        parameters,
+                    ).fetchall(),
+                )
+        except sqlite3.Error as error:
+            raise BackendConflict(
+                f"could not read revisions for sample {sample_id!r}"
+            ) from error
+        selected = rows[:limit]
+        try:
+            return SampleRevisionPage(
+                sample_id=sample_id,
+                items=tuple(
+                    SampleRevision.model_validate_json(
+                        cast("str", row["revision_json"])
+                    )
+                    for row in selected
+                ),
+                next_cursor=(
+                    cast("int", selected[-1]["revision"]) if len(rows) > limit else None
+                ),
+            )
+        except ValidationError as error:
+            raise BackendConflict(
+                f"sample {sample_id!r} contains invalid revisions"
+            ) from error
+
+    def get_revision(self, sample_id: str, revision: int) -> SampleRevision:
+        try:
+            with self.sqlite.read_connection() as connection:
+                row = cast(
+                    "sqlite3.Row | None",
+                    connection.execute(
+                        """
+                        SELECT revision_json
+                        FROM sample_revisions
+                        WHERE sample_id = ? AND revision = ?
+                        """,
+                        (sample_id, revision),
+                    ).fetchone(),
+                )
+        except sqlite3.Error as error:
+            raise BackendConflict(
+                f"could not read sample {sample_id!r} revision {revision}"
+            ) from error
+        if row is None:
+            raise BackendNotFound(f"sample {sample_id!r} has no revision {revision}")
+        try:
+            return SampleRevision.model_validate_json(cast("str", row["revision_json"]))
+        except ValidationError as error:
+            raise BackendConflict(
+                f"sample {sample_id!r} revision {revision} is invalid"
             ) from error
 
     def create_sample(self, command: SampleCreateCommand) -> SampleMutationReceipt:
@@ -195,6 +268,13 @@ class SQLiteSampleStore:
                 revision=revision,
             )
             self._record_operation(connection, command.intent_hash, receipt)
+            self._control.append_event_in_transaction(
+                connection,
+                DurableEventInput(
+                    kind="sample_created",
+                    payload=_sample_event_payload(receipt),
+                ),
+            )
             return receipt
 
     def revise_sample(
@@ -252,6 +332,13 @@ class SQLiteSampleStore:
                 revision=revision,
             )
             self._record_operation(connection, command.intent_hash, receipt)
+            self._control.append_event_in_transaction(
+                connection,
+                DurableEventInput(
+                    kind="sample_revision_activated",
+                    payload=_sample_event_payload(receipt),
+                ),
+            )
             return receipt
 
     def resolve_bindings(
@@ -451,6 +538,16 @@ def _summary(row: sqlite3.Row) -> SampleSummary:
             else datetime.fromisoformat(encoded_last_run)
         ),
     )
+
+
+def _sample_event_payload(receipt: SampleMutationReceipt) -> dict[str, JsonValue]:
+    return {
+        "operation_id": receipt.operation_id,
+        "sample_id": receipt.record.id,
+        "revision": receipt.revision.revision,
+        "content_hash": receipt.revision.content_hash,
+        "status": receipt.revision.content.status,
+    }
 
 
 __all__ = ["SQLiteSampleStore"]

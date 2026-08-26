@@ -127,10 +127,16 @@ class SamplePage(_ViewModel):
     next_cursor: int | None = Field(default=None, ge=1)
 
 
-class SampleView(SampleSummary):
-    """Sample detail with newest-first immutable revision history."""
+class SampleRevisionPage(_ViewModel):
+    """Newest-first page of immutable revisions for one sample."""
 
-    revisions: tuple[SampleRevision, ...] = ()
+    sample_id: str
+    items: tuple[SampleRevision, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
+class SampleView(SampleSummary):
+    """Sample detail for the active immutable revision."""
 
 
 class VirtualInstrumentConnectionSummary(_ViewModel):
@@ -826,6 +832,7 @@ __all__ = [
     "SampleAnalysisSummary",
     "SampleAnalysisView",
     "SamplePage",
+    "SampleRevisionPage",
     "SampleSummary",
     "SampleView",
     "SerialInstrumentConnectionSummary",

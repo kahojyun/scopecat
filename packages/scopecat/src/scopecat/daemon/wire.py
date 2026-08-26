@@ -83,6 +83,7 @@ from scopecat.records.run import (
 )
 from scopecat.records.run_request import RunRequest
 from scopecat.records.sample import (
+    SampleId,
     SampleRecord,
     SampleRevision,
     SampleRevisionDraft,
@@ -117,7 +118,7 @@ class SampleCreateCommand(_WireModel):
     """Create one stable sample and its first immutable revision."""
 
     operation_id: NonEmptyText
-    sample_id: NonEmptyText
+    sample_id: SampleId
     kind: NonEmptyText
     actor: NonEmptyText
     note: str = ""

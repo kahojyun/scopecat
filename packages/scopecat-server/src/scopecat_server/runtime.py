@@ -126,7 +126,7 @@ class LocalDaemonRuntime:
             procedure_schedule_store = SQLiteProcedureScheduleStore(sqlite)
             runs = SQLiteRunRepository(sqlite, objects)
             analyses = SQLiteAnalysisRepository(sqlite, objects)
-            sample_store = SQLiteSampleStore(sqlite)
+            sample_store = SQLiteSampleStore(sqlite, control=control)
             samples = SampleService(sample_store)
             config_registry = SQLiteConfigRegistryStore(
                 sqlite,

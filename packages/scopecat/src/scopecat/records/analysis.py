@@ -29,6 +29,7 @@ from scopecat.kernel.content_identity import canonical_json, stable_content_hash
 from scopecat.kernel.quantity import Quantity
 from scopecat.records.content import Sha256ContentHash
 from scopecat.records.metadata import JsonMetadata
+from scopecat.records.sample import SampleId
 
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
@@ -719,7 +720,7 @@ class SampleAnalysisSubject(_AnalysisContentModel):
     """A longitudinal publication whose scientific subject is one sample."""
 
     kind: Literal["sample"] = "sample"
-    sample_id: _NonEmptyText
+    sample_id: SampleId
 
 
 type AnalysisSubject = Annotated[

@@ -574,11 +574,23 @@ def test_sample_analysis_is_scoped_to_runs_bound_to_that_sample(tmp_path: Path) 
                 content=SampleRevisionDraft(display_name="Die 1"),
             )
         )
+        runtime.application.samples.create(
+            SampleCreateCommand(
+                operation_id="create:reference-1",
+                sample_id="reference-1",
+                kind="reference",
+                actor="operator",
+                content=SampleRevisionDraft(display_name="Reference 1"),
+            )
+        )
         submission = _submission("sample-analysis-run").model_copy(
             update={
                 "request": RunRequest(
                     experiment_id="scratch",
-                    samples=(SampleSelector(sample_id="die-1"),),
+                    samples=(
+                        SampleSelector(sample_id="die-1"),
+                        SampleSelector(role="reference", sample_id="reference-1"),
+                    ),
                 )
             }
         )
@@ -620,6 +632,17 @@ def test_sample_analysis_is_scoped_to_runs_bound_to_that_sample(tmp_path: Path) 
                 == published.id
             )
 
+            @analysis_step(id="reference-health")
+            def reference_health(context: AnalysisContext) -> Analysis:
+                context.measurements(sample_run, id="signal")
+                return context.result("Reference health").fact("valid", True)
+
+            with pytest.raises(
+                DaemonConflictError,
+                match="bound as its subject",
+            ):
+                lab.analyze(reference_health(), sample="reference-1")
+
             @analysis_step(id="mixed-sample-health")
             def mixed_sample_health(context: AnalysisContext) -> Analysis:
                 context.measurements(sample_run, id="sample")
@@ -628,7 +651,7 @@ def test_sample_analysis_is_scoped_to_runs_bound_to_that_sample(tmp_path: Path) 
 
             with pytest.raises(
                 DaemonConflictError,
-                match="is not bound to sample",
+                match="bound as its subject",
             ):
                 lab.analyze(mixed_sample_health(), sample="die-1")
 

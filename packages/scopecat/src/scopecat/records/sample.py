@@ -14,12 +14,20 @@ from pydantic import (
     model_validator,
 )
 
-from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.content_identity import canonical_json, stable_content_hash
 from scopecat.kernel.run_outcome import utc_now
 from scopecat.records.config import Topology
 from scopecat.records.content import Sha256ContentHash
 
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
+type SampleId = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    ),
+]
 type SampleLifecycleStatus = Literal[
     "received",
     "available",
@@ -29,6 +37,7 @@ type SampleLifecycleStatus = Literal[
 ]
 
 _SAMPLE_REVISION_CODEC = "scopecat.sample-revision.v1"
+MAX_SAMPLE_REVISION_BYTES = 1_000_000
 
 
 class _SampleModel(BaseModel):
@@ -39,13 +48,13 @@ class SampleRelation(_SampleModel):
     """One typed relationship from this sample to another stable sample."""
 
     kind: _NonEmptyText
-    sample_id: _NonEmptyText
+    sample_id: SampleId
 
 
 class SampleArtifactRef(_SampleModel):
     """External design, image, report, or data reference associated with a sample."""
 
-    id: _NonEmptyText
+    id: SampleId
     title: _NonEmptyText
     uri: _NonEmptyText
     media_type: _NonEmptyText | None = None
@@ -85,13 +94,13 @@ class SampleRevisionDraft(_SampleModel):
     display_name: _NonEmptyText
     status: SampleLifecycleStatus = "available"
     design_ref: _NonEmptyText | None = None
-    aliases: tuple[_NonEmptyText, ...] = ()
-    tags: tuple[_NonEmptyText, ...] = ()
-    relations: tuple[SampleRelation, ...] = ()
-    properties: dict[str, JsonValue] = Field(default_factory=dict)
+    aliases: tuple[_NonEmptyText, ...] = Field(default=(), max_length=64)
+    tags: tuple[_NonEmptyText, ...] = Field(default=(), max_length=64)
+    relations: tuple[SampleRelation, ...] = Field(default=(), max_length=128)
+    properties: dict[str, JsonValue] = Field(default_factory=dict, max_length=256)
     topology: Topology | None = None
     geometry: SampleGeometry | None = None
-    artifacts: tuple[SampleArtifactRef, ...] = ()
+    artifacts: tuple[SampleArtifactRef, ...] = Field(default=(), max_length=128)
 
     @field_validator("aliases", "tags")
     @classmethod
@@ -122,6 +131,11 @@ class SampleRevisionDraft(_SampleModel):
 
     @model_validator(mode="after")
     def validate_geometry(self) -> SampleRevisionDraft:
+        size = len(canonical_json(self.model_dump(mode="json")).encode("utf-8"))
+        if size > MAX_SAMPLE_REVISION_BYTES:
+            raise ValueError(
+                f"sample revision must not exceed {MAX_SAMPLE_REVISION_BYTES} bytes"
+            )
         if self.geometry is None:
             return self
         if self.topology is None and self.geometry.points:
@@ -154,7 +168,7 @@ class SampleRecord(_SampleModel):
 class SampleRevision(_SampleModel):
     """One immutable descriptive snapshot of a physical sample."""
 
-    sample_id: _NonEmptyText
+    sample_id: SampleId
     revision: int = Field(ge=1)
     content_hash: Sha256ContentHash
     recorded_at: datetime = Field(default_factory=utc_now)
@@ -177,7 +191,7 @@ class SampleSelector(_SampleModel):
     """Operator intent selecting one sample revision for a run role."""
 
     role: _NonEmptyText = "subject"
-    sample_id: _NonEmptyText
+    sample_id: SampleId
     revision: int | None = Field(default=None, ge=1)
     context_id: _NonEmptyText | None = None
 
@@ -186,7 +200,7 @@ class SampleBinding(_SampleModel):
     """Exact sample provenance frozen into an accepted run."""
 
     role: _NonEmptyText
-    sample_id: _NonEmptyText
+    sample_id: SampleId
     revision: int = Field(ge=1)
     content_hash: Sha256ContentHash
     kind: _NonEmptyText
@@ -218,10 +232,12 @@ def sample_revision_content_hash(
 
 
 __all__ = [
+    "MAX_SAMPLE_REVISION_BYTES",
     "SampleArtifactRef",
     "SampleBinding",
     "SampleGeometry",
     "SampleGeometryPoint",
+    "SampleId",
     "SampleLifecycleStatus",
     "SampleRecord",
     "SampleRelation",

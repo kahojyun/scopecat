@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from scopecat.daemon.views import SamplePage, SampleView
+from scopecat.daemon.views import SamplePage, SampleRevisionPage, SampleView
 from scopecat.daemon.wire import (
     SampleCreateCommand,
     SampleMutationReceipt,
     SampleReviseCommand,
 )
-from scopecat.records.sample import SampleBinding, SampleSelector
+from scopecat.records.sample import SampleBinding, SampleRevision, SampleSelector
 
 from scopecat_server.storage.sqlite.samples import SQLiteSampleStore
 
@@ -29,6 +29,18 @@ class SampleService:
 
     def get(self, sample_id: str) -> SampleView:
         return self._store.get_sample(sample_id)
+
+    def revisions(
+        self,
+        sample_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> SampleRevisionPage:
+        return self._store.list_revisions(sample_id, limit=limit, before=before)
+
+    def revision(self, sample_id: str, revision: int) -> SampleRevision:
+        return self._store.get_revision(sample_id, revision)
 
     def create(self, command: SampleCreateCommand) -> SampleMutationReceipt:
         return self._store.create_sample(command)

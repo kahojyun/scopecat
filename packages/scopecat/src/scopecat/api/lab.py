@@ -256,10 +256,16 @@ class LabClient:
         limit: int = 50,
         before: int | None = None,
         state: ControlRunState | None = None,
+        sample: SampleSpec | None = None,
     ) -> RunHandlePage:
         """Load one bounded newest-first page of run handles."""
 
-        page = self._control.runs(limit=limit, before=before, state=state)
+        page = self._control.runs(
+            limit=limit,
+            before=before,
+            state=state,
+            sample_id=None if sample is None else _sample_id(sample),
+        )
         return RunHandlePage(
             items=tuple(RunHandle(session=self, id=item.run_id) for item in page.items),
             next_cursor=page.next_cursor,

@@ -261,7 +261,11 @@ class LabProcedureContext:
             description=description,
             metadata=metadata,
             operator=operator,
-            samples=_procedure_sample_selectors(sample, samples),
+            samples=(
+                self._durable.samples
+                if sample is None and not samples
+                else _procedure_sample_selectors(sample, samples)
+            ),
         )
         _, intent_hash = _prepare_run_submission(
             planned,
@@ -656,6 +660,8 @@ class LabProcedureOperations:
         intent: object,
         *,
         request_key: str,
+        sample: str | SampleSelector | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> ProcedureHandle:
         selected = self._registry.resolve(definition.ref)
         receipt = self._client.submit_procedure(
@@ -663,6 +669,7 @@ class LabProcedureOperations:
                 request_key=request_key,
                 definition=selected.ref,
                 intent=selected.encode_intent(intent),
+                samples=_procedure_sample_selectors(sample, samples),
             )
         )
         return ProcedureHandle(self, receipt.run.procedure_run_id)
@@ -674,6 +681,8 @@ class LabProcedureOperations:
         *,
         request_key: str,
         worker_id: str | None = None,
+        sample: str | SampleSelector | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> ProcedureHandle:
         selected = self._registry.resolve(definition.ref)
         run = self._worker().execute(
@@ -681,6 +690,7 @@ class LabProcedureOperations:
             intent,
             request_key,
             self._worker_id if worker_id is None else worker_id,
+            samples=_procedure_sample_selectors(sample, samples),
         )
         return ProcedureHandle(self, run.procedure_run_id)
 

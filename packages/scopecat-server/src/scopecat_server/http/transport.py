@@ -149,6 +149,7 @@ from scopecat.daemon.views import (
     SampleAnalysisPage,
     SampleAnalysisView,
     SamplePage,
+    SampleRevisionPage,
     SampleView,
 )
 from scopecat.daemon.wire import (
@@ -210,6 +211,7 @@ from scopecat.records.instrument import (
 )
 from scopecat.records.measurement_recording import MeasurementDatasetReceipt
 from scopecat.records.run import RunSnapshot
+from scopecat.records.sample import SampleId, SampleRevision
 from scopecat.runs.data import (
     RunArtifactJsonResult,
     RunArtifactTextResult,
@@ -414,12 +416,27 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.samples.create(command)
 
     @app.get(f"{_API_PREFIX}/samples/{{sample_id}}")
-    def get_sample(sample_id: str) -> SampleView:
+    def get_sample(sample_id: SampleId) -> SampleView:
         return application.samples.get(sample_id)
+
+    @app.get(f"{_API_PREFIX}/samples/{{sample_id}}/revisions")
+    def list_sample_revisions(
+        sample_id: SampleId,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> SampleRevisionPage:
+        return application.samples.revisions(sample_id, limit=limit, before=before)
+
+    @app.get(f"{_API_PREFIX}/samples/{{sample_id}}/revisions/{{revision}}")
+    def get_sample_revision(
+        sample_id: SampleId,
+        revision: Annotated[int, ApiPath(ge=1)],
+    ) -> SampleRevision:
+        return application.samples.revision(sample_id, revision)
 
     @app.get(f"{_API_PREFIX}/samples/{{sample_id}}/analyses")
     def list_sample_analyses(
-        sample_id: str,
+        sample_id: SampleId,
         limit: Annotated[int, Query(ge=1, le=500)] = 100,
         before: Annotated[int | None, Query(ge=1)] = None,
     ) -> SampleAnalysisPage:
@@ -431,18 +448,18 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
 
     @app.post(f"{_API_PREFIX}/samples/{{sample_id}}/analyses", status_code=201)
     def save_sample_analysis(
-        sample_id: str,
+        sample_id: SampleId,
         command: AnalysisSaveCommand,
     ) -> AnalysisSaveReceipt:
         return application.analyses.save_sample(sample_id, command)
 
     @app.get(f"{_API_PREFIX}/samples/{{sample_id}}/analyses/{{selector}}")
-    def get_sample_analysis(sample_id: str, selector: str) -> SampleAnalysisView:
+    def get_sample_analysis(sample_id: SampleId, selector: str) -> SampleAnalysisView:
         return application.analyses.get_sample(sample_id, selector)
 
     @app.get(f"{_API_PREFIX}/samples/{{sample_id}}/analyses/{{analysis_id}}/contents")
     def list_sample_analysis_contents(
-        sample_id: str,
+        sample_id: SampleId,
         analysis_id: str,
         limit: Annotated[int, Query(ge=1, le=500)] = 100,
         before: Annotated[int | None, Query(ge=1)] = None,
@@ -459,7 +476,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         "contents/{selector}"
     )
     def get_sample_analysis_content(
-        sample_id: str,
+        sample_id: SampleId,
         analysis_id: str,
         selector: str,
     ) -> ContentEntry:
@@ -474,7 +491,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         "contents/{selector}/bytes"
     )
     def get_sample_analysis_content_bytes(
-        sample_id: str,
+        sample_id: SampleId,
         analysis_id: str,
         selector: str,
     ) -> AnalysisContentBytesView:
@@ -486,7 +503,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
 
     @app.post(f"{_API_PREFIX}/samples/{{sample_id}}/revisions")
     def revise_sample(
-        sample_id: str,
+        sample_id: SampleId,
         command: SampleReviseCommand,
     ) -> SampleMutationReceipt:
         return application.samples.revise(sample_id, command)
@@ -1034,7 +1051,7 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         limit: Annotated[int, Query(ge=1, le=500)] = 50,
         before: Annotated[int | None, Query(ge=1)] = None,
         state: ControlRunState | None = None,
-        sample_id: str | None = None,
+        sample_id: SampleId | None = None,
     ) -> RunSummaryPage:
         return application.runs.list_runs(
             limit=limit,

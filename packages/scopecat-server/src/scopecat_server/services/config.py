@@ -15,6 +15,7 @@ from scopecat.automation.calibrations import (
     CalibrationSuccessPublication,
     CalibrationSuccessRef,
     calibration_freshness_fingerprint,
+    calibration_target_sample_selectors,
 )
 from scopecat.automation.models import (
     AnalysisPublicationOutputRef,
@@ -537,6 +538,8 @@ class ConfigService:
                 or parent.request_key != member.request_key
                 or parent.definition != member.spec.procedure
                 or parent.intent != member.spec.intent
+                or parent.samples
+                != calibration_target_sample_selectors(member.spec.target)
             ):
                 raise BackendConflict(
                     "calibration merge member procedure must be closed succeeded"
