@@ -102,6 +102,7 @@ export default function App() {
       void queryClient.invalidateQueries({ queryKey: ["analyses"] });
       void queryClient.invalidateQueries({ queryKey: ["samples"] });
       void queryClient.invalidateQueries({ queryKey: ["sample"] });
+      void queryClient.invalidateQueries({ queryKey: ["sample-revisions"] });
       void queryClient.invalidateQueries({ queryKey: ["run-contents"] });
       void queryClient.invalidateQueries({ queryKey: ["run-content"] });
       void queryClient.invalidateQueries({ queryKey: ["config"] });

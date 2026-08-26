@@ -272,6 +272,7 @@ describe("config provenance navigation", () => {
 
     await waitFor(() => {
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["instruments"] });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["sample-revisions"] });
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["run-contents"] });
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ["run-content"] });
     });
