@@ -209,7 +209,7 @@ describe("config provenance navigation", () => {
     fireEvent.click(await screen.findByTitle("chip-a17 · exact revision 2"));
 
     expect(await screen.findByText("Selected sample chip-a17")).toBeVisible();
-    expect(window.location.search).toBe("?sample=chip-a17");
+    expect(window.location.search).toBe("?sample=chip-a17&sample-revision=2");
     expect(window.location.hash).toBe("#samples");
   });
 

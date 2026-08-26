@@ -11,6 +11,8 @@ import {
   getSample,
   getSampleAnalyses,
   getSampleAnalysis,
+  getSampleRevision,
+  getSampleRevisions,
   getSampleRuns,
   getSamples,
 } from "./sample-api";
@@ -19,6 +21,8 @@ vi.mock("./sample-api", () => ({
   getSample: vi.fn(),
   getSampleAnalyses: vi.fn(),
   getSampleAnalysis: vi.fn(),
+  getSampleRevision: vi.fn(),
+  getSampleRevisions: vi.fn(),
   getSampleRuns: vi.fn(),
   getSamples: vi.fn(),
 }));
@@ -26,6 +30,11 @@ vi.mock("./sample-api", () => ({
 beforeEach(() => {
   vi.mocked(getSamples).mockResolvedValue({ items: [sampleSummary()] });
   vi.mocked(getSample).mockResolvedValue(sampleView());
+  vi.mocked(getSampleRevisions).mockResolvedValue({
+    sample_id: "chip-a17",
+    items: [sampleView().revision],
+  });
+  vi.mocked(getSampleRevision).mockResolvedValue(sampleView().revision);
   vi.mocked(getSampleRuns).mockResolvedValue({ items: [sampleRun()] });
   vi.mocked(getSampleAnalyses).mockResolvedValue({ sample_id: "chip-a17", items: [] });
   vi.mocked(getSampleAnalysis).mockRejectedValue(new Error("not selected"));
@@ -65,13 +74,42 @@ describe("SamplesWorkspace", () => {
 
     expect(screen.getByText("No matching samples")).toBeVisible();
   });
+
+  it("opens an exact historical revision and returns to active state", async () => {
+    const onSelectSample = vi.fn();
+    vi.mocked(getSampleRevision).mockResolvedValue({
+      ...sampleView().revision,
+      revision: 1,
+      content_hash: `sha256:${"b".repeat(64)}`,
+      content: {
+        ...sampleView().revision.content,
+        display_name: "Chip A17 at registration",
+        status: "available",
+      },
+    });
+
+    renderWorkspace({
+      selectedSampleId: "chip-a17",
+      selectedSampleRevision: 1,
+      onSelectSample,
+    });
+
+    expect(await screen.findByRole("heading", { name: "Chip A17 at registration" })).toBeVisible();
+    expect(screen.getByText(/Viewing historical revision 1/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "View active revision" }));
+    expect(onSelectSample).toHaveBeenCalledWith("chip-a17");
+  });
 });
 
 function renderWorkspace({
   selectedSampleId,
+  selectedSampleRevision,
+  onSelectSample = vi.fn(),
   onOpenRun = vi.fn(),
 }: {
   selectedSampleId?: string;
+  selectedSampleRevision?: number;
+  onSelectSample?: (sampleId: string, revision?: number) => void;
   onOpenRun?: (runId: string) => void;
 } = {}) {
   const queryClient = new QueryClient({
@@ -81,7 +119,8 @@ function renderWorkspace({
     <QueryClientProvider client={queryClient}>
       <SamplesWorkspace
         selectedSampleId={selectedSampleId}
-        onSelectSample={vi.fn()}
+        selectedSampleRevision={selectedSampleRevision}
+        onSelectSample={onSelectSample}
         onOpenRun={onOpenRun}
         daemonUnavailable={false}
       />
@@ -90,8 +129,7 @@ function renderWorkspace({
 }
 
 function sampleSummary(): SampleSummary {
-  const { revisions: _revisions, ...summary } = sampleView();
-  return summary;
+  return sampleView();
 }
 
 function sampleView(): SampleView {
@@ -144,7 +182,6 @@ function sampleView(): SampleView {
       created_at: "2026-08-20T08:00:00Z",
     },
     revision,
-    revisions: [revision],
     run_count: 1,
     last_run_at: "2026-08-25T10:00:00Z",
   };

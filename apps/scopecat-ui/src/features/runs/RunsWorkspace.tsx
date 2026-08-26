@@ -76,7 +76,7 @@ export function RunsWorkspace({
   healthPending: boolean;
   healthReachable: boolean;
   daemonUnavailable: boolean;
-  onOpenSample?: (sampleId: string) => void;
+  onOpenSample?: (sampleId: string, revision: number) => void;
 }) {
   const queryClient = useQueryClient();
   const { requestConfirmation, confirmationDialog } = useConfirmationDialog();

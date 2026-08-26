@@ -111,7 +111,7 @@ export function RunDetail({
   attentionError: Error | null;
   attentionPending: boolean;
   onResolveAttention: () => void;
-  onOpenSample?: (sampleId: string) => void;
+  onOpenSample?: (sampleId: string, revision: number) => void;
 }) {
   return (
     <>
@@ -192,7 +192,7 @@ export function RunDetail({
               type="button"
               title={`${sample.sample_id} · exact revision ${sample.revision}`}
               disabled={!onOpenSample}
-              onClick={() => onOpenSample?.(sample.sample_id)}
+              onClick={() => onOpenSample?.(sample.sample_id, sample.revision)}
             >
               <span className="grid gap-0.5">
                 <strong className="font-[650] text-accent">{sample.display_name}</strong>

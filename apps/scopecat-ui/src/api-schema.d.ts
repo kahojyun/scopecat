@@ -974,6 +974,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/samples/{sample_id}/analyses/{analysis_id}/contents/{selector}/bytes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sample Analysis Content Bytes */
+        get: operations["get_sample_analysis_content_bytes_api_v1_samples__sample_id__analyses__analysis_id__contents__selector__bytes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/samples/{sample_id}/analyses/{selector}": {
         parameters: {
             query?: never;
@@ -983,6 +1000,40 @@ export interface paths {
         };
         /** Get Sample Analysis */
         get: operations["get_sample_analysis_api_v1_samples__sample_id__analyses__selector__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/samples/{sample_id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sample Revisions */
+        get: operations["list_sample_revisions_api_v1_samples__sample_id__revisions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/samples/{sample_id}/revisions/{revision}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sample Revision */
+        get: operations["get_sample_revision_api_v1_samples__sample_id__revisions__revision__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5335,7 +5386,7 @@ export interface components {
              * @enum {string}
              */
             kind: "sample";
-            sample_id: components["schemas"]["_NonEmptyText"];
+            sample_id: components["schemas"]["SampleId"];
         };
         /**
          * SampleAnalysisSummary
@@ -5385,7 +5436,7 @@ export interface components {
          * @description External design, image, report, or data reference associated with a sample.
          */
         SampleArtifactRef: {
-            id: components["schemas"]["_NonEmptyText"];
+            id: components["schemas"]["SampleId"];
             media_type?: components["schemas"]["_NonEmptyText"] | null;
             title: components["schemas"]["_NonEmptyText"];
             uri: components["schemas"]["_NonEmptyText"];
@@ -5402,7 +5453,7 @@ export interface components {
             /** Revision */
             revision: number;
             role: components["schemas"]["_NonEmptyText"];
-            sample_id: components["schemas"]["_NonEmptyText"];
+            sample_id: components["schemas"]["SampleId"];
         };
         /**
          * SampleGeometry
@@ -5437,6 +5488,7 @@ export interface components {
             /** Y */
             y: number;
         };
+        SampleId: string;
         /** @enum {string} */
         SampleLifecycleStatus: "received" | "available" | "mounted" | "retired" | "damaged";
         /**
@@ -5473,7 +5525,7 @@ export interface components {
          */
         SampleRelation: {
             kind: components["schemas"]["_NonEmptyText"];
-            sample_id: components["schemas"]["_NonEmptyText"];
+            sample_id: components["schemas"]["SampleId"];
         };
         /**
          * SampleRevision
@@ -5495,7 +5547,7 @@ export interface components {
             recorded_at?: string;
             /** Revision */
             revision: number;
-            sample_id: components["schemas"]["_NonEmptyText"];
+            sample_id: components["schemas"]["SampleId"];
         };
         /**
          * SampleRevisionDraft
@@ -5534,6 +5586,21 @@ export interface components {
             topology?: components["schemas"]["Topology-Output"] | null;
         };
         /**
+         * SampleRevisionPage
+         * @description Newest-first page of immutable revisions for one sample.
+         */
+        SampleRevisionPage: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["SampleRevision"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+            /** Sample Id */
+            sample_id: string;
+        };
+        /**
          * SampleSummary
          * @description One sample's active revision and bounded run-history aggregates.
          */
@@ -5550,18 +5617,13 @@ export interface components {
         };
         /**
          * SampleView
-         * @description Sample detail with newest-first immutable revision history.
+         * @description Sample detail for the active immutable revision.
          */
         SampleView: {
             /** Last Run At */
             last_run_at?: string | null;
             record: components["schemas"]["SampleRecord"];
             revision: components["schemas"]["SampleRevision"];
-            /**
-             * Revisions
-             * @default []
-             */
-            revisions: components["schemas"]["SampleRevision"][];
             /**
              * Run Count
              * @default 0
@@ -6956,7 +7018,7 @@ export interface operations {
             query?: {
                 before?: number | null;
                 limit?: number;
-                sample_id?: string | null;
+                sample_id?: components["schemas"]["SampleId"] | null;
                 state?: components["schemas"]["ControlRunState"] | null;
             };
             header?: never;
@@ -7790,6 +7852,39 @@ export interface operations {
             };
         };
     };
+    get_sample_analysis_content_bytes_api_v1_samples__sample_id__analyses__analysis_id__contents__selector__bytes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analysis_id: string;
+                sample_id: string;
+                selector: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisContentBytesView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_sample_analysis_api_v1_samples__sample_id__analyses__selector__get: {
         parameters: {
             query?: never;
@@ -7809,6 +7904,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SampleAnalysisView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sample_revisions_api_v1_samples__sample_id__revisions_get: {
+        parameters: {
+            query?: {
+                before?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                sample_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleRevisionPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sample_revision_api_v1_samples__sample_id__revisions__revision__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                revision: number;
+                sample_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleRevision"];
                 };
             };
             /** @description Validation Error */

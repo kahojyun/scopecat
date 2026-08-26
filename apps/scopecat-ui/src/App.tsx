@@ -56,6 +56,9 @@ export default function App() {
   const [selectedSampleId, setSelectedSampleId] = useState<string | undefined>(
     selectedSampleFromUrl,
   );
+  const [selectedSampleRevision, setSelectedSampleRevision] = useState<number | undefined>(
+    selectedSampleRevisionFromUrl,
+  );
   const eventCursor = useRef(0);
 
   const healthQuery = useQuery({
@@ -81,6 +84,7 @@ export default function App() {
       setSelectedRunId(selectedRunFromUrl());
       setSelectedAnalysisId(selectedAnalysisFromUrl());
       setSelectedSampleId(selectedSampleFromUrl());
+      setSelectedSampleRevision(selectedSampleRevisionFromUrl());
     };
     window.addEventListener("hashchange", restoreHashRoute);
     return () => window.removeEventListener("hashchange", restoreHashRoute);
@@ -166,6 +170,7 @@ export default function App() {
       analysisId: selected === "analyses" ? selectedAnalysisId : undefined,
       runId: selected === "runs" ? selectedRunId : undefined,
       sampleId: selected === "samples" ? selectedSampleId : undefined,
+      sampleRevision: selected === "samples" ? selectedSampleRevision : undefined,
     });
     window.scrollTo({ top: 0, left: 0 });
   };
@@ -177,9 +182,10 @@ export default function App() {
     setSelectedAnalysisId(analysisId);
     replaceNavigation("analyses", { analysisId });
   }, []);
-  const selectSample = useCallback((sampleId: string) => {
+  const selectSample = useCallback((sampleId: string, revision?: number) => {
     setSelectedSampleId(sampleId);
-    replaceNavigation("samples", { sampleId });
+    setSelectedSampleRevision(revision);
+    replaceNavigation("samples", { sampleId, sampleRevision: revision });
   }, []);
   const openConfigSourceRun = (runId: string) => {
     setSelectedRunId(runId);
@@ -187,10 +193,11 @@ export default function App() {
     replaceNavigation("runs", { runId });
     window.scrollTo({ top: 0, left: 0 });
   };
-  const openRunSample = (sampleId: string) => {
+  const openRunSample = (sampleId: string, revision: number) => {
     setSelectedSampleId(sampleId);
+    setSelectedSampleRevision(revision);
     setView("samples");
-    replaceNavigation("samples", { sampleId });
+    replaceNavigation("samples", { sampleId, sampleRevision: revision });
     window.scrollTo({ top: 0, left: 0 });
   };
 
@@ -360,6 +367,7 @@ export default function App() {
               onOpenRun={openConfigSourceRun}
               onSelectSample={selectSample}
               selectedSampleId={selectedSampleId}
+              selectedSampleRevision={selectedSampleRevision}
             />
           </Suspense>
         ) : view === "analyses" ? (
@@ -496,6 +504,13 @@ function selectedSampleFromUrl(): string | undefined {
   return new URL(window.location.href).searchParams.get("sample") || undefined;
 }
 
+function selectedSampleRevisionFromUrl(): number | undefined {
+  const value = new URL(window.location.href).searchParams.get("sample-revision");
+  if (value === null || !/^\d+$/.test(value)) return undefined;
+  const revision = Number(value);
+  return revision >= 1 ? revision : undefined;
+}
+
 function projectViewFromLocation(): ProjectView {
   if (window.location.hash === "#configuration") return "configuration";
   if (window.location.hash === "#instruments") return "instruments";
@@ -507,7 +522,12 @@ function projectViewFromLocation(): ProjectView {
 
 function replaceNavigation(
   view: ProjectView,
-  selection: { analysisId?: string; runId?: string; sampleId?: string } = {},
+  selection: {
+    analysisId?: string;
+    runId?: string;
+    sampleId?: string;
+    sampleRevision?: number;
+  } = {},
 ): void {
   const location = new URL(window.location.href);
   if (selection.runId) {
@@ -524,6 +544,11 @@ function replaceNavigation(
     location.searchParams.set("sample", selection.sampleId);
   } else {
     location.searchParams.delete("sample");
+  }
+  if (selection.sampleRevision !== undefined) {
+    location.searchParams.set("sample-revision", String(selection.sampleRevision));
+  } else {
+    location.searchParams.delete("sample-revision");
   }
   location.hash =
     view === "configuration"

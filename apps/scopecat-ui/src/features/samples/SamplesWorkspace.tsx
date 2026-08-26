@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import {
   Activity,
   Boxes,
@@ -13,12 +13,7 @@ import {
   Search,
   Unplug,
 } from "lucide-react";
-import type {
-  SampleAnalysisView,
-  SampleGeometry,
-  SampleSummary,
-  SampleView,
-} from "../../api-contract";
+import type { SampleGeometry, SampleSummary, SampleView } from "../../api-contract";
 import {
   errorMessage,
   formatDateTime,
@@ -26,12 +21,16 @@ import {
   shorten,
   titleCase,
 } from "../../lib/presentation";
-import type { ProjectRun } from "../../types";
+import type { AnalysisPublication, ProjectRun } from "../../types";
 import { classes, detailCard, eyebrow } from "../../ui/styles";
+import { AnalysisPublicationView } from "../analyses/AnalysisPublicationView";
 import {
   getSample,
   getSampleAnalyses,
   getSampleAnalysis,
+  getSampleAnalysisArtifactDownload,
+  getSampleRevision,
+  getSampleRevisions,
   getSampleRuns,
   getSamples,
 } from "./sample-api";
@@ -50,22 +49,26 @@ const EMPTY_SAMPLES: SampleSummary[] = [];
 
 export function SamplesWorkspace({
   selectedSampleId,
+  selectedSampleRevision,
   onSelectSample,
   onOpenRun,
   daemonUnavailable,
 }: {
   selectedSampleId?: string;
-  onSelectSample: (sampleId: string) => void;
+  selectedSampleRevision?: number;
+  onSelectSample: (sampleId: string, revision?: number) => void;
   onOpenRun: (runId: string) => void;
   daemonUnavailable: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
-  const samplesQuery = useQuery({
+  const samplesQuery = useInfiniteQuery({
     queryKey: ["samples"],
-    queryFn: ({ signal }) => getSamples(signal),
+    queryFn: ({ signal, pageParam }) => getSamples(pageParam, signal),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (page) => page.next_cursor ?? undefined,
   });
-  const samples = samplesQuery.data?.items ?? EMPTY_SAMPLES;
+  const samples = samplesQuery.data?.pages.flatMap((page) => page.items) ?? EMPTY_SAMPLES;
   const filteredSamples = useMemo(
     () => filterSamples(samples, search, status),
     [samples, search, status],
@@ -87,7 +90,9 @@ export function SamplesWorkspace({
         <RegistryMetric
           label="Samples"
           value={samplesQuery.isSuccess ? String(samples.length) : "—"}
-          detail="Stable physical identities"
+          detail={
+            samplesQuery.hasNextPage ? "Loaded physical identities" : "Stable physical identities"
+          }
         />
         <RegistryMetric
           label="In service"
@@ -189,6 +194,14 @@ export function SamplesWorkspace({
                 onSelect={() => onSelectSample(sample.record.id)}
               />
             ))}
+            {samplesQuery.hasNextPage && (
+              <LoadMoreButton
+                pending={samplesQuery.isFetchingNextPage}
+                onClick={() => void samplesQuery.fetchNextPage()}
+              >
+                Load older samples
+              </LoadMoreButton>
+            )}
           </div>
         </aside>
 
@@ -203,8 +216,10 @@ export function SamplesWorkspace({
             <SampleDetail
               key={selectedSampleId}
               sampleId={selectedSampleId}
+              selectedRevision={selectedSampleRevision}
               summary={selectedSummary}
               onOpenRun={onOpenRun}
+              onSelectSample={onSelectSample}
             />
           ) : samplesQuery.isPending ? (
             <DetailEmpty
@@ -227,12 +242,16 @@ export function SamplesWorkspace({
 
 function SampleDetail({
   sampleId,
+  selectedRevision,
   summary,
   onOpenRun,
+  onSelectSample,
 }: {
   sampleId: string;
+  selectedRevision?: number;
   summary?: SampleSummary;
   onOpenRun: (runId: string) => void;
+  onSelectSample: (sampleId: string, revision?: number) => void;
 }) {
   const [selectedEntityId, setSelectedEntityId] = useState<string>();
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<string>();
@@ -240,13 +259,28 @@ function SampleDetail({
     queryKey: ["sample", sampleId],
     queryFn: ({ signal }) => getSample(sampleId, signal),
   });
-  const runsQuery = useQuery({
+  const runsQuery = useInfiniteQuery({
     queryKey: ["runs", "sample", sampleId],
-    queryFn: ({ signal }) => getSampleRuns(sampleId, signal),
+    queryFn: ({ signal, pageParam }) => getSampleRuns(sampleId, pageParam, signal),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (page) => page.nextCursor,
   });
-  const analysesQuery = useQuery({
+  const revisionsQuery = useInfiniteQuery({
+    queryKey: ["sample-revisions", sampleId],
+    queryFn: ({ signal, pageParam }) => getSampleRevisions(sampleId, pageParam, signal),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (page) => page.next_cursor ?? undefined,
+  });
+  const selectedRevisionQuery = useQuery({
+    queryKey: ["sample-revision", sampleId, selectedRevision],
+    queryFn: ({ signal }) => getSampleRevision(sampleId, selectedRevision!, signal),
+    enabled: selectedRevision !== undefined,
+  });
+  const analysesQuery = useInfiniteQuery({
     queryKey: ["analyses", "sample", sampleId],
-    queryFn: ({ signal }) => getSampleAnalyses(sampleId, signal),
+    queryFn: ({ signal, pageParam }) => getSampleAnalyses(sampleId, pageParam, signal),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (page) => page.next_cursor ?? undefined,
   });
   const analysisQuery = useQuery({
     queryKey: ["analysis", "sample", sampleId, selectedAnalysisId],
@@ -276,11 +310,15 @@ function SampleDetail({
   }
   if (!effective) return null;
 
-  const content = effective.revision.content;
+  const revision = selectedRevisionQuery.data ?? effective.revision;
+  const content = revision.content;
+  const historical = revision.revision !== effective.record.active_revision;
+  const displayedSample: SampleSummary = { ...effective, revision };
   const topology = content.topology;
   const entity = topology?.entities?.find((item) => item.id === selectedEntityId);
-  const runs = runsQuery.data?.items ?? [];
-  const analyses = analysesQuery.data?.items ?? [];
+  const runs = runsQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const analyses = analysesQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const revisions = revisionsQuery.data?.pages.flatMap((page) => page.items) ?? [];
 
   return (
     <div className="grid gap-4">
@@ -291,9 +329,7 @@ function SampleDetail({
             <span className="text-[0.64rem] font-bold tracking-[0.08em] text-text-dim uppercase">
               {titleCase(effective.record.kind)}
             </span>
-            <span className="text-[0.64rem] text-text-dim">
-              Revision {effective.record.active_revision}
-            </span>
+            <span className="text-[0.64rem] text-text-dim">Revision {revision.revision}</span>
           </div>
           <h2 className="m-0 text-[clamp(1.35rem,2.4vw,2rem)] font-[650] tracking-[-0.035em]">
             {content.display_name}
@@ -320,22 +356,56 @@ function SampleDetail({
         </div>
         <div className="grid grid-cols-3 overflow-hidden rounded-md border border-line bg-panel-soft">
           <MiniMetric label="Runs" value={String(effective.run_count)} />
-          <MiniMetric label="Analyses" value={String(analyses.length)} />
+          <MiniMetric
+            label="Analyses"
+            value={`${analyses.length}${analysesQuery.hasNextPage ? "+" : ""}`}
+          />
           <MiniMetric label="Entities" value={String(topology?.entities?.length ?? 0)} />
         </div>
       </header>
+
+      {selectedRevisionQuery.isError && (
+        <section className="flex items-center justify-between gap-3 rounded-md border border-[rgb(255_140_136_/_27%)] bg-red-soft px-3 py-2 text-[0.68rem] text-[#efc3c0]">
+          <span>{errorMessage(selectedRevisionQuery.error)}</span>
+          <button
+            type="button"
+            className="cursor-pointer rounded-md border border-line-strong bg-panel px-2 py-1 text-text-soft"
+            onClick={() => onSelectSample(sampleId)}
+          >
+            View active revision
+          </button>
+        </section>
+      )}
+
+      {historical && (
+        <section className="flex items-center justify-between gap-3 rounded-md border border-[rgb(237_201_111_/_23%)] bg-yellow-soft px-3 py-2 text-[0.68rem] text-yellow">
+          <span>
+            Viewing historical revision {revision.revision}; active revision is{" "}
+            {effective.record.active_revision}.
+          </span>
+          <button
+            type="button"
+            className="cursor-pointer rounded-md border border-line-strong bg-panel px-2 py-1 text-text-soft"
+            onClick={() => onSelectSample(sampleId)}
+          >
+            View active revision
+          </button>
+        </section>
+      )}
 
       {content.relations.length > 0 && (
         <section className="flex flex-wrap items-center gap-2" aria-label="Sample relations">
           <GitBranch size={14} className="text-text-dim" aria-hidden="true" />
           {content.relations.map((relation) => (
-            <span
+            <button
+              type="button"
               key={`${relation.kind}:${relation.sample_id}`}
-              className="rounded-md border border-line bg-panel-soft px-2 py-1 text-[0.65rem] text-text-soft"
+              className="cursor-pointer rounded-md border border-line bg-panel-soft px-2 py-1 text-[0.65rem] text-text-soft hover:border-line-strong"
+              onClick={() => onSelectSample(relation.sample_id)}
             >
               <span className="text-text-dim">{titleCase(relation.kind)}</span>{" "}
               <code>{relation.sample_id}</code>
-            </span>
+            </button>
           ))}
         </section>
       )}
@@ -394,7 +464,7 @@ function SampleDetail({
             )}
           </section>
 
-          <PropertiesCard sample={effective} />
+          <PropertiesCard sample={displayedSample} />
         </div>
       </div>
 
@@ -405,7 +475,7 @@ function SampleDetail({
             eyebrowText="Provenance"
             title="Runs"
             id="sample-runs-heading"
-            count={runs.length}
+            count={effective.run_count}
           />
           <HistoryList
             pending={runsQuery.isPending}
@@ -413,9 +483,22 @@ function SampleDetail({
             empty="No runs are bound to this sample yet."
           >
             {runs.map((run) => (
-              <RunRow key={run.runId} run={run} onOpen={() => onOpenRun(run.runId)} />
+              <RunRow
+                key={run.runId}
+                run={run}
+                sampleId={sampleId}
+                onOpen={() => onOpenRun(run.runId)}
+              />
             ))}
           </HistoryList>
+          {runsQuery.hasNextPage && (
+            <LoadMoreButton
+              pending={runsQuery.isFetchingNextPage}
+              onClick={() => void runsQuery.fetchNextPage()}
+            >
+              Load older runs
+            </LoadMoreButton>
+          )}
         </section>
 
         <section className={detailCard} aria-labelledby="sample-analyses-heading">
@@ -424,7 +507,7 @@ function SampleDetail({
             eyebrowText="Longitudinal"
             title="Analyses"
             id="sample-analyses-heading"
-            count={analyses.length}
+            count={`${analyses.length}${analysesQuery.hasNextPage ? "+" : ""}`}
           />
           <HistoryList
             pending={analysesQuery.isPending}
@@ -453,50 +536,81 @@ function SampleDetail({
               </button>
             ))}
           </HistoryList>
+          {analysesQuery.hasNextPage && (
+            <LoadMoreButton
+              pending={analysesQuery.isFetchingNextPage}
+              onClick={() => void analysesQuery.fetchNextPage()}
+            >
+              Load older analyses
+            </LoadMoreButton>
+          )}
           {selectedAnalysisId && (
             <AnalysisPeek
               analysis={analysisQuery.data}
               pending={analysisQuery.isPending}
               error={analysisQuery.error}
+              sampleId={sampleId}
+              onOpenRun={onOpenRun}
             />
           )}
         </section>
       </div>
 
-      {sample && (
+      {revisionsQuery.data && (
         <section className={detailCard} aria-labelledby="sample-revisions-heading">
           <SectionHeading
             icon={<History />}
             eyebrowText="Audit trail"
             title="Revision history"
             id="sample-revisions-heading"
-            count={sample.revisions.length}
+            count={`${revisions.length}${revisionsQuery.hasNextPage ? "+" : ""}`}
           />
           <ol className="m-0 grid list-none gap-0 p-0">
-            {sample.revisions.map((revision, index) => (
+            {revisions.map((item, index) => (
               <li
-                key={revision.revision}
+                key={item.revision}
                 className="grid grid-cols-[22px_minmax(0,1fr)_auto] gap-2 border-b border-line py-2.5 last:border-0"
               >
-                <span className="grid size-[22px] place-items-center rounded-full border border-line-strong bg-panel text-[0.6rem] font-bold text-accent">
-                  {revision.revision}
-                </span>
-                <span className="grid gap-1">
-                  <strong className="text-[0.7rem]">{revision.content.display_name}</strong>
+                <button
+                  type="button"
+                  aria-label={`View revision ${item.revision}`}
+                  aria-pressed={item.revision === revision.revision}
+                  className={classes(
+                    "grid size-[22px] cursor-pointer place-items-center rounded-full border border-line-strong bg-panel text-[0.6rem] font-bold text-accent",
+                    item.revision === revision.revision && "bg-accent-soft",
+                  )}
+                  onClick={() => onSelectSample(sampleId, item.revision)}
+                >
+                  {item.revision}
+                </button>
+                <button
+                  type="button"
+                  className="grid cursor-pointer gap-1 border-0 bg-transparent p-0 text-left text-inherit"
+                  onClick={() => onSelectSample(sampleId, item.revision)}
+                >
+                  <strong className="text-[0.7rem]">{item.content.display_name}</strong>
                   <span className="text-[0.63rem] text-text-dim">
-                    {revision.note ||
-                      (index === sample.revisions.length - 1
+                    {item.note ||
+                      (index === revisions.length - 1 && !revisionsQuery.hasNextPage
                         ? "Initial registration"
                         : "Revision recorded")}{" "}
-                    · {revision.actor}
+                    · {item.actor}
                   </span>
-                </span>
-                <time className="text-[0.62rem] text-text-dim" dateTime={revision.recorded_at}>
-                  {revision.recorded_at ? formatRelative(revision.recorded_at) : "—"}
+                </button>
+                <time className="text-[0.62rem] text-text-dim" dateTime={item.recorded_at}>
+                  {item.recorded_at ? formatRelative(item.recorded_at) : "—"}
                 </time>
               </li>
             ))}
           </ol>
+          {revisionsQuery.hasNextPage && (
+            <LoadMoreButton
+              pending={revisionsQuery.isFetchingNextPage}
+              onClick={() => void revisionsQuery.fetchNextPage()}
+            >
+              Load older revisions
+            </LoadMoreButton>
+          )}
         </section>
       )}
     </div>
@@ -670,32 +784,61 @@ function PropertiesCard({ sample }: { sample: SampleSummary | SampleView }) {
       )}
       {content.artifacts.length > 0 && (
         <div className="mt-3 grid gap-1.5 border-t border-line pt-3">
-          {content.artifacts.map((artifact) => (
-            <a
-              key={artifact.id}
-              className="flex items-center justify-between rounded-md border border-line px-2.5 py-2 text-[0.68rem] text-text-soft no-underline hover:border-line-strong"
-              href={artifact.uri}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <span>{artifact.title}</span>
-              <span className="text-text-dim">{artifact.media_type ?? "reference"}</span>
-            </a>
-          ))}
+          {content.artifacts.map((artifact) => {
+            const uri = safeArtifactUri(artifact.uri);
+            const body = (
+              <>
+                <span>{artifact.title}</span>
+                <span className="text-text-dim">{artifact.media_type ?? "reference"}</span>
+              </>
+            );
+            return uri ? (
+              <a
+                key={artifact.id}
+                className="flex items-center justify-between rounded-md border border-line px-2.5 py-2 text-[0.68rem] text-text-soft no-underline hover:border-line-strong"
+                href={uri}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {body}
+              </a>
+            ) : (
+              <span
+                key={artifact.id}
+                className="flex items-center justify-between rounded-md border border-line px-2.5 py-2 text-[0.68rem] text-text-dim"
+                title="Unsupported artifact URI scheme"
+              >
+                {body}
+              </span>
+            );
+          })}
         </div>
       )}
     </section>
   );
 }
 
+function safeArtifactUri(value: string): string | undefined {
+  try {
+    const uri = new URL(value, window.location.origin);
+    return ["http:", "https:"].includes(uri.protocol) ? uri.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function AnalysisPeek({
   analysis,
   pending,
   error,
+  sampleId,
+  onOpenRun,
 }: {
-  analysis?: SampleAnalysisView;
+  analysis?: AnalysisPublication;
   pending: boolean;
   error: unknown;
+  sampleId: string;
+  onOpenRun: (runId: string) => void;
 }) {
   if (pending)
     return (
@@ -710,31 +853,30 @@ function AnalysisPeek({
       </p>
     );
   if (!analysis) return null;
-  const facts = analysis.analysis.outputs.filter((output) => output.kind === "fact");
   return (
     <div className="mt-3 border-t border-line pt-3">
-      <p className="mb-2 text-[0.66rem] font-bold text-text-soft">{analysis.analysis.title}</p>
-      <div className="flex flex-wrap gap-1.5">
-        {facts.map((fact) => (
-          <span
-            key={fact.id}
-            className="rounded-md border border-line bg-bg px-2 py-1 text-[0.62rem]"
-          >
-            <span className="text-text-dim">{fact.title}</span>{" "}
-            <code>{JSON.stringify(fact.content.value)}</code>
-          </span>
-        ))}
-        {facts.length === 0 && (
-          <span className="text-[0.64rem] text-text-dim">
-            {analysis.analysis.outputs.length} published outputs
-          </span>
-        )}
-      </div>
+      <p className="mb-2 text-[0.66rem] font-bold text-text-soft">{analysis.title}</p>
+      <AnalysisPublicationView
+        analysis={analysis}
+        getArtifactDownload={(selector) =>
+          getSampleAnalysisArtifactDownload(sampleId, analysis.id, selector)
+        }
+        onOpenRun={onOpenRun}
+      />
     </div>
   );
 }
 
-function RunRow({ run, onOpen }: { run: ProjectRun; onOpen: () => void }) {
+function RunRow({
+  run,
+  sampleId,
+  onOpen,
+}: {
+  run: ProjectRun;
+  sampleId: string;
+  onOpen: () => void;
+}) {
+  const binding = run.samples.find((sample) => sample.sample_id === sampleId);
   return (
     <button
       type="button"
@@ -752,6 +894,12 @@ function RunRow({ run, onOpen }: { run: ProjectRun; onOpen: () => void }) {
           {run.displayName ?? run.experimentId}
         </strong>
         <code className="text-[0.61rem] text-text-dim">{shorten(run.runId, 22)}</code>
+        {binding && (
+          <span className="text-[0.59rem] text-text-dim">
+            {binding.role} · r{binding.revision}
+            {binding.context_id ? ` · ${binding.context_id}` : ""}
+          </span>
+        )}
       </span>
       <time className="text-[0.61rem] text-text-dim" dateTime={run.updatedAt}>
         {run.updatedAt ? formatRelative(run.updatedAt) : "—"}
@@ -776,6 +924,27 @@ function HistoryList({
   if (!children || (Array.isArray(children) && children.length === 0))
     return <p className="text-[0.67rem] text-text-dim">{empty}</p>;
   return <div className="grid gap-1">{children}</div>;
+}
+
+function LoadMoreButton({
+  children,
+  pending,
+  onClick,
+}: {
+  children: ReactNode;
+  pending: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="mt-2 min-h-8 w-full cursor-pointer rounded-md border border-line bg-panel-soft px-3 text-[0.66rem] font-bold text-text-dim hover:border-line-strong hover:text-text-soft disabled:cursor-wait"
+      disabled={pending}
+      onClick={onClick}
+    >
+      {pending ? "Loading…" : children}
+    </button>
+  );
 }
 
 function SampleListItem({
@@ -924,7 +1093,7 @@ function SectionHeading({
   eyebrowText: string;
   title: string;
   id?: string;
-  count?: number;
+  count?: ReactNode;
 }) {
   return (
     <div className="mb-3 flex items-start justify-between gap-3">
