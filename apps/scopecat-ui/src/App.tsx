@@ -3,6 +3,7 @@ import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Atom,
   Activity,
+  Boxes,
   Cable,
   GitCompareArrows,
   LayoutDashboard,
@@ -17,11 +18,16 @@ import { RunsWorkspace } from "./features/runs/RunsWorkspace";
 import { titleCase } from "./lib/presentation";
 import { classes, iconButton } from "./ui/styles";
 
-type ProjectView = "runs" | "analyses" | "reviews" | "instruments" | "configuration";
+type ProjectView = "runs" | "samples" | "analyses" | "reviews" | "instruments" | "configuration";
 
 const AnalysesWorkspace = lazy(async () => {
   const module = await import("./features/analyses/AnalysesWorkspace");
   return { default: module.AnalysesWorkspace };
+});
+
+const SamplesWorkspace = lazy(async () => {
+  const module = await import("./features/samples/SamplesWorkspace");
+  return { default: module.SamplesWorkspace };
 });
 
 const ConfigWorkspace = lazy(async () => {
@@ -47,6 +53,12 @@ export default function App() {
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | undefined>(
     selectedAnalysisFromUrl,
   );
+  const [selectedSampleId, setSelectedSampleId] = useState<string | undefined>(
+    selectedSampleFromUrl,
+  );
+  const [selectedSampleRevision, setSelectedSampleRevision] = useState<number | undefined>(
+    selectedSampleRevisionFromUrl,
+  );
   const eventCursor = useRef(0);
 
   const healthQuery = useQuery({
@@ -71,6 +83,8 @@ export default function App() {
       setView(projectViewFromLocation());
       setSelectedRunId(selectedRunFromUrl());
       setSelectedAnalysisId(selectedAnalysisFromUrl());
+      setSelectedSampleId(selectedSampleFromUrl());
+      setSelectedSampleRevision(selectedSampleRevisionFromUrl());
     };
     window.addEventListener("hashchange", restoreHashRoute);
     return () => window.removeEventListener("hashchange", restoreHashRoute);
@@ -86,6 +100,9 @@ export default function App() {
       void queryClient.invalidateQueries({ queryKey: ["events"] });
       void queryClient.invalidateQueries({ queryKey: ["run"] });
       void queryClient.invalidateQueries({ queryKey: ["analyses"] });
+      void queryClient.invalidateQueries({ queryKey: ["samples"] });
+      void queryClient.invalidateQueries({ queryKey: ["sample"] });
+      void queryClient.invalidateQueries({ queryKey: ["sample-revisions"] });
       void queryClient.invalidateQueries({ queryKey: ["run-contents"] });
       void queryClient.invalidateQueries({ queryKey: ["run-content"] });
       void queryClient.invalidateQueries({ queryKey: ["config"] });
@@ -153,6 +170,8 @@ export default function App() {
     replaceNavigation(selected, {
       analysisId: selected === "analyses" ? selectedAnalysisId : undefined,
       runId: selected === "runs" ? selectedRunId : undefined,
+      sampleId: selected === "samples" ? selectedSampleId : undefined,
+      sampleRevision: selected === "samples" ? selectedSampleRevision : undefined,
     });
     window.scrollTo({ top: 0, left: 0 });
   };
@@ -164,10 +183,22 @@ export default function App() {
     setSelectedAnalysisId(analysisId);
     replaceNavigation("analyses", { analysisId });
   }, []);
+  const selectSample = useCallback((sampleId: string, revision?: number) => {
+    setSelectedSampleId(sampleId);
+    setSelectedSampleRevision(revision);
+    replaceNavigation("samples", { sampleId, sampleRevision: revision });
+  }, []);
   const openConfigSourceRun = (runId: string) => {
     setSelectedRunId(runId);
     setView("runs");
     replaceNavigation("runs", { runId });
+    window.scrollTo({ top: 0, left: 0 });
+  };
+  const openRunSample = (sampleId: string, revision: number) => {
+    setSelectedSampleId(sampleId);
+    setSelectedSampleRevision(revision);
+    setView("samples");
+    replaceNavigation("samples", { sampleId, sampleRevision: revision });
     window.scrollTo({ top: 0, left: 0 });
   };
 
@@ -194,6 +225,15 @@ export default function App() {
           className="absolute left-1/2 flex -translate-x-1/2 gap-4 max-[880px]:static max-[880px]:ml-auto max-[880px]:translate-x-0 max-[680px]:order-3 max-[680px]:w-full"
           aria-label="Project sections"
         >
+          <button
+            type="button"
+            className={navigationClass(view === "samples")}
+            aria-current={view === "samples" ? "page" : undefined}
+            onClick={() => selectView("samples")}
+          >
+            <Boxes size={15} aria-hidden="true" />
+            Samples
+          </button>
           <button
             type="button"
             className={navigationClass(view === "runs")}
@@ -311,7 +351,26 @@ export default function App() {
             healthPending={healthQuery.isPending}
             healthReachable={daemonReachable}
             daemonUnavailable={daemonUnavailable}
+            onOpenSample={openRunSample}
           />
+        ) : view === "samples" ? (
+          <Suspense
+            fallback={
+              <DetailEmpty
+                icon={<LoaderCircle className="animate-spin" />}
+                title="Loading samples"
+                detail="The physical sample registry is being prepared."
+              />
+            }
+          >
+            <SamplesWorkspace
+              daemonUnavailable={daemonUnavailable}
+              onOpenRun={openConfigSourceRun}
+              onSelectSample={selectSample}
+              selectedSampleId={selectedSampleId}
+              selectedSampleRevision={selectedSampleRevision}
+            />
+          </Suspense>
         ) : view === "analyses" ? (
           <Suspense
             fallback={
@@ -442,17 +501,34 @@ function selectedAnalysisFromUrl(): string | undefined {
   return new URL(window.location.href).searchParams.get("analysis") || undefined;
 }
 
+function selectedSampleFromUrl(): string | undefined {
+  return new URL(window.location.href).searchParams.get("sample") || undefined;
+}
+
+function selectedSampleRevisionFromUrl(): number | undefined {
+  const value = new URL(window.location.href).searchParams.get("sample-revision");
+  if (value === null || !/^\d+$/.test(value)) return undefined;
+  const revision = Number(value);
+  return revision >= 1 ? revision : undefined;
+}
+
 function projectViewFromLocation(): ProjectView {
   if (window.location.hash === "#configuration") return "configuration";
   if (window.location.hash === "#instruments") return "instruments";
   if (window.location.hash === "#analyses") return "analyses";
+  if (window.location.hash === "#samples") return "samples";
   if (window.location.hash.startsWith("#reviews")) return "reviews";
   return "runs";
 }
 
 function replaceNavigation(
   view: ProjectView,
-  selection: { analysisId?: string; runId?: string } = {},
+  selection: {
+    analysisId?: string;
+    runId?: string;
+    sampleId?: string;
+    sampleRevision?: number;
+  } = {},
 ): void {
   const location = new URL(window.location.href);
   if (selection.runId) {
@@ -465,6 +541,16 @@ function replaceNavigation(
   } else {
     location.searchParams.delete("analysis");
   }
+  if (selection.sampleId) {
+    location.searchParams.set("sample", selection.sampleId);
+  } else {
+    location.searchParams.delete("sample");
+  }
+  if (selection.sampleRevision !== undefined) {
+    location.searchParams.set("sample-revision", String(selection.sampleRevision));
+  } else {
+    location.searchParams.delete("sample-revision");
+  }
   location.hash =
     view === "configuration"
       ? "configuration"
@@ -472,9 +558,11 @@ function replaceNavigation(
         ? "instruments"
         : view === "analyses"
           ? "analyses"
-          : view === "reviews"
-            ? "reviews"
-            : "";
+          : view === "samples"
+            ? "samples"
+            : view === "reviews"
+              ? "reviews"
+              : "";
   window.history.replaceState(null, "", `${location.pathname}${location.search}${location.hash}`);
 }
 

@@ -32,6 +32,7 @@ from scopecat.automation.calibrations import (
     CalibrationCohort,
     CalibrationCohortMember,
     calibration_cohort_member_request_key,
+    calibration_target_sample_selectors,
 )
 
 from scopecat_server.storage.sqlite.automation import (
@@ -193,6 +194,7 @@ class CalibrationCohortService:
                     definition=member_spec.procedure,
                     request_key=request_key,
                     intent=member_spec.intent,
+                    samples=calibration_target_sample_selectors(member_spec.target),
                     at=now,
                     require_new=True,
                 )

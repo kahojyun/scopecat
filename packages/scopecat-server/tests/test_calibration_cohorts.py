@@ -71,6 +71,7 @@ from scopecat.daemon.wire import (
     DirectConfigRevisionSource as WireDirectConfigRevisionSource,
 )
 from scopecat.records.run import ConfigRegistryRunConfigSource
+from scopecat.records.sample import SampleSelector
 from scopecat_testkit.workflow_fixtures import load_config
 
 from scopecat_server import BackendConflict, BackendNotFound, LocalDaemonRuntime
@@ -160,6 +161,8 @@ def _member(
     target_id: str,
     *,
     success_policy: CalibrationSuccessPolicy = "procedure_success",
+    sample_id: str | None = None,
+    context_id: str | None = None,
 ) -> CalibrationCohortMemberSpec:
     definition = CalibrationDefinitionRef(
         id="drag-calibration",
@@ -167,7 +170,12 @@ def _member(
         fingerprint=_DEFINITION_HASH,
         success_policy=success_policy,
     )
-    target = CalibrationTargetRef(kind="qubit", id=target_id)
+    target = CalibrationTargetRef(
+        kind="qubit",
+        id=target_id,
+        sample_id=sample_id,
+        context_id=context_id,
+    )
     procedure = ProcedureDefinitionRef(
         id="drag-calibration-procedure",
         version="1",
@@ -750,6 +758,30 @@ def _move_to_active_state(
             expected_run_revision=acquired.run.revision,
             reason="test attention",
         )
+    )
+
+
+def test_sample_scoped_calibration_propagates_to_procedure_child_runs(
+    tmp_path: Path,
+) -> None:
+    harness = _harness(tmp_path)
+    member = _member(
+        "q0",
+        sample_id="die-1",
+        context_id="cooldown-2",
+    )
+    command = _command(
+        "sample-scoped-calibration",
+        source=harness.source,
+        snapshot=_status(harness, (member,)),
+        members=(member,),
+    )
+
+    created = harness.service.create(command)
+    procedure = harness.automation.get(created.members[0].procedure_run_id)
+
+    assert procedure.samples == (
+        SampleSelector(sample_id="die-1", context_id="cooldown-2"),
     )
 
 

@@ -167,6 +167,7 @@ from scopecat_server.instruments.actors import InstrumentActorRetirement
 from scopecat_server.services.admission import AdmissionService
 from scopecat_server.services.leases import OwnershipLeaseSupervisor
 from scopecat_server.services.point_plans import RunPointPlanService
+from scopecat_server.services.samples import SampleService
 from scopecat_server.storage.sqlite.config_registry import SQLiteConfigRegistryStore
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.control_plane import (
@@ -177,6 +178,7 @@ from scopecat_server.storage.sqlite.execution import (
     SQLiteMeasurementDatasetRepository,
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
+from scopecat_server.storage.sqlite.samples import SQLiteSampleStore
 
 _FIXTURE = (
     Path(__file__).parents[3]
@@ -1659,6 +1661,7 @@ def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
             runs = SQLiteRunRepository(sqlite, state / "objects")
             registry = SQLiteConfigRegistryStore(sqlite, runs=runs)
             control = SQLiteControlPlane(sqlite)
+            sample_store = SQLiteSampleStore(sqlite, control=control)
             admission_services.append(
                 AdmissionService(
                     control=control,
@@ -1668,6 +1671,8 @@ def test_admission_is_durably_idempotent(tmp_path: Path) -> None:
                         config_registry=registry.read_unit_of_work,
                     ),
                     point_plans=RunPointPlanService(control=control, runs=runs),
+                    samples=SampleService(sample_store),
+                    sample_store=sample_store,
                 )
             )
         services = tuple(admission_services)
@@ -1958,6 +1963,7 @@ def test_authority_failure_replays_a_concurrently_admitted_submission(
         runs = SQLiteRunRepository(sqlite, state / "objects")
         registry = SQLiteConfigRegistryStore(sqlite, runs=runs)
         control = SQLiteControlPlane(sqlite)
+        sample_store = SQLiteSampleStore(sqlite, control=control)
         racing = AdmissionService(
             control=control,
             runs=runs,
@@ -1966,6 +1972,8 @@ def test_authority_failure_replays_a_concurrently_admitted_submission(
                 config_registry=registry.read_unit_of_work,
             ),
             point_plans=RunPointPlanService(control=control, runs=runs),
+            samples=SampleService(sample_store),
+            sample_store=sample_store,
         )
         resolve_active = racing._resolve_active_config
         admitted: RunAdmission | None = None

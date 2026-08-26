@@ -29,6 +29,17 @@ Its summary should list the configured instruments, their availability, and the
 reviewed parameter-table row counts. Users should not need daemon URLs or
 database identities to establish this context.
 
+Then run the physical-subject workflow:
+
+```sh
+uv run python examples/reference_lab/notebooks/05_sample_workflow.py
+```
+
+It registers and revises a stable chip, binds the active revision to a Ramsey
+run, and publishes a sample-owned conclusion over that exact run. In the
+**Samples** workspace, the run opens the historical revision it actually used,
+while the active sample remains independently visible.
+
 ## Inspect and control instruments
 
 Open the **Instruments** workspace, then run in another terminal:

@@ -64,6 +64,7 @@ from scopecat.records.analysis import (
     ProjectAnalysisSubject,
     PublishedAnalysisRecordInput,
     RunAnalysisSubject,
+    SampleAnalysisSubject,
     analysis_record_id,
     validate_analysis_output_content_budget,
 )
@@ -75,6 +76,8 @@ from scopecat.runs.refs import (
     dataset_content_ref,
     record_content_ref,
 )
+
+_PROJECT_ANALYSIS_SUBJECT = ProjectAnalysisSubject()
 
 
 @dataclass(frozen=True)
@@ -400,6 +403,7 @@ def prepare_project_analysis(
     inputs: Sequence[AnalysisInput],
     executions: Sequence[AnalysisExecution],
     outputs: Sequence[AnalysisOutput],
+    subject: ProjectAnalysisSubject | SampleAnalysisSubject = _PROJECT_ANALYSIS_SUBJECT,
 ) -> PreparedProjectAnalysis:
     """Prepare one immutable publication over explicit project inputs."""
 
@@ -435,6 +439,7 @@ def prepare_project_analysis(
     existing = _latest_project_analysis(
         repository=repository,
         analysis_key=analysis_key,
+        subject=subject,
     )
     if existing is not None and existing.record.publication_hash == publication_hash:
         return PreparedProjectAnalysis(
@@ -449,9 +454,13 @@ def prepare_project_analysis(
         )
 
     revision = 1 if existing is None else existing.record.revision + 1
-    record_id = analysis_record_id(analysis_key, revision)
+    record_id = _project_owned_analysis_record_id(
+        subject,
+        analysis_key=analysis_key,
+        revision=revision,
+    )
     prepared_contents = _prepare_analysis_contents(
-        subject=ProjectAnalysisSubject(),
+        subject=subject,
         record_id=record_id,
         title=title,
         analysis_key=analysis_key,
@@ -473,7 +482,7 @@ def prepare_project_analysis(
     return PreparedProjectAnalysis(
         saved=saved,
         publication=AnalysisPublication(
-            subject=ProjectAnalysisSubject(),
+            subject=subject,
             record=prepared_contents.record,
             entries=prepared_contents.entries,
             analysis_key=analysis_key,
@@ -680,7 +689,10 @@ def _load_published_analysis_output(
             AnalysisRecord,
         )
     else:
-        publication = repository.read_publication(source.analysis_record_id)
+        publication = repository.read_publication(
+            source.analysis_record_id,
+            subject=source.subject,
+        )
         source_record = repository.read_model(
             publication.record.id,
             record_content_ref(
@@ -854,8 +866,9 @@ def _latest_project_analysis(
     *,
     repository: AnalysisRepository,
     analysis_key: str,
+    subject: ProjectAnalysisSubject | SampleAnalysisSubject,
 ) -> _ExistingAnalysis | None:
-    publication = repository.latest_publication(analysis_key)
+    publication = repository.latest_publication(analysis_key, subject=subject)
     if publication is None:
         return None
     entry = publication.record
@@ -867,6 +880,18 @@ def _latest_project_analysis(
             AnalysisRecord,
         ),
     )
+
+
+def _project_owned_analysis_record_id(
+    subject: ProjectAnalysisSubject | SampleAnalysisSubject,
+    *,
+    analysis_key: str,
+    revision: int,
+) -> str:
+    if isinstance(subject, ProjectAnalysisSubject):
+        return analysis_record_id(analysis_key, revision)
+    scope = stable_content_hash({"kind": "sample", "sample_id": subject.sample_id})[:12]
+    return analysis_record_id(f"sample-{scope}-{analysis_key}", revision)
 
 
 def _revisioned_outputs(

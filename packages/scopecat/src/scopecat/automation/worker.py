@@ -38,6 +38,7 @@ from scopecat.automation.wire import (
     ProcedureWorkerLeaseReleaseReceipt,
 )
 from scopecat.records.content import Sha256ContentHash
+from scopecat.records.sample import SampleSelector
 
 
 class ProcedureControl(Protocol):
@@ -147,17 +148,19 @@ class _ProcedureYieldRequested(BaseException):
 class ProcedureContext:
     """Lease-fenced primitive used by imperative procedure definitions."""
 
-    __slots__ = ("_authority", "_control", "_should_yield")
+    __slots__ = ("_authority", "_control", "_samples", "_should_yield")
 
     def __init__(
         self,
         control: ProcedureControl,
         authority: _ProcedureLeaseAuthority,
         *,
+        samples: tuple[SampleSelector, ...] = (),
         should_yield: Callable[[], bool] | None = None,
     ) -> None:
         self._control = control
         self._authority = authority
+        self._samples = samples
         self._should_yield = should_yield
 
     @property
@@ -165,6 +168,12 @@ class ProcedureContext:
         """Return the durable invocation identity owned by this context."""
 
         return self._authority.procedure_run_id
+
+    @property
+    def samples(self) -> tuple[SampleSelector, ...]:
+        """Return the immutable sample scope inherited by child runs."""
+
+        return self._samples
 
     def step[OutputT: ProcedureStepOutputRef](
         self,
@@ -301,6 +310,8 @@ class ProcedureWorker:
         intent: object,
         request_key: str,
         worker_id: str,
+        *,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> ProcedureRun:
         """Idempotently submit one invocation and execute it when runnable."""
 
@@ -308,6 +319,7 @@ class ProcedureWorker:
             request_key=request_key,
             definition=definition.ref,
             intent=definition.encode_intent(intent),
+            samples=samples,
         )
         submitted = _control_call(
             "submit_procedure",
@@ -386,6 +398,7 @@ class ProcedureWorker:
         context = ProcedureContext(
             self._control,
             authority,
+            samples=acquired.run.samples,
             should_yield=should_yield,
         )
         authority.start()

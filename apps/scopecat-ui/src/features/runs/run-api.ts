@@ -50,22 +50,26 @@ export async function closeAttentionRun(runId: string): Promise<void> {
   );
 }
 
-export async function getRuns(signal?: AbortSignal): Promise<ProjectRunPage> {
+export async function getRuns(signal?: AbortSignal, sampleId?: string): Promise<ProjectRunPage> {
   return normalizeRunPage(
     await apiData(
       apiClient.GET("/api/v1/runs", {
-        params: { query: { limit: 100 } },
+        params: { query: { limit: 100, sample_id: sampleId } },
         signal,
       }),
     ),
   );
 }
 
-export async function getOlderRuns(before: number, signal?: AbortSignal): Promise<ProjectRunPage> {
+export async function getOlderRuns(
+  before: number,
+  signal?: AbortSignal,
+  sampleId?: string,
+): Promise<ProjectRunPage> {
   return normalizeRunPage(
     await apiData(
       apiClient.GET("/api/v1/runs", {
-        params: { query: { limit: 100, before } },
+        params: { query: { limit: 100, before, sample_id: sampleId } },
         signal,
       }),
     ),
@@ -573,6 +577,7 @@ function normalizeRun(
       detailResources !== undefined
         ? detailResources.map(normalizeRunResource)
         : (plan.run_resource_requirements ?? []).map(normalizeResourceRequirement),
+    samples: snapshot.samples ?? [],
     contents: [],
   };
 }

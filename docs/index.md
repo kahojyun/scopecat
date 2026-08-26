@@ -25,6 +25,8 @@ Continue according to what you want to accomplish:
   experiment-time device access.
 - [Author experiments](concepts/experiment-dataflow.md) for point plans, compute
   placement, and durable results.
+- [Track chips and physical samples](concepts/samples.md) for stable identity,
+  run provenance, topology maps, and longitudinal analysis.
 - [Use measurement data](how-to/use-measurement-data.md) for selection, Xarray,
   Arrow, pandas, Polars, and GUI projections.
 - [Publish analysis](concepts/analysis-publication.md) for derived datasets,

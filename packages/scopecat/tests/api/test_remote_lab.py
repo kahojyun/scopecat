@@ -468,6 +468,8 @@ def test_lab_preview_and_run_are_direct_prepare_shortcuts(
                 "description": None,
                 "metadata": None,
                 "operator": None,
+                "sample": None,
+                "samples": (),
             },
         ),
         (
@@ -478,6 +480,8 @@ def test_lab_preview_and_run_are_direct_prepare_shortcuts(
                 "description": None,
                 "metadata": None,
                 "operator": None,
+                "sample": None,
+                "samples": (),
             },
         ),
     ]

@@ -201,6 +201,7 @@ function projectRun(active: boolean): ProjectRun {
       recordIds: ["signal"],
     },
     resources: [],
+    samples: [],
     contents: [],
   };
 }

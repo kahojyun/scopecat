@@ -27,6 +27,7 @@ nav = [
   { "Concepts" = [
     "concepts/index.md",
     { "Glossary" = "concepts/glossary.md" },
+    { "Chips and physical samples" = "concepts/samples.md" },
     { "Experiment authoring dataflow" = "concepts/experiment-dataflow.md" },
     { "Analysis publication" = "concepts/analysis-publication.md" },
   ] },

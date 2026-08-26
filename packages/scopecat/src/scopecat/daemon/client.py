@@ -133,6 +133,11 @@ from scopecat.daemon.views import (
     RunDetail,
     RunRequestView,
     RunSummaryPage,
+    SampleAnalysisPage,
+    SampleAnalysisView,
+    SamplePage,
+    SampleRevisionPage,
+    SampleView,
 )
 from scopecat.daemon.wire import (
     AnalysisSaveCommand,
@@ -179,6 +184,9 @@ from scopecat.daemon.wire import (
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
     RunSubmission,
+    SampleCreateCommand,
+    SampleMutationReceipt,
+    SampleReviseCommand,
     TerminalRunCommitCommand,
 )
 from scopecat.kernel.content_identity import (
@@ -206,6 +214,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetReceipt,
 )
 from scopecat.records.run import RunSnapshot
+from scopecat.records.sample import SampleRevision
 from scopecat.runs.data import (
     RunArtifactJsonResult,
     RunArtifactTextResult,
@@ -852,6 +861,159 @@ class DaemonClient:
             InstrumentListView,
         )
 
+    def list_samples(
+        self,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> SamplePage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/samples",
+            SamplePage,
+            params=params,
+        )
+
+    def get_sample(self, sample_id: str) -> SampleView:
+        return self._get_model(
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}",
+            SampleView,
+        )
+
+    def sample_revisions(
+        self,
+        sample_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> SampleRevisionPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}/revisions",
+            SampleRevisionPage,
+            params=params,
+        )
+
+    def sample_revision(self, sample_id: str, revision: int) -> SampleRevision:
+        return self._get_model(
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}/revisions/{revision}",
+            SampleRevision,
+        )
+
+    def sample_analyses(
+        self,
+        sample_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> SampleAnalysisPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}/analyses",
+            SampleAnalysisPage,
+            params=params,
+        )
+
+    def sample_analysis(self, sample_id: str, selector: str) -> SampleAnalysisView:
+        return self._get_model(
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}/analyses/"
+            f"{quote(selector, safe='')}",
+            SampleAnalysisView,
+        )
+
+    def save_sample_analysis(
+        self,
+        sample_id: str,
+        command: AnalysisSaveCommand,
+    ) -> AnalysisSaveReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}/analyses",
+            command,
+            AnalysisSaveReceipt,
+        )
+
+    def sample_analysis_contents(
+        self,
+        sample_id: str,
+        analysis_id: str,
+        *,
+        limit: int = 100,
+        before: int | None = None,
+    ) -> ProjectAnalysisContentPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            self._sample_analysis_content_path(sample_id, analysis_id, ""),
+            ProjectAnalysisContentPage,
+            params=params,
+        )
+
+    def sample_analysis_content(
+        self,
+        sample_id: str,
+        analysis_id: str,
+        selector: str,
+    ) -> ContentEntry:
+        return self._get_model(
+            self._sample_analysis_content_path(sample_id, analysis_id, selector),
+            ContentEntry,
+        )
+
+    def sample_analysis_content_bytes(
+        self,
+        sample_id: str,
+        analysis_id: str,
+        selector: str,
+    ) -> AnalysisContentBytesView:
+        path = self._sample_analysis_content_path(
+            sample_id,
+            analysis_id,
+            selector,
+        )
+        return self._get_model(f"{path}/bytes", AnalysisContentBytesView)
+
+    @staticmethod
+    def _sample_analysis_content_path(
+        sample_id: str,
+        analysis_id: str,
+        selector: str,
+    ) -> str:
+        path = (
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}/analyses/"
+            f"{quote(analysis_id, safe='')}/contents"
+        )
+        if selector:
+            return f"{path}/{quote(selector, safe='')}"
+        return path
+
+    def create_sample(
+        self,
+        command: SampleCreateCommand,
+    ) -> SampleMutationReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/samples",
+            command,
+            SampleMutationReceipt,
+        )
+
+    def revise_sample(
+        self,
+        sample_id: str,
+        command: SampleReviseCommand,
+    ) -> SampleMutationReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/samples/{quote(sample_id, safe='')}/revisions",
+            command,
+            SampleMutationReceipt,
+        )
+
     def driver_catalog(self) -> DriverCatalog:
         return self._get_model(
             f"{_API_PREFIX}/instrument-drivers",
@@ -1054,12 +1216,15 @@ class DaemonClient:
         limit: int = 50,
         before: int | None = None,
         state: ControlRunState | None = None,
+        sample_id: str | None = None,
     ) -> RunSummaryPage:
         params: dict[str, str | int] = {"limit": limit}
         if before is not None:
             params["before"] = before
         if state is not None:
             params["state"] = state
+        if sample_id is not None:
+            params["sample_id"] = sample_id
         return self._get_model(f"{_API_PREFIX}/runs", RunSummaryPage, params=params)
 
     def get_run(self, run_id: str) -> RunDetail:

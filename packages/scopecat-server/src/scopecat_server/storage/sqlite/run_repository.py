@@ -39,6 +39,7 @@ from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import MeasurementRecord
 from scopecat.records.measurement_recording import MeasurementDatasetHeader
 from scopecat.records.run import RunConfigSource, RunSnapshot
+from scopecat.records.sample import SampleBinding
 from scopecat.runs.admission import RunSkeleton
 from scopecat.runs.provenance import validate_run_config_provenance
 from scopecat.runs.refs import (
@@ -277,7 +278,7 @@ class SQLiteRunRepository:
                 self._require_run_row(connection, run_id)
                 return list_publications(
                     connection,
-                    run_id=run_id,
+                    subject=RunAnalysisSubject(run_id=run_id),
                     limit=limit,
                     before=before,
                 )
@@ -297,7 +298,7 @@ class SQLiteRunRepository:
                 self._require_run_row(connection, run_id)
                 publication = read_publication(
                     connection,
-                    run_id=run_id,
+                    subject=RunAnalysisSubject(run_id=run_id),
                     record_id=record_id,
                 )
             if publication is None:
@@ -319,7 +320,7 @@ class SQLiteRunRepository:
                 self._require_run_row(connection, run_id)
                 return latest_publication(
                     connection,
-                    run_id=run_id,
+                    subject=RunAnalysisSubject(run_id=run_id),
                     analysis_key=analysis_key,
                 )
         except NotFound:
@@ -707,6 +708,17 @@ class SQLiteRunRepository:
         try:
             config_source_json = cast("str | None", row["config_source_json"])
             outcome_json = cast("str | None", row["outcome_json"])
+            binding_rows = _all(
+                connection.execute(
+                    """
+                    SELECT binding_json
+                    FROM run_sample_bindings
+                    WHERE run_id = ?
+                    ORDER BY role
+                    """,
+                    (run_id,),
+                )
+            )
             return RunSnapshot(
                 run_id=run_id,
                 created_at=datetime.fromisoformat(_text(row, "created_at")),
@@ -720,6 +732,10 @@ class SQLiteRunRepository:
                     None
                     if outcome_json is None
                     else RunOutcome.model_validate_json(outcome_json)
+                ),
+                samples=tuple(
+                    SampleBinding.model_validate_json(_text(item, "binding_json"))
+                    for item in binding_rows
                 ),
             )
         except ValidationError as error:

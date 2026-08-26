@@ -84,12 +84,14 @@ from scopecat.records.analysis import (
     ProjectAnalysisDecisionReference,
     ProjectAnalysisSubject,
     RunAnalysisSubject,
+    SampleAnalysisSubject,
     analysis_record_id,
 )
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.content import Sha256ContentHash
 from scopecat.records.parameter_change import ParameterChangeProposal
 from scopecat.records.run import RunConfigSource
+from scopecat.records.sample import SampleSelector
 from scopecat.runs.selectors import RunSelector
 
 type ExperimentSpec = ExperimentInvocation | Experiment[...]
@@ -112,7 +114,12 @@ class ProcedureLabSession(Protocol):
         key: str | None = None,
     ) -> PublishedAnalysis: ...
 
-    def published_analysis(self, selector: str) -> PublishedAnalysis: ...
+    def published_analysis(
+        self,
+        selector: str,
+        *,
+        sample: str | None = None,
+    ) -> PublishedAnalysis: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,6 +235,8 @@ class LabProcedureContext:
         description: str | None = None,
         metadata: Mapping[str, MetadataValue] | None = None,
         operator: str | None = None,
+        sample: str | SampleSelector | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> RunOutputRef:
         """Plan and execute one exactly identified child run."""
 
@@ -252,6 +261,11 @@ class LabProcedureContext:
             description=description,
             metadata=metadata,
             operator=operator,
+            samples=(
+                self._durable.samples
+                if sample is None and not samples
+                else _procedure_sample_selectors(sample, samples)
+            ),
         )
         _, intent_hash = _prepare_run_submission(
             planned,
@@ -403,6 +417,11 @@ class LabProcedureContext:
                 published = self._session.get_run(
                     ref.subject.run_id
                 ).published_analysis(ref.analysis_record_id)
+            elif isinstance(ref.subject, SampleAnalysisSubject):
+                published = self._session.published_analysis(
+                    ref.analysis_record_id,
+                    sample=ref.subject.sample_id,
+                )
             else:
                 published = self._session.published_analysis(ref.analysis_record_id)
         except (
@@ -641,6 +660,8 @@ class LabProcedureOperations:
         intent: object,
         *,
         request_key: str,
+        sample: str | SampleSelector | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> ProcedureHandle:
         selected = self._registry.resolve(definition.ref)
         receipt = self._client.submit_procedure(
@@ -648,6 +669,7 @@ class LabProcedureOperations:
                 request_key=request_key,
                 definition=selected.ref,
                 intent=selected.encode_intent(intent),
+                samples=_procedure_sample_selectors(sample, samples),
             )
         )
         return ProcedureHandle(self, receipt.run.procedure_run_id)
@@ -659,6 +681,8 @@ class LabProcedureOperations:
         *,
         request_key: str,
         worker_id: str | None = None,
+        sample: str | SampleSelector | None = None,
+        samples: tuple[SampleSelector, ...] = (),
     ) -> ProcedureHandle:
         selected = self._registry.resolve(definition.ref)
         run = self._worker().execute(
@@ -666,6 +690,7 @@ class LabProcedureOperations:
             intent,
             request_key,
             self._worker_id if worker_id is None else worker_id,
+            samples=_procedure_sample_selectors(sample, samples),
         )
         return ProcedureHandle(self, run.procedure_run_id)
 
@@ -1227,6 +1252,19 @@ def _validate_config_publish_receipt(
         raise ProcedureNeedsAttention(
             "config publish receipt does not match its exact procedure command"
         )
+
+
+def _procedure_sample_selectors(
+    sample: str | SampleSelector | None,
+    samples: tuple[SampleSelector, ...],
+) -> tuple[SampleSelector, ...]:
+    if sample is None:
+        return samples
+    if samples:
+        raise ValueError("sample and samples cannot be combined")
+    if isinstance(sample, SampleSelector):
+        return (sample,)
+    return (SampleSelector(sample_id=sample),)
 
 
 __all__ = [

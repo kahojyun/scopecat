@@ -8,14 +8,15 @@ managing storage identities or revision mechanics directly.
 An analysis publication provides a durable boundary for fitted values, reusable
 datasets, plots, reports, and proposed parameter changes that might otherwise
 remain in run-adjacent scripts or personal file layouts. The atomic publication
-is owned either by one source run or by the project when its inputs span runs.
-It is not a dataframe API, compute runtime, or workflow scheduler.
+is owned by one source run, one stable sample, or the project. Sample- and
+project-owned publications may span runs, but always retain explicit immutable
+inputs. It is not a dataframe API, compute runtime, or workflow scheduler.
 
 Users should keep doing numerical work with NumPy, pandas, Polars, Xarray,
 PyArrow, SciPy, and domain libraries. Scopecat owns the durable boundary after
 that work: identities, scientific meaning needed to interpret an output,
 relations between outputs, content hashes, provenance, and attachment to the
-run.
+owning run, sample, or project scope.
 
 ## Durable output ontology
 
@@ -43,8 +44,8 @@ kinds of output:
   dataset, or artifact outputs from the same analysis as structured evidence.
 
 The analysis record is the root provenance record for this publication. Large
-datasets and artifacts live as separate content entries under the same run or
-project owner; the record stores typed references. This keeps one atomic
+datasets and artifacts live as separate content entries under the same run,
+sample, or project owner; the record stores typed references. This keeps one atomic
 publication without embedding every payload or content index in one JSON
 record.
 
@@ -366,10 +367,12 @@ Python type registry or import application types while reopening a run; code
 that only needs generic inspection can continue to use `fact(...)` and read its
 JSON value directly.
 
-Analysis currently belongs to one completed run or to a project publication
-over explicit completed-run snapshots. Live checkpoints, orchestration retries,
-schedules, recurring calibration state, and continuously changing cohorts
-belong to a future workflow model. They should not be encoded as hidden state in
-an analysis. Future streaming analysis may reuse the same execution and
-publication primitives, but its cursors, windows, checkpoint state, and
-finalization policy belong to that workflow rather than to the analysis record.
+Analysis belongs to one completed run, one stable sample, or a project
+publication over explicit completed-run snapshots. A sample publication accepts
+only input runs bound to that sample; see [Chips and physical samples](samples.md).
+Live checkpoints, orchestration retries, schedules, recurring calibration
+state, and continuously changing cohorts belong to a future workflow model.
+They should not be encoded as hidden state in an analysis. Future streaming
+analysis may reuse the same execution and publication primitives, but its
+cursors, windows, checkpoint state, and finalization policy belong to that
+workflow rather than to the analysis record.

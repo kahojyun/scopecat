@@ -17,6 +17,7 @@ hardware-free project and complete the first durable run.
 - [Reference lab tutorial](docs/tutorials/reference-lab.md)
 - [Instrument control](docs/how-to/control-instruments.md)
 - [Experiment authoring dataflow](docs/concepts/experiment-dataflow.md)
+- [Chips and physical samples](docs/concepts/samples.md)
 - [Measurement data](docs/how-to/use-measurement-data.md)
 - [Python API reference](docs/reference/python/index.md)
 - [Contributor guide](docs/development/index.md)

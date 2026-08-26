@@ -49,6 +49,25 @@ def test_lab_tour_shows_one_inventory_and_parameter_catalog(
     }
 
 
+def test_sample_workflow_binds_exact_revision_and_analysis_subject(
+    reference_lab_daemon: _ReferenceLabDaemon,
+) -> None:
+    assert reference_lab_daemon.url.startswith("http://127.0.0.1:")
+    namespace = run_path(str(NOTEBOOKS / "05_sample_workflow.py"))
+    summary = cast("dict[str, object]", namespace["sample_workflow_summary"])
+
+    assert summary == {
+        "sample_id": "chip-a17",
+        "active_revision": 2,
+        "bound_revision": 2,
+        "binding_role": "subject",
+        "binding_context": "virtual-cooldown-1",
+        "run_status": "completed",
+        "analysis_subject": "sample",
+        "analysis_inputs": 1,
+    }
+
+
 def test_scan_shapes_run_as_real_lab_experiments(
     reference_lab_daemon: _ReferenceLabDaemon,
 ) -> None:

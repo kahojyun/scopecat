@@ -22,6 +22,7 @@ from scopecat.automation.calibrations import (
     CalibrationCohort,
     CalibrationCohortMember,
     CalibrationConfigSourceRef,
+    calibration_target_sample_selectors,
 )
 from scopecat.automation.models import (
     AnalysisPublicationOutputRef,
@@ -506,6 +507,7 @@ def _validate_member_procedure(
         or snapshot.request_key != member.request_key
         or snapshot.definition != member.spec.procedure
         or snapshot.intent != member.spec.intent
+        or snapshot.samples != calibration_target_sample_selectors(member.spec.target)
         or snapshot.state != "closed"
         or snapshot.closure is None
         or snapshot.closure.status != "succeeded"

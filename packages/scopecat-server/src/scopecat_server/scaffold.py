@@ -45,9 +45,9 @@ def bootstrap_config() -> ConfigProfileSnapshot:
         profile_id="default",
         system=SystemSpec(
             id="default-system",
-            primary_entity_id="sample",
+            primary_entity_id="subject",
             topology=Topology(
-                entities=[EntityRef(id="sample", kind="sample")],
+                entities=[EntityRef(id="subject", kind="logical_subject")],
             ),
             instrument_registry=InstrumentRegistry(instruments=[]),
             domain_target=None,

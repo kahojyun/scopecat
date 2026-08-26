@@ -8,6 +8,7 @@ from scopecat.kernel.ids import new_run_id
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 from scopecat.records.run import RunConfigSource, RunSnapshot
 from scopecat.records.run_request import RunRequest
+from scopecat.records.sample import SampleBinding
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +25,7 @@ def build_run_admission(
     config: ConfigProfileSnapshot,
     request: RunRequest,
     config_source: RunConfigSource | None = None,
+    samples: tuple[SampleBinding, ...] = (),
 ) -> RunSkeleton:
     """Create the complete durable state required before execution."""
 
@@ -32,6 +34,7 @@ def build_run_admission(
             run_id=new_run_id(),
             config_content_hash=config_content_hash(config),
             config_source=config_source,
+            samples=samples,
         ),
         request=request,
         config=config,

@@ -13,9 +13,15 @@ notebook client ─────┘                    │
 ```
 
 The daemon owns admission, run state, resource claims, executor leases,
-configuration activation, event order, and durable writes. SQLite is the
+configuration activation, the sample registry and immutable sample revisions,
+exact run-to-sample bindings, event order, and durable writes. SQLite is the
 transaction and ordering boundary. Large immutable content lives in a SHA-256
 object store, and clients open neither store directly.
+
+Sample creation and revision activation append `sample_created` and
+`sample_revision_activated` events in the same SQLite transaction as the
+registry mutation. Admission resolves each requested sample role to one exact
+revision and stores that binding atomically with the accepted run snapshot.
 
 ## Durable run ownership
 

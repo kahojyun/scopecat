@@ -13,7 +13,11 @@ from scopecat.config.candidates import (
     CandidateSelection,
     candidate_config_from_proposals,
 )
-from scopecat.daemon.views import ProjectAnalysisView, RunAnalysisView
+from scopecat.daemon.views import (
+    ProjectAnalysisView,
+    RunAnalysisView,
+    SampleAnalysisView,
+)
 from scopecat.records.analysis import (
     AnalysisArtifactRecordOutput,
     AnalysisDatasetRecordOutput,
@@ -130,7 +134,7 @@ class PublishedAnalysis:
     """One immutable analysis record with output-ID based typed access."""
 
     source: _PublishedAnalysisSource
-    view: RunAnalysisView | ProjectAnalysisView
+    view: RunAnalysisView | ProjectAnalysisView | SampleAnalysisView
 
     @property
     def id(self) -> str:

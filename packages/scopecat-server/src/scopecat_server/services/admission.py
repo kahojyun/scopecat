@@ -59,9 +59,11 @@ from scopecat_server.storage.sqlite.control_plane import (
     SQLiteControlPlane,
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
+from scopecat_server.storage.sqlite.samples import SQLiteSampleStore
 
 from ..errors import BackendConflict, BackendNotFound
 from .point_plans import RunPointPlanService
+from .samples import SampleService
 
 
 class AdmissionService:
@@ -74,11 +76,15 @@ class AdmissionService:
         runs: SQLiteRunRepository,
         services: ProjectStateServices,
         point_plans: RunPointPlanService,
+        samples: SampleService,
+        sample_store: SQLiteSampleStore,
     ) -> None:
         self._control = control
         self._runs = runs
         self._services = services
         self._point_plans = point_plans
+        self._samples = samples
+        self._sample_store = sample_store
 
     def submit_run(self, submission: RunSubmission) -> RunAdmission:
         retry = self._replay_admission(submission)
@@ -106,10 +112,12 @@ class AdmissionService:
                     submitted=submission.config,
                     authoritative=active_config,
                 )
+            sample_bindings = self._samples.resolve_bindings(submission.request.samples)
             skeleton = build_run_admission(
                 config=submission.config,
                 request=submission.request,
                 config_source=submission.config_source,
+                samples=sample_bindings,
             )
             admission = RunAdmissionRecord(
                 submission_id=submission.submission_id,
@@ -148,6 +156,10 @@ class AdmissionService:
                     self._runs.commit_run_skeleton_in_transaction(
                         connection,
                         prepared,
+                    )
+                    self._sample_store.bind_run_in_transaction(
+                        connection,
+                        skeleton.snapshot,
                     )
         except ControlPlaneConflict as error:
             raise BackendConflict(str(error)) from error

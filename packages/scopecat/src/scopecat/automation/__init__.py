@@ -71,6 +71,7 @@ from scopecat.automation.calibrations import (
     calibration_cohort_spec_hash,
     calibration_freshness_fingerprint,
     calibration_key,
+    calibration_target_sample_selectors,
 )
 from scopecat.automation.definition import (
     MAX_PROCEDURE_REGISTRY_SIZE,
@@ -310,6 +311,7 @@ __all__ = [
     "calibration_cohort_spec_hash",
     "calibration_freshness_fingerprint",
     "calibration_key",
+    "calibration_target_sample_selectors",
     "interval_occurrence_schedule_id",
     "interval_schedule",
     "procedure",

@@ -26,6 +26,7 @@ from scopecat.records._run_request_values import (
     normalize_json_value,
     normalize_run_request_value,
 )
+from scopecat.records.sample import SampleSelector
 
 type RunRequestJsonValue = Annotated[
     str
@@ -297,9 +298,20 @@ class RunRequest(_RunRequestModel):
     description: str | None = Field(default=None, min_length=1)
     inputs: dict[str, RunRequestValue] = Field(default_factory=dict)
     operator: str | None = None
+    samples: tuple[SampleSelector, ...] = ()
     point_plan: PointPlanRecord = Field(default_factory=PointPlanRecord)
     adaptive_domain_plan: AdaptiveDomainPlanRecord | None = None
     metadata: dict[str, RunRequestJsonValue] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_samples(self) -> RunRequest:
+        roles = tuple(selector.role for selector in self.samples)
+        if len(roles) != len(set(roles)):
+            raise ValueError("run sample selector roles must be unique")
+        sample_ids = tuple(selector.sample_id for selector in self.samples)
+        if len(sample_ids) != len(set(sample_ids)):
+            raise ValueError("one sample cannot fill multiple run roles")
+        return self
 
 
 __all__ = [

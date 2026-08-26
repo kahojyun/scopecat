@@ -21,6 +21,7 @@ from scopecat.automation.models import (
 )
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.records.content import Sha256ContentHash
+from scopecat.records.sample import SampleSelector
 
 type _NonEmptyText = Annotated[str, Field(min_length=1)]
 
@@ -39,10 +40,29 @@ class ProcedureSubmitCommand(_WireModel):
     request_key: _NonEmptyText
     definition: ProcedureDefinitionRef
     intent: ProcedureIntent
+    samples: tuple[SampleSelector, ...] = ()
 
     @property
     def intent_hash(self) -> Sha256ContentHash:
-        return procedure_intent_hash(self.definition, self.intent)
+        return procedure_intent_hash(
+            self.definition,
+            self.intent,
+            samples=self.samples,
+        )
+
+    @field_validator("samples")
+    @classmethod
+    def validate_samples(
+        cls,
+        value: tuple[SampleSelector, ...],
+    ) -> tuple[SampleSelector, ...]:
+        roles = tuple(selector.role for selector in value)
+        if len(roles) != len(set(roles)):
+            raise ValueError("procedure sample selector roles must be unique")
+        sample_ids = tuple(selector.sample_id for selector in value)
+        if len(sample_ids) != len(set(sample_ids)):
+            raise ValueError("one sample cannot fill multiple procedure roles")
+        return value
 
 
 class ProcedureSubmitReceipt(_WireModel):

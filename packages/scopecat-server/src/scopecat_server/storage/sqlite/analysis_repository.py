@@ -24,7 +24,11 @@ from scopecat.kernel.problems import (
     StorageLocation,
     problem,
 )
-from scopecat.records.analysis import ProjectAnalysisSubject
+from scopecat.records.analysis import (
+    AnalysisSubject,
+    ProjectAnalysisSubject,
+    SampleAnalysisSubject,
+)
 from scopecat.records.content import ContentEntry
 
 from scopecat_server.storage.sqlite.analysis_index import (
@@ -44,6 +48,7 @@ from scopecat_server.storage.sqlite.object_store import (
 )
 
 _SAFE_RECORD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_PROJECT_SUBJECT = ProjectAnalysisSubject()
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +69,7 @@ class SQLiteAnalysisRepository:
     def list_summaries(
         self,
         *,
+        subject: AnalysisSubject = _PROJECT_SUBJECT,
         limit: int,
         before: int | None,
     ) -> AnalysisPublicationPage:
@@ -73,7 +79,7 @@ class SQLiteAnalysisRepository:
             with self.sqlite.read_connection() as connection:
                 return list_publications(
                     connection,
-                    run_id=None,
+                    subject=subject,
                     limit=limit,
                     before=before,
                 )
@@ -83,24 +89,31 @@ class SQLiteAnalysisRepository:
     def latest_publication(
         self,
         analysis_key: str,
+        *,
+        subject: AnalysisSubject = _PROJECT_SUBJECT,
     ) -> AnalysisPublicationSummary | None:
         try:
             with self.sqlite.read_connection() as connection:
                 return latest_publication(
                     connection,
-                    run_id=None,
+                    subject=subject,
                     analysis_key=analysis_key,
                 )
         except (sqlite3.Error, ValidationError) as error:
             raise _storage_failure(analysis_key) from error
 
-    def read_publication(self, record_id: str) -> AnalysisPublicationSummary:
+    def read_publication(
+        self,
+        record_id: str,
+        *,
+        subject: AnalysisSubject = _PROJECT_SUBJECT,
+    ) -> AnalysisPublicationSummary:
         _validate_identity(record_id, "record.json")
         try:
             with self.sqlite.read_connection() as connection:
                 publication = read_publication(
                     connection,
-                    run_id=None,
+                    subject=subject,
                     record_id=record_id,
                 )
             if publication is None:
@@ -194,8 +207,11 @@ class SQLiteAnalysisRepository:
     ) -> PreparedAnalysisPublication:
         """Write immutable objects without publishing their logical refs."""
 
-        if not isinstance(publication.subject, ProjectAnalysisSubject):
-            raise TypeError("project analysis repository requires a project subject")
+        if not isinstance(
+            publication.subject,
+            ProjectAnalysisSubject | SampleAnalysisSubject,
+        ):
+            raise TypeError("project analysis repository requires a project owner")
         record_id = publication.record.id
         prepared: list[tuple[str, StoredObject]] = []
         try:
@@ -331,7 +347,7 @@ def _publication_sequence(connection: sqlite3.Connection, record_id: str) -> int
             """
             SELECT sequence
             FROM analysis_publications
-            WHERE subject_kind = 'project' AND run_id IS NULL AND record_id = ?
+            WHERE subject_kind IN ('project', 'sample') AND record_id = ?
             """,
             (record_id,),
         ).fetchone(),

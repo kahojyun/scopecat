@@ -76,7 +76,7 @@ def test_init_creates_runnable_python_project_and_does_not_overwrite(
     assert bootstrap.bootstrap_config is not None
     config = validate_config_profile(bootstrap.bootstrap_config())
     assert config.id == "default"
-    assert config.primary_entity_id == "sample"
+    assert config.primary_entity_id == "subject"
     assert config.parameter_snapshot.get("repetitions") == ScalarParameterValue(
         id="repetitions",
         value=128,

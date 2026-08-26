@@ -6,17 +6,26 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import cast
 
+from pydantic import TypeAdapter
 from scopecat.analysis.repository import (
     AnalysisPublication,
     AnalysisPublicationPage,
     AnalysisPublicationSummary,
 )
-from scopecat.records.analysis import ProjectAnalysisSubject, RunAnalysisSubject
+from scopecat.records.analysis import (
+    AnalysisSubject,
+    ProjectAnalysisSubject,
+    RunAnalysisSubject,
+    SampleAnalysisSubject,
+)
 from scopecat.records.content import ContentEntry
 
 
 class AnalysisIndexConflict(ValueError):
     """An immutable publication identity already has different metadata."""
+
+
+_ANALYSIS_SUBJECT: TypeAdapter[AnalysisSubject] = TypeAdapter(AnalysisSubject)
 
 
 def insert_publication(
@@ -25,19 +34,18 @@ def insert_publication(
 ) -> tuple[int, bool]:
     """Insert one immutable index row and return its sequence and creation state."""
 
-    subject_kind, run_id = _owner(publication)
+    subject_kind, run_id, sample_id = _owner(publication)
+    owner_clause, owner_parameters = _owner_clause(publication.subject)
     existing = cast(
         "sqlite3.Row | None",
         connection.execute(
-            """
-            SELECT sequence, record_entry_json, analysis_key, revision,
+            f"""
+            SELECT sequence, subject_json, record_entry_json, analysis_key, revision,
                    publication_hash, title, step_id, input_count, output_count
             FROM analysis_publications
-            WHERE subject_kind = ?
-              AND record_id = ?
-              AND ((run_id IS NULL AND ? IS NULL) OR run_id = ?)
-            """,
-            (subject_kind, publication.record.id, run_id, run_id),
+            WHERE {owner_clause} AND record_id = ?
+            """,  # noqa: S608 - owner clause is a fixed internal fragment
+            (*owner_parameters, publication.record.id),
         ).fetchone(),
     )
     expected = _publication_values(publication)
@@ -48,6 +56,7 @@ def insert_publication(
         return cast("int", existing["sequence"]), False
 
     (
+        subject_json,
         record_entry_json,
         analysis_key,
         revision,
@@ -60,14 +69,17 @@ def insert_publication(
     inserted = connection.execute(
         """
         INSERT INTO analysis_publications(
-            subject_kind, run_id, record_id, record_entry_json, analysis_key,
+            subject_kind, run_id, sample_id, subject_json, record_id,
+            record_entry_json, analysis_key,
             revision, publication_hash, published_at, title, step_id, input_count,
             output_count
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             subject_kind,
             run_id,
+            sample_id,
+            subject_json,
             publication.record.id,
             record_entry_json,
             analysis_key,
@@ -86,12 +98,13 @@ def insert_publication(
 def list_publications(
     connection: sqlite3.Connection,
     *,
-    run_id: str | None,
+    subject: AnalysisSubject,
     limit: int,
     before: int | None,
 ) -> AnalysisPublicationPage:
-    clauses = [_owner_clause(run_id)]
-    parameters: list[str | int] = [] if run_id is None else [run_id]
+    owner_clause, owner_parameters = _owner_clause(subject)
+    clauses = [owner_clause]
+    parameters: list[str | int] = list(owner_parameters)
     if before is not None:
         clauses.append("sequence < ?")
         parameters.append(before)
@@ -100,7 +113,7 @@ def list_publications(
         "list[sqlite3.Row]",
         connection.execute(
             f"""
-            SELECT sequence, subject_kind, run_id, record_entry_json, title,
+            SELECT sequence, subject_json, record_entry_json, title,
                    analysis_key, revision, publication_hash, published_at, step_id,
                    input_count, output_count
             FROM analysis_publications
@@ -123,20 +136,21 @@ def list_publications(
 def read_publication(
     connection: sqlite3.Connection,
     *,
-    run_id: str | None,
+    subject: AnalysisSubject,
     record_id: str,
 ) -> AnalysisPublicationSummary | None:
-    parameters: list[str] = [] if run_id is None else [run_id]
+    owner_clause, owner_parameters = _owner_clause(subject)
+    parameters: list[str] = list(owner_parameters)
     parameters.append(record_id)
     row = cast(
         "sqlite3.Row | None",
         connection.execute(
             f"""
-            SELECT subject_kind, run_id, record_entry_json, title, analysis_key,
+            SELECT subject_json, record_entry_json, title, analysis_key,
                    revision, publication_hash, published_at, step_id, input_count,
                    output_count
             FROM analysis_publications
-            WHERE {_owner_clause(run_id)} AND record_id = ?
+            WHERE {owner_clause} AND record_id = ?
             """,  # noqa: S608 - owner clause is a fixed internal SQL fragment
             parameters,
         ).fetchone(),
@@ -147,20 +161,21 @@ def read_publication(
 def latest_publication(
     connection: sqlite3.Connection,
     *,
-    run_id: str | None,
+    subject: AnalysisSubject,
     analysis_key: str,
 ) -> AnalysisPublicationSummary | None:
-    parameters: list[str] = [] if run_id is None else [run_id]
+    owner_clause, owner_parameters = _owner_clause(subject)
+    parameters: list[str] = list(owner_parameters)
     parameters.append(analysis_key)
     row = cast(
         "sqlite3.Row | None",
         connection.execute(
             f"""
-            SELECT subject_kind, run_id, record_entry_json, title, analysis_key,
+            SELECT subject_json, record_entry_json, title, analysis_key,
                    revision, publication_hash, published_at, step_id, input_count,
                    output_count
             FROM analysis_publications
-            WHERE {_owner_clause(run_id)} AND analysis_key = ?
+            WHERE {owner_clause} AND analysis_key = ?
             ORDER BY revision DESC
             LIMIT 1
             """,  # noqa: S608 - owner clause is a fixed internal SQL fragment
@@ -171,12 +186,7 @@ def latest_publication(
 
 
 def summary_from_row(row: sqlite3.Row) -> AnalysisPublicationSummary:
-    run_id = cast("str | None", row["run_id"])
-    subject = (
-        ProjectAnalysisSubject()
-        if run_id is None
-        else RunAnalysisSubject(run_id=run_id)
-    )
+    subject = _ANALYSIS_SUBJECT.validate_json(cast("str", row["subject_json"]))
     return AnalysisPublicationSummary(
         subject=subject,
         record=ContentEntry.model_validate_json(cast("str", row["record_entry_json"])),
@@ -192,6 +202,7 @@ def summary_from_row(row: sqlite3.Row) -> AnalysisPublicationSummary:
 
 
 _PUBLICATION_VALUE_KEYS = (
+    "subject_json",
     "record_entry_json",
     "analysis_key",
     "revision",
@@ -205,6 +216,7 @@ _PUBLICATION_VALUE_KEYS = (
 
 def _publication_values(publication: AnalysisPublication) -> tuple[object, ...]:
     return (
+        publication.subject.model_dump_json(),
         publication.record.model_dump_json(),
         publication.analysis_key,
         publication.revision,
@@ -216,17 +228,24 @@ def _publication_values(publication: AnalysisPublication) -> tuple[object, ...]:
     )
 
 
-def _owner(publication: AnalysisPublication) -> tuple[str, str | None]:
+def _owner(
+    publication: AnalysisPublication,
+) -> tuple[str, str | None, str | None]:
     subject = publication.subject
     if isinstance(subject, RunAnalysisSubject):
-        return "run", subject.run_id
-    return "project", None
+        return "run", subject.run_id, None
+    if isinstance(subject, SampleAnalysisSubject):
+        return "sample", None, subject.sample_id
+    return "project", None, None
 
 
-def _owner_clause(run_id: str | None) -> str:
-    if run_id is None:
-        return "subject_kind = 'project' AND run_id IS NULL"
-    return "subject_kind = 'run' AND run_id = ?"
+def _owner_clause(subject: AnalysisSubject) -> tuple[str, tuple[str, ...]]:
+    if isinstance(subject, RunAnalysisSubject):
+        return "subject_kind = 'run' AND run_id = ?", (subject.run_id,)
+    if isinstance(subject, SampleAnalysisSubject):
+        return "subject_kind = 'sample' AND sample_id = ?", (subject.sample_id,)
+    assert isinstance(subject, ProjectAnalysisSubject)
+    return "subject_kind = 'project'", ()
 
 
 __all__ = [

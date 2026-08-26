@@ -36,6 +36,7 @@ from scopecat_server.services.point_plans import RunPointPlanService
 from scopecat_server.services.procedure_schedules import ProcedureScheduleService
 from scopecat_server.services.reviews import ReviewService
 from scopecat_server.services.runs import RunService
+from scopecat_server.services.samples import SampleService
 from scopecat_server.storage.sqlite.analysis_repository import SQLiteAnalysisRepository
 from scopecat_server.storage.sqlite.automation import SQLiteAutomationStore
 from scopecat_server.storage.sqlite.calibration_cohorts import (
@@ -50,6 +51,7 @@ from scopecat_server.storage.sqlite.procedure_schedules import (
 )
 from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
+from scopecat_server.storage.sqlite.samples import SQLiteSampleStore
 
 from .http.transport import create_app
 from .instruments.actors import InstrumentActorRegistry
@@ -124,6 +126,8 @@ class LocalDaemonRuntime:
             procedure_schedule_store = SQLiteProcedureScheduleStore(sqlite)
             runs = SQLiteRunRepository(sqlite, objects)
             analyses = SQLiteAnalysisRepository(sqlite, objects)
+            sample_store = SQLiteSampleStore(sqlite, control=control)
+            samples = SampleService(sample_store)
             config_registry = SQLiteConfigRegistryStore(
                 sqlite,
                 runs=runs,
@@ -152,6 +156,7 @@ class LocalDaemonRuntime:
                 repository=analyses,
                 services=services,
                 control=control,
+                samples=samples,
             )
             config_service = ConfigService(
                 control=control,
@@ -177,6 +182,8 @@ class LocalDaemonRuntime:
                 runs=runs,
                 services=services,
                 point_plans=point_plans,
+                samples=samples,
+                sample_store=sample_store,
             )
             instruments = InstrumentService(
                 control=control,
@@ -219,6 +226,7 @@ class LocalDaemonRuntime:
                 calibration_cohorts=calibration_cohorts,
                 procedure_schedules=procedure_schedules,
                 point_plans=point_plans,
+                samples=samples,
             )
             try:
                 bootstrap_source = (

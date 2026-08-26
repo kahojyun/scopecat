@@ -51,6 +51,7 @@ from scopecat.records.run_request import (
     PointPlanRecord,
     RunRequest,
 )
+from scopecat.records.sample import SampleSelector
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +74,7 @@ def compile_invocation(
     description: str | None = None,
     metadata: Mapping[str, object] | None = None,
     operator: str | None = None,
+    samples: tuple[SampleSelector, ...] = (),
 ) -> CompiledInvocation:
     base_plan = replace(
         invocation.point_plan,
@@ -100,6 +102,7 @@ def compile_invocation(
         description=description,
         metadata=metadata,
         operator=operator,
+        samples=samples,
     )
     expanded_domain = _verified_point_domain(
         expand_point_plan(base_plan),
@@ -196,6 +199,7 @@ def _materialized_request(
     description: str | None,
     metadata: Mapping[str, object] | None,
     operator: str | None,
+    samples: tuple[SampleSelector, ...],
 ) -> RunRequest:
     request_inputs = project_run_request_inputs(inputs)
     request_point_domain = (
@@ -237,6 +241,7 @@ def _materialized_request(
                 )
             ),
             "operator": operator,
+            "samples": samples,
             "metadata": dict(metadata or {}),
         }
     )

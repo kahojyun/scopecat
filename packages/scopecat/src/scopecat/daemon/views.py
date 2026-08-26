@@ -57,6 +57,7 @@ from scopecat.records.parameter_change import (
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
+from scopecat.records.sample import SampleId, SampleRecord, SampleRevision
 from scopecat.sdk.instruments.contracts import InstrumentDescription
 
 
@@ -108,6 +109,34 @@ class ConfigDraftPreview(_ViewModel):
     result_content_hash: ConfigContentHash | None = None
     deltas: tuple[ParameterValueDelta, ...] = ()
     problems: tuple[Problem, ...] = ()
+
+
+class SampleSummary(_ViewModel):
+    """One sample's active revision and bounded run-history aggregates."""
+
+    record: SampleRecord
+    revision: SampleRevision
+    run_count: int = Field(default=0, ge=0)
+    last_run_at: datetime | None = None
+
+
+class SamplePage(_ViewModel):
+    """Newest-first bounded sample registry page."""
+
+    items: tuple[SampleSummary, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
+class SampleRevisionPage(_ViewModel):
+    """Newest-first page of immutable revisions for one sample."""
+
+    sample_id: SampleId
+    items: tuple[SampleRevision, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
+class SampleView(SampleSummary):
+    """Sample detail for the active immutable revision."""
 
 
 class VirtualInstrumentConnectionSummary(_ViewModel):
@@ -391,6 +420,40 @@ class ProjectAnalysisPage(_ViewModel):
     """Newest-first keyset page of project analysis summaries."""
 
     items: tuple[ProjectAnalysisSummary, ...] = ()
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
+class SampleAnalysisView(_ViewModel):
+    """One longitudinal analysis record scoped to a stable sample."""
+
+    sample_id: SampleId
+    entry: ContentEntry
+    analysis: AnalysisRecord
+    published_at: datetime
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> SampleAnalysisView:
+        if (
+            self.entry.role != "record"
+            or self.entry.kind != "analysis"
+            or self.analysis.subject.kind != "sample"
+            or self.analysis.subject.sample_id != self.sample_id
+        ):
+            raise ValueError("sample analysis view identity is inconsistent")
+        return self
+
+
+class SampleAnalysisSummary(ProjectAnalysisSummary):
+    """Bounded list projection for one sample analysis publication."""
+
+    sample_id: SampleId
+
+
+class SampleAnalysisPage(_ViewModel):
+    """Newest-first keyset page for one sample's analyses."""
+
+    sample_id: SampleId
+    items: tuple[SampleAnalysisSummary, ...] = ()
     next_cursor: int | None = Field(default=None, ge=1)
 
 
@@ -765,6 +828,13 @@ __all__ = [
     "RunResourceView",
     "RunSummary",
     "RunSummaryPage",
+    "SampleAnalysisPage",
+    "SampleAnalysisSummary",
+    "SampleAnalysisView",
+    "SamplePage",
+    "SampleRevisionPage",
+    "SampleSummary",
+    "SampleView",
     "SerialInstrumentConnectionSummary",
     "TcpipSocketInstrumentConnectionSummary",
     "VirtualInstrumentConnectionSummary",
