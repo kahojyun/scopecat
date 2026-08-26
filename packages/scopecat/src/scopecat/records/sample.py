@@ -54,7 +54,7 @@ class SampleRelation(_SampleModel):
 class SampleArtifactRef(_SampleModel):
     """External design, image, report, or data reference associated with a sample."""
 
-    id: SampleId
+    id: _NonEmptyText
     title: _NonEmptyText
     uri: _NonEmptyText
     media_type: _NonEmptyText | None = None
@@ -159,7 +159,7 @@ class SampleRevisionDraft(_SampleModel):
 class SampleRecord(_SampleModel):
     """Stable identity and current immutable revision of one physical sample."""
 
-    id: _NonEmptyText
+    id: SampleId
     kind: _NonEmptyText
     created_at: datetime = Field(default_factory=utc_now)
     active_revision: int = Field(ge=1)

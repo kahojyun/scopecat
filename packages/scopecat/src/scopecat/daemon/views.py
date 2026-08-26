@@ -57,7 +57,7 @@ from scopecat.records.parameter_change import (
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.records.run_request import RunRequest
-from scopecat.records.sample import SampleRecord, SampleRevision
+from scopecat.records.sample import SampleId, SampleRecord, SampleRevision
 from scopecat.sdk.instruments.contracts import InstrumentDescription
 
 
@@ -130,7 +130,7 @@ class SamplePage(_ViewModel):
 class SampleRevisionPage(_ViewModel):
     """Newest-first page of immutable revisions for one sample."""
 
-    sample_id: str
+    sample_id: SampleId
     items: tuple[SampleRevision, ...] = ()
     next_cursor: int | None = Field(default=None, ge=1)
 
@@ -426,7 +426,7 @@ class ProjectAnalysisPage(_ViewModel):
 class SampleAnalysisView(_ViewModel):
     """One longitudinal analysis record scoped to a stable sample."""
 
-    sample_id: str
+    sample_id: SampleId
     entry: ContentEntry
     analysis: AnalysisRecord
     published_at: datetime
@@ -446,13 +446,13 @@ class SampleAnalysisView(_ViewModel):
 class SampleAnalysisSummary(ProjectAnalysisSummary):
     """Bounded list projection for one sample analysis publication."""
 
-    sample_id: str
+    sample_id: SampleId
 
 
 class SampleAnalysisPage(_ViewModel):
     """Newest-first keyset page for one sample's analyses."""
 
-    sample_id: str
+    sample_id: SampleId
     items: tuple[SampleAnalysisSummary, ...] = ()
     next_cursor: int | None = Field(default=None, ge=1)
 

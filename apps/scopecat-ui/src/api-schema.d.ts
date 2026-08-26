@@ -5373,8 +5373,7 @@ export interface components {
             items: components["schemas"]["SampleAnalysisSummary"][];
             /** Next Cursor */
             next_cursor?: number | null;
-            /** Sample Id */
-            sample_id: string;
+            sample_id: components["schemas"]["SampleId"];
         };
         /**
          * SampleAnalysisSubject
@@ -5409,8 +5408,7 @@ export interface components {
             published_at: string;
             /** Revision */
             revision: number;
-            /** Sample Id */
-            sample_id: string;
+            sample_id: components["schemas"]["SampleId"];
             /** Step Id */
             step_id?: string | null;
             /** Title */
@@ -5428,15 +5426,14 @@ export interface components {
              * Format: date-time
              */
             published_at: string;
-            /** Sample Id */
-            sample_id: string;
+            sample_id: components["schemas"]["SampleId"];
         };
         /**
          * SampleArtifactRef
          * @description External design, image, report, or data reference associated with a sample.
          */
         SampleArtifactRef: {
-            id: components["schemas"]["SampleId"];
+            id: components["schemas"]["_NonEmptyText"];
             media_type?: components["schemas"]["_NonEmptyText"] | null;
             title: components["schemas"]["_NonEmptyText"];
             uri: components["schemas"]["_NonEmptyText"];
@@ -5516,7 +5513,7 @@ export interface components {
              * Format: date-time
              */
             created_at?: string;
-            id: components["schemas"]["_NonEmptyText"];
+            id: components["schemas"]["SampleId"];
             kind: components["schemas"]["_NonEmptyText"];
         };
         /**
@@ -5597,8 +5594,7 @@ export interface components {
             items: components["schemas"]["SampleRevision"][];
             /** Next Cursor */
             next_cursor?: number | null;
-            /** Sample Id */
-            sample_id: string;
+            sample_id: components["schemas"]["SampleId"];
         };
         /**
          * SampleSummary
