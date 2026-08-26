@@ -18,6 +18,28 @@ the public objects at their owning modules while examples continue to use
       show_root_full_path: false
       show_signature_annotations: true
 
+## Physical samples
+
+::: scopecat.api.samples.LabSampleOperations
+    options:
+      show_bases: false
+      show_root_full_path: false
+      show_signature_annotations: true
+
+::: scopecat.api.samples.SampleHandle
+    options:
+      show_bases: false
+      show_root_full_path: false
+      show_signature_annotations: true
+
+::: scopecat.records.sample
+    options:
+      filters:
+        - "!^_"
+      show_bases: false
+      show_root_full_path: false
+      show_signature_annotations: true
+
 ## Experiment authoring
 
 ::: scopecat.authoring

@@ -25,12 +25,24 @@ used instead of silently inheriting a newer description.
 | Entity | Names one part of a sample topology, such as `q0`, `sensor-a`, or `site-3`. Interpret that identity within the containing sample; the same entity ID on another sample is a different physical subject. |
 | Run | Binds zero or more samples in named roles, such as `subject`, `reference`, or `control`. Admission resolves selectors and freezes exact sample revision hashes in run provenance. |
 | Measurement | Remains owned by a run. It acquires sample provenance through the run's immutable bindings instead of duplicating mutable sample metadata into every record. |
-| Analysis | Can belong to one run, the project, or one stable sample. A sample analysis may combine completed runs only when every input run is bound to that sample. |
-| Calibration | Can qualify a target by `sample_id` and optional `context_id`, so state for two physical chips or two operating contexts cannot collide. |
+| Analysis | Can belong to one run, the project, or one stable sample. A sample analysis may combine completed runs only when every input run binds that sample in the `subject` role. Reference and control bindings remain context, not scientific ownership. |
+| Calibration | Can qualify a target by `sample_id` and optional `context_id`, so state for two physical chips or two operating contexts cannot collide. That scope is inherited by procedure child runs. |
 | Procedure | May select samples for its experiment runs and consume sample-scoped published analysis explicitly. |
 
 The registry is therefore a provenance and longitudinal-analysis boundary, not
 an inventory-management system and not a second configuration system.
+
+Sample IDs are URL-safe stable keys: 1–128 ASCII letters, digits, `.`, `_`, `:`,
+or `-`, beginning with a letter or digit. Put hierarchical or vendor-facing
+labels that contain spaces or slashes in aliases, tags, `design_ref`, or
+properties instead of the identity. One run role may select one sample, and the
+same sample cannot fill several roles in one run; use relations or explicit
+context metadata when one physical object has several descriptive meanings.
+
+The word “sample” in a measurement dimension means a sampling point or record
+axis, not a `SampleRecord`. Likewise, configuration entities are logical
+addresses. A physical sample is established only by the registry identity and
+its exact run binding.
 
 ## What belongs on a sample revision
 
@@ -128,6 +140,15 @@ The resulting `run.samples` contains exact `sample_id`, revision, content hash,
 kind, display name, role, and context. Changing the active sample revision later
 does not change that binding.
 
+Browse history independently from the active detail so long-lived samples are
+never silently truncated:
+
+```python
+page = chip.revisions(limit=100)
+registered = chip.revision(1)
+bound_runs = lab.runs(sample=chip)
+```
+
 ## Publish longitudinal sample analysis
 
 Use a sample owner when a conclusion describes the physical sample across
@@ -140,7 +161,7 @@ latest = lab.published_analysis("drift-summary", sample=chip)
 ```
 
 The publication still carries explicit immutable run inputs. Scopecat rejects
-an input run that is not bound to the selected sample, preventing a
+an input run that does not bind the selected sample as its `subject`, preventing a
 project-level cohort from being mislabeled as a sample conclusion.
 
 ## Project-console experience
