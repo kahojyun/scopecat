@@ -203,10 +203,13 @@ def _seed_project(
         connection.executemany(
             """
             INSERT INTO analysis_publications(
-                subject_kind, run_id, record_id, record_entry_json, analysis_key,
-                revision, publication_hash, published_at, title, step_id,
-                input_count, output_count
-            ) VALUES ('project', NULL, ?, ?, ?, 1, ?, ?, ?, NULL, 2, 1)
+                subject_kind, run_id, subject_json, record_id, record_entry_json,
+                analysis_key, revision, publication_hash, published_at, title,
+                step_id, input_count, output_count
+            ) VALUES (
+                'project', NULL, '{"kind":"project"}', ?, ?, ?, 1, ?, ?, ?,
+                NULL, 2, 1
+            )
             """,
             (_analysis_seed(ordinal) for ordinal in range(1, analysis_count + 1)),
         )
