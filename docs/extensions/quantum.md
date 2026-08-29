@@ -19,6 +19,31 @@ candidate, because core may later split it around host-state changes. Repeated
 device-effective programs may share one scheduled representation; exact target
 entry ids and result mappings remain request-local.
 
+## Keep continuous intent and sampled realization separate
+
+The canonical pulse scheduler retains requested boundaries as exact `Decimal`
+seconds. A sampled-output target should project those events through one
+`SampleGrid` instead of independently rounding durations or starts. Use
+`realize_event_timings(...)` when the target keeps a device-specific waveform
+renderer, or `plan_sampled_waveforms(...)` when it can use the portable analytic
+envelope planner. Both expose `RealizedEventTiming` with requested and realized
+start, duration, sample counts, and signed timing errors.
+
+Choose the timing policy deliberately. `strict` rejects a boundary the selected
+clock cannot express. `nearest` retains the quantization error and is suitable
+only when that approximation is part of the reviewed target contract. Device
+trigger ticks, transfer blocks, waveform padding, and channel packing remain a
+later target-specific layer; they must not be presented as the scientific time
+coordinate itself.
+
+When different logical points produce identical final device codes and timing,
+a target may retain a device-effective fingerprint that excludes point ordinals
+and result mappings. Derive it from the target's final quantized representation,
+not from authored quantities or program ids. This remains device-specific rather
+than a portable waveform API. It makes physically indistinguishable scan points
+inspectable without changing their logical identities or silently deduplicating
+requested measurements.
+
 ## Cache opaque target setup by content
 
 A target that uploads reusable device content may declare connection-owned

@@ -6,9 +6,8 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from scopecat.kernel.units import (
     compatible_units,
-    from_base_value,
+    convert_linear_value,
     is_supported_unit,
-    to_base_value,
 )
 
 
@@ -68,8 +67,7 @@ class Quantity(BaseModel):
         if not compatible_units(self.unit, unit):
             msg = f"cannot convert {self.unit!r} to {unit!r}"
             raise ValueError(msg)
-        base_value = to_base_value(self.value, self.unit)
-        converted = None if base_value is None else from_base_value(base_value, unit)
+        converted = convert_linear_value(self.value, self.unit, unit)
         if converted is None:
             msg = f"unit conversion is not linear: {self.unit!r} to {unit!r}"
             raise ValueError(msg)

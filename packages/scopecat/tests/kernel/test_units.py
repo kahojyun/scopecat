@@ -34,6 +34,12 @@ def test_linear_conversion_preserves_full_float_precision() -> None:
     assert Quantity(180.0, "deg").to("rad") == Quantity(math.pi, "rad")
 
 
+def test_linear_conversion_preserves_exact_decimal_grid_values() -> None:
+    assert Quantity(1.0, "us").to("ns") == Quantity(1000.0, "ns")
+    assert Quantity(20_000.0, "ns").to("us") == Quantity(20.0, "us")
+    assert Quantity(0.016, "us").to("ns") == Quantity(16.0, "ns")
+
+
 def test_quantity_arithmetic_does_not_quantize_sub_picounit_values() -> None:
     tiny = Quantity(4e-13, "ns")
 
