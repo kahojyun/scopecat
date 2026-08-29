@@ -218,10 +218,15 @@ projected = result.project(
         "temperature_mk": result.output.temperature,
         "s21": result.output.trace.s_parameter,
     },
-    units={"bias_v": "V", "temperature_mk": "mK"},
+    units={"bias_v": "V", "temperature_mk": "mK", "s21": "ratio"},
     diagnostics="reason",
 )
 
+assert projected.units == {
+    "bias_v": "V",
+    "temperature_mk": "mK",
+    "s21": "ratio",
+}
 arrow = projected.to_arrow()
 pandas_frame = projected.to_pandas()
 polars_frame = projected.to_polars()
@@ -244,8 +249,22 @@ The conversion rules are fixed:
 | `complex128` | `{real, imag}` struct | native complex scalar or array | native complex array |
 | unavailable | null plus optional diagnostics | missing value plus optional diagnostics | fill value plus diagnostics |
 
-`to_pandas()` defaults to familiar NumPy/native values. Use
-`dtype_backend="pyarrow"` when pandas should retain Arrow extension dtypes.
+`to_pandas()` defaults to familiar NumPy/native magnitudes. Pandas does not
+give those values a reliable unit dtype, so choose the output unit of every
+unit-bearing field explicitly at the projection boundary. Selecting the same
+unit as the source is meaningful: it records that the magnitude unit was an
+intentional public analysis choice. If a unit is inherited instead,
+`to_pandas()` warns and lists the affected columns with their actual units.
+`projected.implicit_units` exposes the same check without materializing a
+frame. Use `dtype_backend="pyarrow"` when pandas should retain Arrow extension
+dtypes.
+
+The declared coordinate unit is the experiment-facing scientific unit, not a
+hardware transport preference. For example, a T1 axis may remain in `us` while
+a target converts each value to integer `ns` samples during binding. Do not
+normalize an authored axis to a backend unit merely to simplify lowering;
+doing so also changes the default measurement and projection unit.
+
 `diagnostics="reason"` emits a stable `<name>__unavailable_reason` column for
 every selected field; `"full"` also emits JSON metadata. Identity columns are
 included by default and may be omitted with `identity=False`.
@@ -260,7 +279,7 @@ observations = result.project(
         "frequency": result.output.trace.frequency,
         "s21": result.output.trace.s_parameter,
     },
-    units={"bias": "V", "frequency": "Hz"},
+    units={"bias": "V", "frequency": "Hz", "s21": "ratio"},
     diagnostics="reason",
     identity=True,
     layout="observations",

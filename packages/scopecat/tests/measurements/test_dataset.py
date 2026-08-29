@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import math
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -22,6 +23,7 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.measurements.datasets import select_measurement_schema
 from scopecat.measurements.results import (
     Dataset,
+    ImplicitPandasUnitWarning,
     LabeledMeasurementArray,
     PointMask,
     ProjectionSchema,
@@ -988,7 +990,7 @@ def test_measurement_projection_controls_names_units_and_native_adapters() -> No
     pd = pytest.importorskip("pandas")
     projection = _dataset().project(
         {"voltage": "bias", "temp": "temperature", "response": "signal"},
-        units={"voltage": "mV", "temp": "mK"},
+        units={"voltage": "mV", "temp": "mK", "response": "ratio"},
         diagnostics="full",
     )
 
@@ -1001,6 +1003,11 @@ def test_measurement_projection_controls_names_units_and_native_adapters() -> No
     assert projection.schema.fields[0].unit == "mV"
     assert projection.schema.fields[0].role == "coordinate"
     assert projection.schema.fields[2].dims == ("point", "sample")
+    assert projection.units == {
+        "voltage": "mV",
+        "temp": "mK",
+        "response": "ratio",
+    }
 
     table = projection.to_arrow()
     assert table.column_names == [
@@ -1069,6 +1076,53 @@ def test_measurement_projection_controls_names_units_and_native_adapters() -> No
     batches = list(projection.to_record_batch_reader(batch_size=2))
     assert [batch.num_rows for batch in batches] == [2, 1]
     assert all(batch.schema == table.schema for batch in batches)
+
+
+def test_pandas_projection_reports_units_inherited_as_plain_magnitudes() -> None:
+    pytest.importorskip("pandas")
+    projection = _dataset().project(
+        {"delay": "bias", "response": "signal"},
+        identity=False,
+    )
+
+    with pytest.warns(
+        ImplicitPandasUnitWarning,
+        match=(
+            r"plain magnitudes.*delay \[V\], response \[ratio\].*"
+            r"project\(\.\.\., units=\{\.\.\.\}\)"
+        ),
+    ):
+        frame = projection.to_pandas()
+
+    assert list(frame["delay"]) == [0.0, 1.0, 2.0]
+
+
+def test_explicit_same_units_silence_pandas_magnitude_warning() -> None:
+    pytest.importorskip("pandas")
+    projection = _dataset().project(
+        {"delay": "bias", "response": "signal"},
+        units={"delay": "V", "response": "ratio"},
+        identity=False,
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ImplicitPandasUnitWarning)
+        frame = projection.to_pandas()
+
+    assert list(frame["delay"]) == [0.0, 1.0, 2.0]
+    assert projection.implicit_units == {}
+
+
+def test_projection_exposes_final_units_without_materializing_an_adapter() -> None:
+    projection = _dataset().project(
+        {"delay": "bias", "response": "signal"},
+        units={"delay": "mV"},
+        identity=False,
+    )
+
+    assert projection.units == {"delay": "mV", "response": "ratio"}
+    assert projection.schema.units == projection.units
+    assert projection.implicit_units == {"response": "ratio"}
 
 
 def test_projection_diagnostics_have_one_schema_across_availability_slices() -> None:
@@ -1157,7 +1211,11 @@ def test_observations_projection_aligns_ragged_arrays_and_broadcasts_scalars() -
         None,
     ]
 
-    frame = projection.to_pandas()
+    frame = projection.with_units(
+        voltage="V",
+        frequency="Hz",
+        response="ratio",
+    ).to_pandas()
     assert isinstance(frame, pd.DataFrame)
     assert frame.loc[2, "response"] is None
     assert frame.loc[4, "response"] == complex(2.0, 1.0)

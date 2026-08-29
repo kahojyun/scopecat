@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         Variable,
     )
     from scopecat.measurements.interop import (
+        ImplicitPandasUnitWarning,
         MeasurementDataProjection,
         PandasDTypeBackend,
         ProjectionDiagnostics,
@@ -87,6 +88,7 @@ _DATASET_EXPORTS = (
     "Variable",
 )
 _INTEROP_EXPORTS = (
+    "ImplicitPandasUnitWarning",
     "MeasurementDataProjection",
     "PandasDTypeBackend",
     "ProjectionDiagnostics",
@@ -167,6 +169,7 @@ __all__ = [
     "EntityAcquisitionEvidence",
     "ExperimentResultPoint",
     "ExperimentResultView",
+    "ImplicitPandasUnitWarning",
     "InstrumentAcquisitionEvidence",
     "LabeledMeasurementArray",
     "MeasurementAcquisitionEvidenceCatalog",
