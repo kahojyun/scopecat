@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 UNIT_KINDS: dict[str, str] = {
     "s": "time",
     "ms": "time",
@@ -101,3 +103,24 @@ def from_base_value(value: float, unit: str) -> float | None:
     if scale is None:
         return None
     return value / scale
+
+
+def convert_linear_value(
+    value: float,
+    source_unit: str,
+    target_unit: str,
+) -> float | None:
+    """Convert directly between linear units without an intermediate float.
+
+    Registry scales are authored as decimal factors.  Evaluating the ratio in
+    decimal arithmetic keeps exact grid values such as 1 us = 1000 ns from
+    acquiring binary floating-point residue before timing compilation.
+    """
+
+    source_scale = UNIT_SCALE_TO_BASE.get(source_unit)
+    target_scale = UNIT_SCALE_TO_BASE.get(target_unit)
+    if source_scale is None or target_scale is None:
+        return None
+    return float(
+        Decimal(str(value)) * Decimal(str(source_scale)) / Decimal(str(target_scale))
+    )
