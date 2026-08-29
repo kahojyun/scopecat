@@ -28,6 +28,7 @@ from scopecat_quantum.pulses import (
     Play,
     PlaySignal,
     ReadoutSignal,
+    ScheduledPulseEvent,
     ScheduledPulseProgram,
     ShiftPhase,
 )
@@ -242,6 +243,41 @@ class WaveformPlanningError(ValueError):
         super().__init__("; ".join(issue.message for issue in self.issues))
 
 
+def realize_event_timings(
+    events: tuple[ScheduledPulseEvent, ...],
+    *,
+    grid: SampleGrid,
+) -> tuple[RealizedEventTiming, ...]:
+    """Project exact event boundaries onto one sampled-output clock.
+
+    This timing-only entry point lets device targets reuse the same continuous
+    schedule semantics even when their waveform encoding or renderer remains
+    device-specific.  Every shared boundary is quantized once.
+    """
+
+    boundaries = {
+        boundary
+        for event in events
+        for boundary in (
+            event.start_seconds,
+            event.start_seconds + event.duration_seconds,
+        )
+    }
+    boundary_samples = {
+        boundary: _quantize_boundary(boundary, grid) for boundary in boundaries
+    }
+    issues: list[WaveformPlanningIssue] = []
+    timings = _realize_event_timings(
+        events,
+        grid=grid,
+        boundary_samples=boundary_samples,
+        issues=issues,
+    )
+    if issues:
+        raise WaveformPlanningError(tuple(issues))
+    return timings
+
+
 def plan_sampled_waveforms(
     program: ScheduledPulseProgram,
     *,
@@ -296,53 +332,17 @@ def plan_sampled_waveforms(
             )
         )
 
-    timings: list[RealizedEventTiming] = []
+    timings = _realize_event_timings(
+        program.events,
+        grid=grid,
+        boundary_samples=boundary_samples,
+        issues=issues,
+    )
+    timings_by_id = {timing.event_id: timing for timing in timings}
     render_events: list[SampledRenderEvent] = []
     frame_phases: dict[FrameSignal, float] = {}
     for event in program.events:
-        requested_end = event.start_seconds + event.duration_seconds
-        start_sample = boundary_samples[event.start_seconds]
-        end_sample = boundary_samples[requested_end]
-        if start_sample is None:
-            issues.append(
-                WaveformPlanningIssue(
-                    code="sampled_event_start_off_grid",
-                    message=(
-                        f"event {event.id.value!r} start is not on the strict "
-                        "sample grid"
-                    ),
-                    event_id=event.id,
-                )
-            )
-        if end_sample is None:
-            issues.append(
-                WaveformPlanningIssue(
-                    code="sampled_event_end_off_grid",
-                    message=(
-                        f"event {event.id.value!r} end is not on the strict sample grid"
-                    ),
-                    event_id=event.id,
-                )
-            )
-        timing: RealizedEventTiming | None = None
-        if start_sample is not None and end_sample is not None:
-            timing = RealizedEventTiming(
-                event_id=event.id,
-                requested_start_seconds=event.start_seconds,
-                requested_duration_seconds=event.duration_seconds,
-                sample_rate_hz=grid.sample_rate_hz,
-                start_sample=start_sample,
-                sample_count=end_sample - start_sample,
-            )
-            timings.append(timing)
-            if event.duration_seconds > 0 and timing.sample_count <= 0:
-                issues.append(
-                    WaveformPlanningIssue(
-                        code="sampled_event_collapsed",
-                        message=(f"event {event.id.value!r} collapses to zero samples"),
-                        event_id=event.id,
-                    )
-                )
+        timing = timings_by_id.get(event.id)
 
         instruction = event.instruction
         if isinstance(instruction, ShiftPhase):
@@ -404,9 +404,64 @@ def plan_sampled_waveforms(
         grid=grid,
         sample_count=program_end_sample,
         lane_count=lane_count,
-        event_timings=tuple(timings),
+        event_timings=timings,
         render_events=tuple(render_events),
     )
+
+
+def _realize_event_timings(
+    events: tuple[ScheduledPulseEvent, ...],
+    *,
+    grid: SampleGrid,
+    boundary_samples: dict[Decimal, int | None],
+    issues: list[WaveformPlanningIssue],
+) -> tuple[RealizedEventTiming, ...]:
+    timings: list[RealizedEventTiming] = []
+    for event in events:
+        requested_end = event.start_seconds + event.duration_seconds
+        start_sample = boundary_samples[event.start_seconds]
+        end_sample = boundary_samples[requested_end]
+        if start_sample is None:
+            issues.append(
+                WaveformPlanningIssue(
+                    code="sampled_event_start_off_grid",
+                    message=(
+                        f"event {event.id.value!r} start is not on the strict "
+                        "sample grid"
+                    ),
+                    event_id=event.id,
+                )
+            )
+        if end_sample is None:
+            issues.append(
+                WaveformPlanningIssue(
+                    code="sampled_event_end_off_grid",
+                    message=(
+                        f"event {event.id.value!r} end is not on the strict sample grid"
+                    ),
+                    event_id=event.id,
+                )
+            )
+        if start_sample is None or end_sample is None:
+            continue
+        timing = RealizedEventTiming(
+            event_id=event.id,
+            requested_start_seconds=event.start_seconds,
+            requested_duration_seconds=event.duration_seconds,
+            sample_rate_hz=grid.sample_rate_hz,
+            start_sample=start_sample,
+            sample_count=end_sample - start_sample,
+        )
+        timings.append(timing)
+        if event.duration_seconds > 0 and timing.sample_count <= 0:
+            issues.append(
+                WaveformPlanningIssue(
+                    code="sampled_event_collapsed",
+                    message=(f"event {event.id.value!r} collapses to zero samples"),
+                    event_id=event.id,
+                )
+            )
+    return tuple(timings)
 
 
 @dataclass(frozen=True, slots=True)
@@ -529,4 +584,5 @@ __all__ = [
     "WaveformPlanningIssue",
     "factor_phase_parameterized_waveforms",
     "plan_sampled_waveforms",
+    "realize_event_timings",
 ]

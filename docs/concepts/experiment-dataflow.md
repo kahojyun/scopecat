@@ -241,7 +241,9 @@ power = experiment.scan(
 Independent axes form a Cartesian product. Generated axes include both
 endpoints. They may instead use `center` and `span`, where `span` is the full
 coordinate width. Coordinate values remain in their declared unit, including
-logarithmic units such as dBm.
+logarithmic units such as dBm. Treat that declaration as the public scientific
+unit of the axis. A physical target may convert it to samples, ticks, or another
+transport unit during binding without changing the recorded coordinate unit.
 
 Use separate `coordinate`, `axis`, and `grid` objects when an invocation must
 edit the plan or axes are shared externally:

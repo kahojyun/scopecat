@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from decimal import Decimal
 
 import numpy as np
 import pytest
@@ -29,6 +30,7 @@ from scopecat_quantum.waveforms import (
     WaveformPlanningError,
     factor_phase_parameterized_waveforms,
     plan_sampled_waveforms,
+    realize_event_timings,
 )
 
 Q0 = QubitId("q0")
@@ -113,6 +115,132 @@ def test_nearest_quantizes_shared_absolute_boundaries_once() -> None:
     assert tuple(timing.start_sample for timing in plan.event_timings) == (0, 2, 5, 7)
     assert tuple(timing.sample_count for timing in plan.event_timings) == (2, 3, 2, 3)
     assert tuple(timing.end_sample for timing in plan.event_timings) == (2, 5, 7, 10)
+
+
+def test_timing_only_planner_preserves_requested_and_realized_boundaries() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("timing-only"),
+            Sequence(
+                (
+                    Play(
+                        PulseEventId("first"),
+                        DRIVE_Q0,
+                        Constant(Quantity(0.5, "ns"), Quantity(1, "arb")),
+                    ),
+                    Play(
+                        PulseEventId("second"),
+                        DRIVE_Q0,
+                        Constant(Quantity(1.5, "ns"), Quantity(1, "arb")),
+                    ),
+                )
+            ),
+        )
+    )
+
+    timings = realize_event_timings(
+        program.events,
+        grid=SampleGrid(
+            2_000_000_000,
+            TimingQuantizationPolicy(mode="strict"),
+        ),
+    )
+
+    assert tuple(timing.start_sample for timing in timings) == (0, 1)
+    assert tuple(timing.sample_count for timing in timings) == (1, 3)
+    assert all(timing.start_error_seconds == 0 for timing in timings)
+    assert all(timing.duration_error_seconds == 0 for timing in timings)
+
+
+def test_timing_only_planner_retains_nearest_grid_error() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("timing-nearest"),
+            Play(
+                PulseEventId("play"),
+                DRIVE_Q0,
+                Constant(Quantity(2.4, "ns"), Quantity(1, "arb")),
+            ),
+        )
+    )
+
+    [timing] = realize_event_timings(
+        program.events,
+        grid=SampleGrid(1_000_000_000),
+    )
+
+    assert timing.sample_count == 2
+    assert timing.requested_duration_seconds == Decimal("2.4e-9")
+    assert timing.duration_error_seconds == Decimal("-4e-10")
+
+
+def test_timing_only_planner_preserves_structured_strict_grid_errors() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("timing-strict"),
+            Play(
+                PulseEventId("play"),
+                DRIVE_Q0,
+                Constant(Quantity(2.4, "ns"), Quantity(1, "arb")),
+            ),
+        )
+    )
+
+    with pytest.raises(WaveformPlanningError) as caught:
+        realize_event_timings(
+            program.events,
+            grid=SampleGrid(
+                1_000_000_000,
+                TimingQuantizationPolicy(mode="strict"),
+            ),
+        )
+
+    assert {issue.code for issue in caught.value.issues} == {
+        "sampled_event_end_off_grid"
+    }
+    assert caught.value.issues[0].event_id == PulseEventId("play")
+
+
+def test_timing_only_planner_rejects_nearest_grid_collapse() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("timing-collapsed"),
+            Play(
+                PulseEventId("play"),
+                DRIVE_Q0,
+                Constant(Quantity(0.4, "ns"), Quantity(1, "arb")),
+            ),
+        )
+    )
+
+    with pytest.raises(WaveformPlanningError) as caught:
+        realize_event_timings(
+            program.events,
+            grid=SampleGrid(1_000_000_000),
+        )
+
+    assert {issue.code for issue in caught.value.issues} == {"sampled_event_collapsed"}
+
+
+def test_timing_only_planner_accepts_empty_and_zero_duration_events() -> None:
+    grid = SampleGrid(1_000_000_000)
+    assert realize_event_timings((), grid=grid) == ()
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("timing-zero-duration"),
+            ShiftPhase(
+                PulseEventId("shift"),
+                DRIVE_Q0,
+                Quantity(0.25, "rad"),
+            ),
+        )
+    )
+
+    [timing] = realize_event_timings(program.events, grid=grid)
+
+    assert timing.start_sample == 0
+    assert timing.sample_count == 0
+    assert timing.duration_error_seconds == 0
 
 
 def test_strict_rejects_off_grid_boundaries() -> None:
