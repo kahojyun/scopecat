@@ -7,8 +7,11 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
+from dataclasses import field as dataclass_field
 from importlib import import_module
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, Protocol, Self, cast
+from warnings import warn
 
 import numpy as np
 import pyarrow as pa
@@ -36,6 +39,10 @@ if TYPE_CHECKING:
 type ProjectionDiagnostics = Literal["none", "reason", "full"]
 type ProjectionLayout = Literal["points", "observations"]
 type PandasDTypeBackend = Literal["numpy", "pyarrow"]
+
+
+class ImplicitPandasUnitWarning(UserWarning):
+    """Pandas magnitudes inherited units not selected at projection time."""
 
 
 class _PolarsModule(Protocol):
@@ -156,6 +163,12 @@ class ProjectionSchema:
     layout: ProjectionLayout = "points"
     schema_id: str = "scopecat.measurement-data-projection.v2"
 
+    @property
+    def units(self) -> Mapping[str, str | None]:
+        """Return external field names mapped to their projected units."""
+
+        return MappingProxyType({field.name: field.unit for field in self.fields})
+
 
 @dataclass(frozen=True, slots=True)
 class MeasurementDataProjection:
@@ -163,6 +176,29 @@ class MeasurementDataProjection:
 
     dataset: _ProjectionDataset
     schema: ProjectionSchema
+    _explicit_unit_fields: frozenset[str] = dataclass_field(
+        default_factory=frozenset,
+        repr=False,
+    )
+
+    @property
+    def units(self) -> Mapping[str, str | None]:
+        """Return the final unit contract used by every ecosystem adapter."""
+
+        return self.schema.units
+
+    @property
+    def implicit_units(self) -> Mapping[str, str]:
+        """Return unit-bearing fields not explicitly selected by the caller."""
+
+        return MappingProxyType(
+            {
+                field.name: field.unit
+                for field in self.schema.fields
+                if field.unit is not None
+                and field.name not in self._explicit_unit_fields
+            }
+        )
 
     def with_units(self, **units: str) -> Self:
         """Return a projection with explicit output units for named fields."""
@@ -183,7 +219,11 @@ class MeasurementDataProjection:
                 "float64" if field.dtype == "int64" else field.dtype
             )
             selected.append(replace(field, dtype=dtype, unit=target))
-        return replace(self, schema=replace(self.schema, fields=tuple(selected)))
+        return replace(
+            self,
+            schema=replace(self.schema, fields=tuple(selected)),
+            _explicit_unit_fields=(self._explicit_unit_fields | frozenset(units)),
+        )
 
     def with_diagnostics(self, diagnostics: ProjectionDiagnostics) -> Self:
         """Choose a stable unavailable-value representation for every field."""
@@ -542,10 +582,22 @@ class MeasurementDataProjection:
         *,
         dtype_backend: PandasDTypeBackend = "numpy",
     ) -> pd.DataFrame:
-        """Convert through Arrow, optionally retaining Arrow extension dtypes."""
+        """Convert through Arrow, warning when magnitude units remain implicit."""
 
         if dtype_backend not in {"numpy", "pyarrow"}:
             raise ValueError("pandas dtype_backend must be numpy or pyarrow")
+        if self.implicit_units:
+            rendered = ", ".join(
+                f"{name} [{unit}]" for name, unit in self.implicit_units.items()
+            )
+            warn(
+                "to_pandas() is returning plain magnitudes for fields whose units "
+                "were inherited rather than explicitly selected at the projection "
+                f"boundary: {rendered}. Select units with project(..., units={{...}}) "
+                "or with_units(...).",
+                ImplicitPandasUnitWarning,
+                stacklevel=2,
+            )
         module = cast("_PandasModule", _optional_module("pandas", extra="pandas"))
         table = self.to_arrow()
         frame = cast(
@@ -959,6 +1011,7 @@ def _optional_module(name: str, *, extra: str) -> object:
 
 
 __all__ = [
+    "ImplicitPandasUnitWarning",
     "MeasurementDataProjection",
     "PandasDTypeBackend",
     "ProjectionDiagnostics",
