@@ -273,6 +273,7 @@ class RunEffectInterpreter:
         cancellation_requested: Callable[[], bool] = _never_cancel,
         domain_job_transitions: RunDomainJobTransitionWriter | None = None,
         completed_point_count: int = 0,
+        completed_point_indices: Sequence[int] = (),
     ) -> None:
         self.run_id = run_id
         self.coordinate_ids = frozenset(coordinate_ids)
@@ -294,6 +295,7 @@ class RunEffectInterpreter:
         self._active_point_indices: set[int] = set()
         self._terminal_point_indices: set[int] = set()
         self._initial_completed_point_count = completed_point_count
+        self._initial_completed_point_indices = tuple(completed_point_indices)
 
         self._boundary = EffectBoundary(run_id=run_id)
         self._compute = ComputeEffectExecutor(
@@ -337,8 +339,18 @@ class RunEffectInterpreter:
                     raise ValueError(
                         "completed coverage exceeds the interpreter point domain"
                     )
+                if any(
+                    point_index < 0 or point_index >= len(self.run_points)
+                    for point_index in self._initial_completed_point_indices
+                ):
+                    raise ValueError(
+                        "completed recovery group exceeds the interpreter point domain"
+                    )
                 self._terminal_point_indices.update(
                     range(self._initial_completed_point_count)
+                )
+                self._terminal_point_indices.update(
+                    self._initial_completed_point_indices
                 )
                 self._execute_coverage_operations(coverage)
             if (
@@ -478,11 +490,16 @@ class RunEffectInterpreter:
     ) -> None:
         if any(not self._known_point(index) for index in checkpoint.point_indices):
             raise AssertionError("coverage checkpoint references an unknown point")
-        self._commit_coverage(checkpoint.point_indices)
+        self._commit_coverage(
+            checkpoint.point_indices,
+            group_id=checkpoint.group_id,
+        )
 
     def _commit_coverage(
         self,
         point_indices: tuple[int, ...],
+        *,
+        group_id: str | None = None,
     ) -> None:
         value_candidates = tuple(
             ValueRecordCandidate(
@@ -505,7 +522,12 @@ class RunEffectInterpreter:
                     for candidate in self._hardware.values
                     if candidate.logical_point_id.logical_ordinal in selected
                 )
-                self._coverage_observer(points, candidates, value_candidates)
+                self._coverage_observer(
+                    group_id,
+                    points,
+                    candidates,
+                    value_candidates,
+                )
                 self._hardware.values[:] = (
                     candidate
                     for candidate in self._hardware.values

@@ -66,6 +66,7 @@ from scopecat.records.content import ContentEntry, Sha256ContentHash
 from scopecat.records.execution import (
     DomainJobInvocationTransition,
     DomainJobTransitionRecord,
+    RecoveryGroupCompletion,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement_recording import (
@@ -820,6 +821,50 @@ class RunCoverageAdvanceCommand(_FencedCommand):
     point_count: int = Field(gt=0)
 
 
+class RunRecoveryGroupCommitCommand(_FencedCommand):
+    """Atomically publish bounded recovery-group completion proofs."""
+
+    groups: tuple[RecoveryGroupCompletion, ...] = Field(
+        min_length=1,
+        max_length=256,
+    )
+
+    @field_validator("groups")
+    @classmethod
+    def validate_groups(
+        cls,
+        value: tuple[RecoveryGroupCompletion, ...],
+    ) -> tuple[RecoveryGroupCompletion, ...]:
+        group_ids = tuple(group.group_id for group in value)
+        if len(group_ids) != len(set(group_ids)):
+            raise ValueError("recovery group commit ids must be unique")
+        return value
+
+
+class RunRecoveryGroupView(_WireModel):
+    """One accepted recovery-group proof in durable commit order."""
+
+    sequence: int = Field(ge=1)
+    run_id: NonEmptyText
+    segment_id: NonEmptyText
+    completion: RecoveryGroupCompletion
+
+
+class RunRecoveryGroupPage(_WireModel):
+    """One bounded page of durable recovery-group proofs."""
+
+    run_id: NonEmptyText
+    items: tuple[RunRecoveryGroupView, ...]
+    next_cursor: int | None = Field(default=None, ge=1)
+
+
+class RunRecoveryGroupCommitReceipt(_WireModel):
+    """Recovery groups accepted by one idempotent fenced commit."""
+
+    run_id: NonEmptyText
+    items: tuple[RunRecoveryGroupView, ...] = Field(min_length=1)
+
+
 class RunDomainJobTransitionItem(_WireModel):
     """One correlated target-job transition inside a durable append batch."""
 
@@ -1322,6 +1367,10 @@ __all__ = [
     "RunDomainJobTransitionView",
     "RunInstrumentProvisionCommand",
     "RunInstrumentProvisionReceipt",
+    "RunRecoveryGroupCommitCommand",
+    "RunRecoveryGroupCommitReceipt",
+    "RunRecoveryGroupPage",
+    "RunRecoveryGroupView",
     "RunSubmission",
     "SampleCreateCommand",
     "SampleMutationReceipt",

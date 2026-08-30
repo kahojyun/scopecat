@@ -31,12 +31,15 @@ from scopecat.daemon.wire import (
     RunDomainJobTransitionItem,
     RunDomainJobTransitionPage,
     RunDomainJobTransitionView,
+    RunRecoveryGroupPage,
+    RunRecoveryGroupView,
 )
 from scopecat.records.execution import (
     DomainJobCheckpointTransition,
     DomainJobInvocationTransition,
     DomainJobTerminalTransition,
     DomainJobTransitionRecord,
+    RecoveryGroupCompletion,
 )
 from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementRecord
 from scopecat.records.measurement_recording import (
@@ -128,9 +131,268 @@ class SQLiteRunCoverage:
         return end_index, True
 
 
+class SQLiteRecoveryGroups:
+    """Persist exact recovery groups only after their outputs are publishable."""
+
+    def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
+        self._runs = runs
+        self._run_id = run_id
+
+    def read(
+        self,
+        *,
+        limit: int,
+        before: int | None = None,
+    ) -> RunRecoveryGroupPage:
+        with self._runs.sqlite.read_transaction() as connection:
+            rows = _all(
+                connection.execute(
+                    """
+                    SELECT sequence, run_id, segment_id, operation_id,
+                           schedule_fingerprint, group_id,
+                           completion_fingerprint, output_kind
+                    FROM execution_recovery_groups
+                    WHERE run_id = ? AND (? IS NULL OR sequence < ?)
+                    ORDER BY sequence DESC
+                    LIMIT ?
+                    """,
+                    (self._run_id, before, before, limit + 1),
+                )
+            )
+            selected = rows[:limit]
+            items = tuple(
+                self._view_in_transaction(connection, row) for row in reversed(selected)
+            )
+        return RunRecoveryGroupPage(
+            run_id=self._run_id,
+            items=items,
+            next_cursor=(
+                _integer(selected[-1], "sequence") if len(rows) > limit else None
+            ),
+        )
+
+    def append_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        groups: Sequence[RecoveryGroupCompletion],
+        *,
+        segment_id: str,
+    ) -> tuple[RunRecoveryGroupView, ...]:
+        """Commit one bounded idempotent batch under an existing lease fence."""
+
+        if not groups:
+            raise ExecutionStateConflict("recovery group batch must be non-empty")
+        fingerprints = {group.schedule_fingerprint for group in groups}
+        if len(fingerprints) != 1:
+            raise ExecutionStateConflict(
+                "recovery group batch references different schedules"
+            )
+        existing_schedule = _one(
+            connection.execute(
+                """
+                SELECT schedule_fingerprint
+                FROM execution_recovery_groups
+                WHERE run_id = ?
+                LIMIT 1
+                """,
+                (self._run_id,),
+            )
+        )
+        schedule_fingerprint = next(iter(fingerprints))
+        if (
+            existing_schedule is not None
+            and _text(existing_schedule, "schedule_fingerprint") != schedule_fingerprint
+        ):
+            raise ExecutionStateConflict(
+                "recovery groups disagree with the run's durable schedule"
+            )
+
+        accepted: list[RunRecoveryGroupView] = []
+        for group in groups:
+            existing = _one(
+                connection.execute(
+                    """
+                    SELECT sequence, run_id, segment_id, operation_id,
+                           schedule_fingerprint, group_id,
+                           completion_fingerprint, output_kind
+                    FROM execution_recovery_groups
+                    WHERE run_id = ? AND group_id = ?
+                    """,
+                    (self._run_id, group.group_id),
+                )
+            )
+            if existing is not None:
+                view = self._view_in_transaction(connection, existing)
+                if view.completion != group:
+                    raise ExecutionStateConflict(
+                        "recovery group already has different completion evidence"
+                    )
+                accepted.append(view)
+                continue
+
+            self._validate_output_in_transaction(connection, group)
+            try:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO execution_recovery_groups(
+                        run_id, segment_id, operation_id,
+                        schedule_fingerprint, group_id,
+                        completion_fingerprint, output_kind
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        self._run_id,
+                        segment_id,
+                        group.operation_id,
+                        group.schedule_fingerprint,
+                        group.group_id,
+                        group.completion_fingerprint,
+                        group.output_kind,
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO execution_recovery_group_points(
+                        run_id, group_id, member_index,
+                        point_index, record_content_hash
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    tuple(
+                        (
+                            self._run_id,
+                            group.group_id,
+                            member_index,
+                            point_index,
+                            (
+                                None
+                                if group.output_kind == "unrecorded"
+                                else group.record_content_hashes[member_index]
+                            ),
+                        )
+                        for member_index, point_index in enumerate(group.point_indices)
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise ExecutionStateConflict(
+                    "recovery group conflicts with durable group identity or points"
+                ) from error
+            row = _one(
+                connection.execute(
+                    """
+                    SELECT sequence, run_id, segment_id, operation_id,
+                           schedule_fingerprint, group_id,
+                           completion_fingerprint, output_kind
+                    FROM execution_recovery_groups
+                    WHERE sequence = ?
+                    """,
+                    (cursor.lastrowid,),
+                )
+            )
+            assert row is not None
+            accepted.append(self._view_in_transaction(connection, row))
+        return tuple(accepted)
+
+    def _validate_output_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        group: RecoveryGroupCompletion,
+    ) -> None:
+        header = _measurement_header_row(connection, self._run_id)
+        if group.output_kind == "unrecorded":
+            if header is not None:
+                raise ExecutionStateConflict(
+                    "unrecorded recovery group belongs to a measurement run"
+                )
+            return
+        if header is None:
+            raise ExecutionStateConflict(
+                "measurement recovery group requires a dataset header"
+            )
+        record_hashes: dict[int, str] = {}
+        rows = _all(
+            connection.execute(
+                """
+                SELECT start_index, record_count, record_content_hashes_json
+                FROM execution_measurement_appends
+                WHERE run_id = ?
+                ORDER BY start_index
+                """,
+                (self._run_id,),
+            )
+        )
+        for row in rows:
+            start_index = _integer(row, "start_index")
+            hashes = _string_tuple(row, "record_content_hashes_json")
+            if len(hashes) != _integer(row, "record_count"):
+                raise ExecutionStateError(
+                    "measurement append record hashes are inconsistent"
+                )
+            record_hashes.update(
+                (start_index + offset, content_hash)
+                for offset, content_hash in enumerate(hashes)
+            )
+        try:
+            durable_hashes = tuple(
+                record_hashes[point_index] for point_index in group.point_indices
+            )
+        except KeyError as error:
+            raise ExecutionStateConflict(
+                "recovery group measurements are not durably published"
+            ) from error
+        if durable_hashes != group.record_content_hashes:
+            raise ExecutionStateConflict(
+                "recovery group measurement hashes disagree with durable records"
+            )
+
+    def _view_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+    ) -> RunRecoveryGroupView:
+        point_rows = _all(
+            connection.execute(
+                """
+                SELECT point_index, record_content_hash
+                FROM execution_recovery_group_points
+                WHERE run_id = ? AND group_id = ?
+                ORDER BY member_index
+                """,
+                (self._run_id, _text(row, "group_id")),
+            )
+        )
+        output_kind = cast(
+            "Literal['unrecorded', 'canonical_measurement']",
+            _text(row, "output_kind"),
+        )
+        completion = RecoveryGroupCompletion(
+            schedule_fingerprint=_text(row, "schedule_fingerprint"),
+            group_id=_text(row, "group_id"),
+            point_indices=tuple(_integer(item, "point_index") for item in point_rows),
+            output_kind=output_kind,
+            record_content_hashes=(
+                ()
+                if output_kind == "unrecorded"
+                else tuple(_text(item, "record_content_hash") for item in point_rows)
+            ),
+        )
+        if completion.operation_id != _text(
+            row, "operation_id"
+        ) or completion.completion_fingerprint != _text(row, "completion_fingerprint"):
+            raise ExecutionStateError("recovery group completion identity is corrupt")
+        return RunRecoveryGroupView(
+            sequence=_integer(row, "sequence"),
+            run_id=_text(row, "run_id"),
+            segment_id=_text(row, "segment_id"),
+            completion=completion,
+        )
+
+
 _DOMAIN_JOB_TRANSITION: TypeAdapter[DomainJobTransitionRecord] = TypeAdapter(
     DomainJobTransitionRecord
 )
+_STRING_LIST = TypeAdapter(list[str])
 
 
 class SQLiteDomainJobTransitions:
@@ -1921,6 +2183,14 @@ def _text(row: sqlite3.Row, column: str) -> str:
 
 def _integer(row: sqlite3.Row, column: str) -> int:
     return cast("int", row[column])
+
+
+def _string_tuple(row: sqlite3.Row, column: str) -> tuple[str, ...]:
+    try:
+        value = _STRING_LIST.validate_json(_text(row, column))
+    except ValueError as error:
+        raise ExecutionStateError(f"invalid string tuple in {column}") from error
+    return tuple(value)
 
 
 def _domain_job_transition_view(row: sqlite3.Row) -> RunDomainJobTransitionView:

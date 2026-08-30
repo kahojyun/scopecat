@@ -107,16 +107,18 @@ def test_coverage_iterator_is_consumed_after_each_checkpoint() -> None:
     )
 
     def operations():
-        yield RunCoverageCheckpoint((0,))
+        yield RunCoverageCheckpoint("point:0", (0,))
         assert delivered == [(0,)]
-        yield RunCoverageCheckpoint((1,))
+        yield RunCoverageCheckpoint("point:1", (1,))
 
     result = RunEffectInterpreter(
         run_id="incremental-source-run",
         coordinate_ids=(),
         instruments=TestRunInstrumentHost(),
-        coverage_observer=lambda selected, _candidates, _values: delivered.append(
-            tuple(point.ordinal for point in selected)
+        coverage_observer=(
+            lambda _group, selected, _candidates, _values: delivered.append(
+                tuple(point.ordinal for point in selected)
+            )
         ),
     ).run(operations(), points=points)
 
@@ -310,7 +312,9 @@ def test_recorded_compute_output_is_exported_before_point_state_is_closed() -> N
         coordinate_ids=(),
         instruments=TestRunInstrumentHost(),
         recorded_value_ids=(result_id,),
-        coverage_observer=lambda _points, _products, values: observed.extend(values),
+        coverage_observer=(
+            lambda _group, _points, _products, values: observed.extend(values)
+        ),
     ).run(complete_coverage_operations(program), points=program.points)
 
     assert not result.problems
@@ -582,7 +586,9 @@ def test_one_provider_readback_fans_out_to_every_logical_product_use() -> None:
         coordinate_ids=tuple(point.coordinates),
         instruments=TestRunInstrumentHost((driver,)),
         coverage_observer=(
-            lambda _block, candidates, _values: observed_candidates.append(candidates)
+            lambda _group, _block, candidates, _values: observed_candidates.append(
+                candidates
+            )
         ),
     ).run(complete_coverage_operations(program), points=program.points)
 

@@ -67,6 +67,9 @@ from scopecat.daemon.wire import (
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
+    RunRecoveryGroupCommitCommand,
+    RunRecoveryGroupCommitReceipt,
+    RunRecoveryGroupView,
     RunSubmission,
 )
 from scopecat.kernel.content_identity import sha256_content_hash
@@ -93,6 +96,7 @@ from scopecat.records.execution import (
     DomainJobCheckpointTransition,
     DomainJobInvocationTransition,
     DomainJobTerminalTransition,
+    RecoveryGroupCompletion,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot, state_member_target
 from scopecat.records.run import ConfigRegistryRunConfigSource
@@ -770,6 +774,48 @@ def test_run_coverage_wire_models_require_a_nonempty_prefix() -> None:
             lease_id="lease-1",
             start_index=0,
             point_count=0,
+        )
+
+
+def test_recovery_group_wire_models_preserve_output_proof() -> None:
+    completion = RecoveryGroupCompletion(
+        schedule_fingerprint="schedule-v1",
+        group_id="comparison:0",
+        point_indices=(2, 0),
+        output_kind="canonical_measurement",
+        record_content_hashes=("record-2", "record-0"),
+    )
+    command = RunRecoveryGroupCommitCommand(
+        lease_id="lease-1",
+        groups=(completion,),
+    )
+    receipt = RunRecoveryGroupCommitReceipt(
+        run_id="run-1",
+        items=(
+            RunRecoveryGroupView(
+                sequence=1,
+                run_id="run-1",
+                segment_id="segment-1",
+                completion=completion,
+            ),
+        ),
+    )
+
+    assert (
+        RunRecoveryGroupCommitCommand.model_validate_json(command.model_dump_json())
+        == command
+    )
+    assert (
+        RunRecoveryGroupCommitReceipt.model_validate_json(receipt.model_dump_json())
+        == receipt
+    )
+    with pytest.raises(ValidationError, match="record hashes"):
+        RecoveryGroupCompletion(
+            schedule_fingerprint="schedule-v1",
+            group_id="comparison:0",
+            point_indices=(2, 0),
+            output_kind="canonical_measurement",
+            record_content_hashes=("record-2",),
         )
 
 

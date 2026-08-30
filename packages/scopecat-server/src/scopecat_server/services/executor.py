@@ -40,6 +40,9 @@ from scopecat.daemon.wire import (
     RunDomainJobTransitionBatchCommand,
     RunDomainJobTransitionBatchReceipt,
     RunDomainJobTransitionPage,
+    RunRecoveryGroupCommitCommand,
+    RunRecoveryGroupCommitReceipt,
+    RunRecoveryGroupPage,
     TerminalRunCommitCommand,
 )
 from scopecat.kernel.errors import NotFound
@@ -63,6 +66,7 @@ from scopecat_server.storage.sqlite.execution import (
     ExecutionStateConflict,
     SQLiteDomainJobTransitions,
     SQLiteMeasurementDatasetRepository,
+    SQLiteRecoveryGroups,
     SQLiteRunCoverage,
 )
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
@@ -186,6 +190,50 @@ class ExecutorService:
             run_id=run_id,
             completed_point_count=completed,
         )
+
+    def recovery_groups(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunRecoveryGroupPage:
+        self._control_run(run_id)
+        return SQLiteRecoveryGroups(self._runs, run_id=run_id).read(
+            limit=limit,
+            before=before,
+        )
+
+    def commit_recovery_groups(
+        self,
+        run_id: str,
+        command: RunRecoveryGroupCommitCommand,
+    ) -> RunRecoveryGroupCommitReceipt:
+        groups = SQLiteRecoveryGroups(self._runs, run_id=run_id)
+        with self.fenced_write(run_id, token=command.lease_id) as connection:
+            run = self._control.get_run_in_transaction(connection, run_id)
+            if any(
+                point_index >= run.admission.plan.point_limit
+                for group in command.groups
+                for point_index in group.point_indices
+            ):
+                raise ExecutionStateConflict(
+                    "recovery group references a point outside the admitted run"
+                )
+            lease = self._control.executor_lease_for_run_in_transaction(
+                connection,
+                run_id,
+            )
+            if lease is None:
+                raise ExecutionStateConflict(
+                    "recovery group commit requires an executor lease"
+                )
+            committed = groups.append_in_transaction(
+                connection,
+                command.groups,
+                segment_id=lease.segment_id,
+            )
+        return RunRecoveryGroupCommitReceipt(run_id=run_id, items=committed)
 
     def domain_job_transitions(
         self,

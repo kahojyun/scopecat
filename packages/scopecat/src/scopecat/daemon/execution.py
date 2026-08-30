@@ -33,6 +33,7 @@ from scopecat.daemon.wire import (
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
+    RunRecoveryGroupCommitCommand,
     RunSubmission,
     TerminalModelWrite,
     TerminalRunCommitCommand,
@@ -51,6 +52,7 @@ from scopecat.records.execution import (
     DomainJobInvocationTransition,
     DomainJobTerminalTransition,
     DomainJobTransitionRecord,
+    RecoveryGroupCompletion,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.records.measurement import (
@@ -82,6 +84,7 @@ _MEASUREMENT_TRANSPORT_LATENCY_SECONDS = 0.1
 _COVERAGE_TRANSPORT_POINT_LIMIT = 256
 _COVERAGE_TRANSPORT_LATENCY_SECONDS = 0.1
 _DOMAIN_TRANSITION_TRANSPORT_ITEM_LIMIT = 64
+_RECOVERY_GROUP_TRANSPORT_ITEM_LIMIT = 256
 
 
 class ExecutorLeaseLostError(RuntimeError):
@@ -168,6 +171,7 @@ def _daemon_execution_session(
     )
     instruments = _DaemonRunInstrumentHost(authority)
     coverage = _DaemonRunCoverage(authority)
+    recovery_groups = _DaemonRunRecoveryGroups(authority)
     domain_job_transitions = _DaemonRunDomainJobTransitions(authority)
     domain_proposals = _DaemonRunDomainProposals(authority)
 
@@ -184,14 +188,39 @@ def _daemon_execution_session(
         instruments=instruments,
         domain_job_transitions=domain_job_transitions,
         coverage=coverage,
+        recovery_groups=recovery_groups,
         domain_proposals=domain_proposals,
         cancellation_requested=authority.cancellation_requested,
         effects_ready=lambda: instruments.provisioned,
         durable_completed_point_count=lambda: (
             client.get_run_coverage(authority.run_id).completed_point_count
         ),
+        durable_recovery_groups=lambda: _read_recovery_groups(
+            client,
+            authority.run_id,
+        ),
         has_prior_execution_segment=has_prior_execution_segment,
     )
+
+
+def _read_recovery_groups(
+    client: DaemonClient,
+    run_id: str,
+) -> tuple[RecoveryGroupCompletion, ...]:
+    completed: list[RecoveryGroupCompletion] = []
+    before: int | None = None
+    while True:
+        page = client.get_run_recovery_groups(
+            run_id,
+            limit=100,
+            before=before,
+        )
+        if page.run_id != run_id:
+            raise ValueError("recovery group page does not match its request")
+        completed[0:0] = [item.completion for item in page.items]
+        if page.next_cursor is None:
+            return tuple(completed)
+        before = page.next_cursor
 
 
 class LeaseSupervisor(Protocol):
@@ -337,6 +366,29 @@ class _DaemonRunCoverage:
         self._pending_start = None
         self._pending_count = 0
         self._last_send_at = monotonic() if now is None else now
+
+
+class _DaemonRunRecoveryGroups:
+    """Commit output-backed recovery proofs through the active lease fence."""
+
+    def __init__(self, authority: _LeaseAuthority) -> None:
+        self._authority = authority
+
+    def commit(self, groups: tuple[RecoveryGroupCompletion, ...]) -> None:
+        for start in range(0, len(groups), _RECOVERY_GROUP_TRANSPORT_ITEM_LIMIT):
+            selected = groups[start : start + _RECOVERY_GROUP_TRANSPORT_ITEM_LIMIT]
+            receipt = self._authority.client.commit_run_recovery_groups(
+                self._authority.run_id,
+                RunRecoveryGroupCommitCommand(
+                    lease_id=self._authority.fence(),
+                    groups=selected,
+                ),
+            )
+            if (
+                receipt.run_id != self._authority.run_id
+                or tuple(item.completion for item in receipt.items) != selected
+            ):
+                raise ValueError("recovery group receipt does not match its request")
 
 
 class _DaemonRunDomainJobTransitions:

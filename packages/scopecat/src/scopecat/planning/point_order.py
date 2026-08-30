@@ -14,6 +14,7 @@ from scopecat.program.scans import (
     PointTraversal,
     RepeatMode,
 )
+from scopecat.records.execution import recovery_schedule_fingerprint
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +60,9 @@ class PointExecutionPlan:
             range(self.point_count)
         ):
             raise ValueError("point execution groups must partition every point once")
+        group_ids = tuple(group.id for group in self.groups)
+        if len(group_ids) != len(set(group_ids)):
+            raise ValueError("point execution group ids must be unique")
         cuts = {0: 0}
         completed = 0
         maximum = -1
@@ -80,6 +84,12 @@ class PointExecutionPlan:
     @property
     def group_count(self) -> int:
         return len(self.groups)
+
+    @property
+    def recovery_fingerprint(self) -> str:
+        """Identify exact recovery groups independently of physical batching."""
+
+        return point_recovery_fingerprint(self.groups, point_count=self.point_count)
 
     def group(self, index: int) -> PointExecutionGroup:
         if not 0 <= index < self.group_count:
@@ -138,7 +148,7 @@ def resolve_point_schedule(
         return PointExecutionPlan(
             tuple(
                 PointExecutionGroup(
-                    id="point",
+                    id=f"point:{ordinal}",
                     key={},
                     ordinals=(ordinal,),
                 )
@@ -171,6 +181,19 @@ def resolve_point_schedule(
             for fingerprint, (key, selected) in grouped.items()
         ),
         point_count=len(domain.points),
+    )
+
+
+def point_recovery_fingerprint(
+    groups: Sequence[PointExecutionGroup],
+    *,
+    point_count: int,
+) -> str:
+    """Identify exact group membership and order without encoding batch layout."""
+
+    return recovery_schedule_fingerprint(
+        tuple((group.id, group.ordinals) for group in groups),
+        point_count=point_count,
     )
 
 
