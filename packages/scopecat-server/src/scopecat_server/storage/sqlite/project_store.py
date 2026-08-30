@@ -10,7 +10,9 @@ from typing import cast
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.measurement_pack import (
     MeasurementPackStore,
+    PackedMeasurementPayload,
     measurement_pack_root,
+    measurement_segment_pack_id,
 )
 from scopecat_server.storage.sqlite.object_store import ImmutableObjectStore
 from scopecat_server.storage.sqlite.schema import (
@@ -59,9 +61,12 @@ class SQLiteProjectStore:
                 else:
                     connection.executescript(PROJECT_SCHEMA_SQL)
                     self._require_current_version(connection)
+                self._trim_unindexed_measurement_pack_tails(connection)
         except SchemaVersionError:
             raise
-        except (OSError, sqlite3.Error) as error:
+        except ProjectStoreError:
+            raise
+        except (OSError, sqlite3.Error, ValueError) as error:
             raise ProjectStoreError("failed to bootstrap project store") from error
 
     def schema_version(self) -> int:
@@ -94,6 +99,64 @@ class SQLiteProjectStore:
 
     def _connect(self) -> sqlite3.Connection:
         return self.sqlite.connect()
+
+    def _trim_unindexed_measurement_pack_tails(
+        self,
+        connection: sqlite3.Connection,
+    ) -> int:
+        segments = cast(
+            "list[sqlite3.Row]",
+            connection.execute(
+                "SELECT run_id, segment_id FROM run_execution_segments"
+            ).fetchall(),
+        )
+        pack_ends = {
+            measurement_segment_pack_id(
+                run_id=cast("str", row["run_id"]),
+                segment_id=cast("str", row["segment_id"]),
+            ): 0
+            for row in segments
+        }
+        rows = cast(
+            "list[sqlite3.Row]",
+            connection.execute(
+                """
+                SELECT run_id, segment_id, pack_id,
+                       pack_offset, pack_length, payload_digest
+                FROM execution_measurement_appends
+                UNION ALL
+                SELECT run_id, segment_id, pack_id,
+                       pack_offset, pack_length, payload_digest
+                FROM execution_recovery_group_measurement_chunks
+                """
+            ).fetchall(),
+        )
+        for row in rows:
+            payload = PackedMeasurementPayload(
+                pack_id=cast("str", row["pack_id"]),
+                offset=cast("int", row["pack_offset"]),
+                length=cast("int", row["pack_length"]),
+                digest=cast("str", row["payload_digest"]),
+            )
+            expected_pack_id = measurement_segment_pack_id(
+                run_id=cast("str", row["run_id"]),
+                segment_id=cast("str", row["segment_id"]),
+            )
+            if payload.pack_id != expected_pack_id or expected_pack_id not in pack_ends:
+                raise ProjectStoreError(
+                    "measurement frame references a different execution segment pack"
+                )
+            pack_ends[expected_pack_id] = max(
+                pack_ends[expected_pack_id],
+                payload.end_offset,
+            )
+        return sum(
+            self.measurement_packs.trim_unindexed_tail(
+                pack_id,
+                indexed_end=indexed_end,
+            )
+            for pack_id, indexed_end in pack_ends.items()
+        )
 
 
 def _has_project_schema(connection: sqlite3.Connection) -> bool:

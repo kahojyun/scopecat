@@ -6,6 +6,10 @@ from pathlib import Path
 import pytest
 
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
+from scopecat_server.storage.sqlite.measurement_pack import (
+    MeasurementPackCorruptError,
+    measurement_segment_pack_id,
+)
 from scopecat_server.storage.sqlite.project_store import (
     SchemaVersionError,
     SQLiteProjectStore,
@@ -207,6 +211,113 @@ def test_bootstrap_creates_the_complete_project_store_and_is_idempotent(
     assert "calibration_cohort_members_sync_terminal_closure" in triggers
     assert "calibration_publication_sync_terminal_success" in triggers
     assert "calibration_publication_sync_terminal_failure" in triggers
+
+
+def test_bootstrap_trims_only_unindexed_measurement_pack_tails(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "control.sqlite3"
+    store = SQLiteProjectStore(SQLiteDatabase(database), tmp_path / "objects")
+    store.bootstrap()
+    run_id = "run-pack-reconcile"
+    segment_id = "segment-pack-reconcile-0"
+    empty_segment_id = "segment-pack-reconcile-1"
+    pack_id = measurement_segment_pack_id(
+        run_id=run_id,
+        segment_id=segment_id,
+    )
+    empty_pack_id = measurement_segment_pack_id(
+        run_id=run_id,
+        segment_id=empty_segment_id,
+    )
+    published = store.measurement_packs.append(pack_id, b"published")
+    unindexed = store.measurement_packs.append(pack_id, b"unindexed")
+    store.measurement_packs.append(empty_pack_id, b"orphan-only")
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(
+            """
+            INSERT INTO scheduler_runs(
+                submission_id, run_id, state, updated_at, admission_json
+            )
+            VALUES ('submission-pack-reconcile', ?, 'leased', ?, '{}')
+            """,
+            (run_id, "2026-08-31T12:00:00+00:00"),
+        )
+        connection.executemany(
+            """
+            INSERT INTO run_execution_segments(
+                segment_id, run_id, ordinal, executor_id,
+                run_contract_fingerprint, started_at, start_point_count
+            )
+            VALUES (?, ?, ?, 'executor', ?, ?, 0)
+            """,
+            (
+                (
+                    segment_id,
+                    run_id,
+                    0,
+                    "contract",
+                    "2026-08-31T12:00:00+00:00",
+                ),
+                (
+                    empty_segment_id,
+                    run_id,
+                    1,
+                    "contract",
+                    "2026-08-31T12:01:00+00:00",
+                ),
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO execution_measurement_headers(
+                run_id, operation_id, content_hash, contract_fingerprint,
+                expected_record_count, record_count_limit, ref
+            )
+            VALUES (?, 'header-operation', 'header-hash', 'contract', 1, 1, 'header')
+            """,
+            (run_id,),
+        )
+        connection.execute(
+            """
+            INSERT INTO execution_measurement_fragments(
+                segment_id, run_id, header_content_hash, start_index
+            )
+            VALUES (?, ?, 'header-hash', 0)
+            """,
+            (segment_id, run_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO execution_measurement_appends(
+                run_id, segment_id, start_index, operation_id,
+                content_hash, header_content_hash,
+                record_content_hashes_json, record_count, ref,
+                pack_id, pack_offset, pack_length, payload_digest
+            )
+            VALUES (?, ?, 0, 'append-operation', 'append-hash', 'header-hash',
+                    '["record-hash"]', 1, 'chunk-0', ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                segment_id,
+                published.pack_id,
+                published.offset,
+                published.length,
+                published.digest,
+            ),
+        )
+
+    store.bootstrap()
+
+    assert store.measurement_packs.read(published) == b"published"
+    with pytest.raises(MeasurementPackCorruptError):
+        store.measurement_packs.read(unindexed)
+    assert store.measurement_packs.path_for(pack_id).stat().st_size == (
+        published.end_offset
+    )
+    assert not store.measurement_packs.path_for(empty_pack_id).exists()
 
 
 @pytest.mark.parametrize("version", (0, 99))

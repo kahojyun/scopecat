@@ -21,7 +21,10 @@ addressed by SQLite offset, length, and digest only after the pack is fsynced.
 Clients open none of these stores directly. Sparse recovery measurements use
 the same physical frames and pack: a client may upload several bounded frames
 for one logical group, but only the separate final group proof makes the
-verified frame set visible to resume.
+verified frame set visible to resume. On daemon startup, each known segment pack
+is truncated to the end of its last SQLite-indexed frame. This reclaims a crash
+or failed transaction's invisible tail while treating a file shorter than its
+published boundary as corruption rather than guessing at recovery.
 
 Sample creation and revision activation append `sample_created` and
 `sample_revision_activated` events in the same SQLite transaction as the

@@ -45,6 +45,12 @@ class PackedMeasurementPayload:
         if self.offset < 0 or self.length < 1:
             raise ValueError("measurement pack coordinates must be non-negative")
 
+    @property
+    def end_offset(self) -> int:
+        """Return the first byte after this framed payload."""
+
+        return self.offset + _FRAME_HEADER.size + self.length
+
 
 class MeasurementPackStore:
     """Append frames to one physical file per execution segment.
@@ -117,6 +123,39 @@ class MeasurementPackStore:
         ):
             raise MeasurementPackCorruptError(path)
         return content
+
+    def trim_unindexed_tail(self, pack_id: str, *, indexed_end: int) -> int:
+        """Discard bytes after the last SQLite-published frame boundary."""
+
+        if indexed_end < 0:
+            raise ValueError("indexed measurement pack end cannot be negative")
+        path = self.path_for(pack_id)
+        try:
+            with self._append_lock:
+                try:
+                    size = path.stat().st_size
+                except FileNotFoundError:
+                    if indexed_end:
+                        raise MeasurementPackNotFoundError(path) from None
+                    return 0
+                if size < indexed_end:
+                    raise MeasurementPackCorruptError(path)
+                reclaimed = size - indexed_end
+                if not reclaimed:
+                    return 0
+                if indexed_end == 0:
+                    path.unlink()
+                    _fsync_directory(path.parent)
+                    return reclaimed
+                with path.open("r+b") as output:
+                    output.truncate(indexed_end)
+                    output.flush()
+                    os.fsync(output.fileno())
+                return reclaimed
+        except MeasurementPackError:
+            raise
+        except OSError as error:
+            raise MeasurementPackError(path) from error
 
     def path_for(self, pack_id: str) -> Path:
         match = _DIGEST.fullmatch(pack_id)

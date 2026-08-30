@@ -48,6 +48,45 @@ def test_measurement_pack_ignores_unindexed_tail_before_later_frame(
     assert store.read(later) == b"later"
 
 
+def test_measurement_pack_trims_only_the_unindexed_tail(tmp_path: Path) -> None:
+    store = MeasurementPackStore(tmp_path / "packs")
+    store.bootstrap()
+    pack_id = measurement_segment_pack_id(run_id="run-1", segment_id="segment-1")
+    published = store.append(pack_id, b"published")
+    unindexed = store.append(pack_id, b"unindexed")
+    original_size = store.path_for(pack_id).stat().st_size
+
+    reclaimed = store.trim_unindexed_tail(
+        pack_id,
+        indexed_end=published.end_offset,
+    )
+
+    assert reclaimed == original_size - published.end_offset
+    assert store.path_for(pack_id).stat().st_size == published.end_offset
+    assert store.read(published) == b"published"
+    with pytest.raises(MeasurementPackCorruptError):
+        store.read(unindexed)
+
+
+def test_measurement_pack_refuses_to_trim_below_an_indexed_end(
+    tmp_path: Path,
+) -> None:
+    store = MeasurementPackStore(tmp_path / "packs")
+    store.bootstrap()
+    pack_id = measurement_segment_pack_id(run_id="run-1", segment_id="segment-1")
+    published = store.append(pack_id, b"published")
+    original_size = store.path_for(pack_id).stat().st_size
+
+    with pytest.raises(MeasurementPackCorruptError):
+        store.trim_unindexed_tail(
+            pack_id,
+            indexed_end=published.end_offset + 1,
+        )
+
+    assert store.path_for(pack_id).stat().st_size == original_size
+    assert store.read(published) == b"published"
+
+
 def test_measurement_pack_rejects_missing_and_mismatched_frames(
     tmp_path: Path,
 ) -> None:

@@ -730,7 +730,9 @@ The present architecture provides a direct end-to-end baseline:
   object store, while bounded Arrow frames for one execution segment share an
   append-only measurement pack. Frame bytes are fsynced before SQLite publishes
   their offset, length, and payload digest; a crash between those steps can only
-  leave an invisible tail. Idempotent retries reuse the indexed frame. The
+  leave an invisible tail. Startup truncates known segment packs to their last
+  indexed frame boundary and refuses a pack shorter than that boundary.
+  Idempotent retries reuse the indexed frame. The
   executor-to-daemon ingest path, durable frames, and live GUI latest-point path
   all use the same schema-driven Arrow IPC columns, so numeric arrays never
   expand into JSON lists. Measurement chunks remain
@@ -756,7 +758,8 @@ The present architecture provides a direct end-to-end baseline:
   gap-free frame set against the group proof and publishes the group. Interrupted
   partial uploads do not count as completion; a later execution segment can
   stage the full group again, and successful publication discards obsolete
-  locator rows while harmless orphaned pack tails remain invisible. Resume
+  locator rows. Their now-unindexed trailing bytes are reclaimed on startup.
+  Resume
   verifies the published hashes, ignores staged rows already below the canonical
   watermark, and hydrates the remaining sparse rows into the ordering buffer.
   Logical recovery groups do not become one-file or one-hardware-batch
