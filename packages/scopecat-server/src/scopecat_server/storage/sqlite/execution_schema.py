@@ -6,6 +6,38 @@ CREATE TABLE IF NOT EXISTS execution_coverage (
     completed_point_count INTEGER NOT NULL CHECK (completed_point_count >= 0)
 );
 
+CREATE TABLE IF NOT EXISTS execution_recovery_groups (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
+    segment_id TEXT NOT NULL
+        REFERENCES run_execution_segments(segment_id) ON DELETE CASCADE,
+    operation_id TEXT NOT NULL,
+    schedule_fingerprint TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    completion_fingerprint TEXT NOT NULL,
+    output_kind TEXT NOT NULL CHECK (
+        output_kind IN ('unrecorded', 'canonical_measurement')
+    ),
+    UNIQUE (run_id, group_id),
+    UNIQUE (run_id, operation_id)
+);
+
+CREATE INDEX IF NOT EXISTS execution_recovery_groups_run_sequence
+ON execution_recovery_groups(run_id, sequence);
+
+CREATE TABLE IF NOT EXISTS execution_recovery_group_points (
+    run_id TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    member_index INTEGER NOT NULL CHECK (member_index >= 0),
+    point_index INTEGER NOT NULL CHECK (point_index >= 0),
+    record_content_hash TEXT,
+    PRIMARY KEY (run_id, point_index),
+    UNIQUE (run_id, group_id, member_index),
+    FOREIGN KEY (run_id, group_id)
+        REFERENCES execution_recovery_groups(run_id, group_id)
+        ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS execution_domain_job_transitions (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,

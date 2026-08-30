@@ -196,6 +196,9 @@ from scopecat.daemon.wire import (
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
+    RunRecoveryGroupCommitCommand,
+    RunRecoveryGroupCommitReceipt,
+    RunRecoveryGroupPage,
     RunSubmission,
     SampleCreateCommand,
     SampleMutationReceipt,
@@ -1424,6 +1427,25 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         command: RunCoverageAdvanceCommand,
     ) -> RunCoverageState:
         return application.executor.advance_run_coverage(run_id, command)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/recovery-groups")
+    def get_run_recovery_groups(
+        run_id: str,
+        limit: Annotated[int, Query(ge=1, le=100)] = 64,
+        before: Annotated[int | None, Query(ge=1)] = None,
+    ) -> RunRecoveryGroupPage:
+        return application.executor.recovery_groups(
+            run_id,
+            limit=limit,
+            before=before,
+        )
+
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/recovery-groups")
+    def commit_run_recovery_groups(
+        run_id: str,
+        command: RunRecoveryGroupCommitCommand,
+    ) -> RunRecoveryGroupCommitReceipt:
+        return application.executor.commit_recovery_groups(run_id, command)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/domain-jobs/transitions")
     def get_run_domain_job_transitions(

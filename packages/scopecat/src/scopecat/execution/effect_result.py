@@ -19,6 +19,7 @@ from scopecat.sdk.domain.evidence import DomainExecutionEvidence
 
 type CoverageMeasurementObserver = Callable[
     [
+        str | None,
         tuple[AcceptedRunPoint, ...],
         tuple[MeasurementValueCandidate, ...],
         tuple[ValueRecordCandidate, ...],

@@ -285,6 +285,17 @@ host-side state change may split a group, but its measurements become durable
 only after the complete group succeeds. Truly indivisible real-time sequences
 belong inside one point as target-owned shots, rounds, or feedback instead.
 
+Every resolved recovery group has a unique stable id. The complete ordered
+membership has a separate schedule fingerprint, so resumption rejects a group
+ledger produced by a differently compiled point plan. Durable group completion
+and the canonical dataset prefix are separate facts. A run without a dataset
+may therefore resume around an independently completed noncanonical group. For
+a measurement run, a completion proof is accepted only after every correlated
+record hash is already present in the canonical dataset. Sparse measurement
+recovery remains conservative until a durable out-of-order staging layer can
+hydrate those records after restart; a group marker alone never permits its
+measurements to be skipped.
+
 Use explicit rows when coordinates are correlated, sparse, duplicated, or do
 not form a rectangular product:
 

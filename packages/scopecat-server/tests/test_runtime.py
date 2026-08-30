@@ -96,6 +96,7 @@ from scopecat.daemon.wire import (
     RunCoverageAdvanceCommand,
     RunDomainJobTransitionBatchCommand,
     RunDomainJobTransitionItem,
+    RunRecoveryGroupCommitCommand,
     RunSubmission,
     TerminalRunCommitCommand,
 )
@@ -129,6 +130,7 @@ from scopecat.records.execution import (
     DomainJobCheckpointTransition,
     DomainJobInvocationTransition,
     DomainJobTerminalTransition,
+    RecoveryGroupCompletion,
 )
 from scopecat.records.measurement import (
     MeasurementArray,
@@ -150,6 +152,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
     measurement_fragment_content_hash,
+    measurement_record_content_hash,
 )
 from scopecat.records.parameter import ScalarParameterValue
 from scopecat.records.parameter_change import (
@@ -2732,6 +2735,231 @@ def test_run_coverage_is_contiguous_durable_and_retryable(tmp_path: Path) -> Non
         assert retry == first
         assert completed.completed_point_count == 3
         assert historical_retry == completed
+
+
+def test_recovery_groups_are_sparse_idempotent_and_survive_restart(
+    tmp_path: Path,
+) -> None:
+    run_id: str
+    schedule_fingerprint = "schedule-v1"
+    first = RecoveryGroupCompletion(
+        schedule_fingerprint=schedule_fingerprint,
+        group_id="comparison:delay-0",
+        point_indices=(0, 2),
+        output_kind="unrecorded",
+    )
+    second = RecoveryGroupCompletion(
+        schedule_fingerprint=schedule_fingerprint,
+        group_id="comparison:delay-1",
+        point_indices=(1, 3),
+        output_kind="unrecorded",
+    )
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(
+            _submission("sparse-recovery-groups", point_count=4)
+        )
+        run_id = admission.run_id
+        lease = runtime.application.executor.start_executor(
+            run_id,
+            ExecutorStartRequest(executor_id="notebook-1"),
+        )
+        command = RunRecoveryGroupCommitCommand(
+            lease_id=lease.lease_id,
+            groups=(first,),
+        )
+
+        committed = runtime.application.executor.commit_recovery_groups(
+            run_id,
+            command,
+        )
+        retry = runtime.application.executor.commit_recovery_groups(run_id, command)
+        with pytest.raises(BackendConflict, match="conflicts with durable run state"):
+            runtime.application.executor.commit_recovery_groups(
+                run_id,
+                RunRecoveryGroupCommitCommand(
+                    lease_id=lease.lease_id,
+                    groups=(
+                        RecoveryGroupCompletion(
+                            schedule_fingerprint="different-schedule",
+                            group_id="different",
+                            point_indices=(1,),
+                            output_kind="unrecorded",
+                        ),
+                    ),
+                ),
+            )
+        runtime.application.executor.commit_recovery_groups(
+            run_id,
+            RunRecoveryGroupCommitCommand(
+                lease_id=lease.lease_id,
+                groups=(second,),
+            ),
+        )
+
+        assert retry == committed
+        assert (
+            runtime.application.executor.run_coverage(run_id).completed_point_count == 0
+        )
+        latest = runtime.application.executor.recovery_groups(run_id, limit=1)
+        assert tuple(item.completion for item in latest.items) == (second,)
+        assert latest.next_cursor is not None
+        earlier = runtime.application.executor.recovery_groups(
+            run_id,
+            limit=1,
+            before=latest.next_cursor,
+        )
+        assert tuple(item.completion for item in earlier.items) == (first,)
+
+        with pytest.raises(BackendConflict, match="conflicts with durable run state"):
+            runtime.application.executor.commit_recovery_groups(
+                run_id,
+                RunRecoveryGroupCommitCommand(
+                    lease_id=lease.lease_id,
+                    groups=(
+                        RecoveryGroupCompletion(
+                            schedule_fingerprint=schedule_fingerprint,
+                            group_id="overlap",
+                            point_indices=(2,),
+                            output_kind="unrecorded",
+                        ),
+                    ),
+                ),
+            )
+
+    with LocalDaemonRuntime(tmp_path) as restarted:
+        restored = restarted.application.executor.recovery_groups(run_id)
+        assert tuple(item.completion for item in restored.items) == (first, second)
+
+
+def test_measurement_recovery_group_requires_published_matching_records(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(
+            _submission("measurement-recovery-group", point_count=2)
+        )
+        run_id = admission.run_id
+        lease = runtime.application.executor.start_executor(
+            run_id,
+            ExecutorStartRequest(executor_id="notebook-1"),
+        )
+        header = MeasurementDatasetHeader(
+            run_id=run_id,
+            recording_contract_fingerprint="test.recording.v1",
+            dataset_schema=MeasurementDatasetSchema(
+                dataset_id="raw-measurements",
+                point_domain=MeasurementProductGridPointDomain(
+                    axes=[
+                        MeasurementPointDomainAxis(
+                            id="point",
+                            size=2,
+                            source=MeasurementPointDomainValuesSource(
+                                values=[
+                                    MeasurementScalar.create(
+                                        dtype="int64",
+                                        value=point_index,
+                                    )
+                                    for point_index in range(2)
+                                ]
+                            ),
+                        )
+                    ]
+                ),
+                dimensions=[MeasurementDimension(id="point", kind="point", size=2)],
+                variables=[
+                    MeasurementVariable(
+                        id="signal",
+                        role="observable",
+                        dtype="float64",
+                        dims=["point"],
+                    )
+                ],
+            ),
+            expected_record_count=2,
+            record_count_limit=2,
+        )
+        records = tuple(
+            MeasurementRecord(
+                run_id=run_id,
+                logical_point_id=f"point-{point_index}",
+                point_index=point_index,
+                coordinates={},
+                observables={
+                    "signal": MeasurementScalar.create(
+                        dtype="float64",
+                        value=float(point_index),
+                    )
+                },
+            )
+            for point_index in range(2)
+        )
+        completion = RecoveryGroupCompletion(
+            schedule_fingerprint="schedule-v1",
+            group_id="comparison",
+            point_indices=(1, 0),
+            output_kind="canonical_measurement",
+            record_content_hashes=tuple(
+                measurement_record_content_hash(records[point_index])
+                for point_index in (1, 0)
+            ),
+        )
+        runtime.application.executor.initialize_measurements(
+            run_id,
+            MeasurementHeaderCommand(lease_id=lease.lease_id, header=header),
+        )
+        runtime.application.executor.ingest_measurements(
+            run_id,
+            lease_id=lease.lease_id,
+            content=encode_measurement_append(
+                MeasurementDatasetAppend(
+                    run_id=run_id,
+                    header_content_hash=header.content_hash,
+                    start_index=0,
+                    records=records,
+                ),
+                header.dataset_schema,
+            ),
+        )
+
+        with pytest.raises(BackendConflict, match="conflicts with durable run state"):
+            runtime.application.executor.commit_recovery_groups(
+                run_id,
+                RunRecoveryGroupCommitCommand(
+                    lease_id=lease.lease_id,
+                    groups=(completion,),
+                ),
+            )
+
+        runtime.application.executor.flush_measurements(
+            run_id,
+            MeasurementFlushCommand(lease_id=lease.lease_id),
+        )
+        with pytest.raises(BackendConflict, match="conflicts with durable run state"):
+            runtime.application.executor.commit_recovery_groups(
+                run_id,
+                RunRecoveryGroupCommitCommand(
+                    lease_id=lease.lease_id,
+                    groups=(
+                        completion.model_copy(
+                            update={
+                                "record_content_hashes": (
+                                    "wrong-record-1",
+                                    "wrong-record-0",
+                                )
+                            }
+                        ),
+                    ),
+                ),
+            )
+        committed = runtime.application.executor.commit_recovery_groups(
+            run_id,
+            RunRecoveryGroupCommitCommand(
+                lease_id=lease.lease_id,
+                groups=(completion,),
+            ),
+        )
+
+        assert tuple(item.completion for item in committed.items) == (completion,)
 
 
 def test_domain_job_transitions_are_fenced_retryable_and_survive_restart(

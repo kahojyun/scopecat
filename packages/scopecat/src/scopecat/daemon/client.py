@@ -183,6 +183,9 @@ from scopecat.daemon.wire import (
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
+    RunRecoveryGroupCommitCommand,
+    RunRecoveryGroupCommitReceipt,
+    RunRecoveryGroupPage,
     RunSubmission,
     SampleCreateCommand,
     SampleMutationReceipt,
@@ -1676,6 +1679,33 @@ class DaemonClient:
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/coverage/advance",
             command,
             RunCoverageState,
+        )
+
+    def get_run_recovery_groups(
+        self,
+        run_id: str,
+        *,
+        limit: int = 64,
+        before: int | None = None,
+    ) -> RunRecoveryGroupPage:
+        params: dict[str, str | int] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/recovery-groups",
+            RunRecoveryGroupPage,
+            params=params,
+        )
+
+    def commit_run_recovery_groups(
+        self,
+        run_id: str,
+        command: RunRecoveryGroupCommitCommand,
+    ) -> RunRecoveryGroupCommitReceipt:
+        return self._post_idempotent_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/recovery-groups",
+            command,
+            RunRecoveryGroupCommitReceipt,
         )
 
     def get_run_domain_job_transitions(

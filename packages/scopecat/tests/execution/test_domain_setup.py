@@ -1409,7 +1409,7 @@ def test_interruption_between_domain_batches_restarts_the_unpublished_group() ->
     operations = (
         RunDomainJob("group-batch-0", (0,), prepared),
         RunDomainJob("group-batch-1", (1,), prepared),
-        RunCoverageCheckpoint((0, 1)),
+        RunCoverageCheckpoint("comparison", (0, 1)),
     )
     committed: list[tuple[int, ...]] = []
 
@@ -1419,8 +1419,10 @@ def test_interruption_between_domain_batches_restarts_the_unpublished_group() ->
         instruments=TestRunInstrumentHost(),
         domain_job_transitions=TransitionWriter(),
         cancellation_requested=lambda: runtime.calls == 1,
-        coverage_observer=lambda selected, _candidates, _values: committed.append(
-            tuple(point.ordinal for point in selected)
+        coverage_observer=(
+            lambda _group, selected, _candidates, _values: committed.append(
+                tuple(point.ordinal for point in selected)
+            )
         ),
     ).run(operations, points=points)
 
@@ -1433,8 +1435,10 @@ def test_interruption_between_domain_batches_restarts_the_unpublished_group() ->
         coordinate_ids=(),
         instruments=TestRunInstrumentHost(),
         domain_job_transitions=TransitionWriter(),
-        coverage_observer=lambda selected, _candidates, _values: committed.append(
-            tuple(point.ordinal for point in selected)
+        coverage_observer=(
+            lambda _group, selected, _candidates, _values: committed.append(
+                tuple(point.ordinal for point in selected)
+            )
         ),
     ).run(operations, points=points)
 
