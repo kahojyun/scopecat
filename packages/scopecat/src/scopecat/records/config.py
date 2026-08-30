@@ -58,6 +58,10 @@ def _exclude_best_effort(value: object) -> bool:
     return value == "best_effort"
 
 
+def _default_best_effort() -> Literal["best_effort"]:
+    return "best_effort"
+
+
 class TopologyConnection(BaseModel):
     """One typed, undirected connection between two configured entities."""
 
@@ -264,8 +268,9 @@ class InstrumentSpec(BaseModel):
         exclude_if=_exclude_empty,
     )
     safe_state_requirement: InstrumentSafeStateRequirement = Field(
-        default="best_effort",
+        default_factory=_default_best_effort,
         exclude_if=_exclude_best_effort,
+        description="Defaults to best_effort when omitted.",
     )
     failure_action: InstrumentFailureAction
 

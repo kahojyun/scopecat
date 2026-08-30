@@ -160,7 +160,10 @@ function InstrumentConfigEditor({
     optionsAreValid(options, optionFields) &&
     invalidOptionFields.size === 0;
   const publishValid =
-    bindingValid && defaultsValid && (runStart === "preserve" || defaultState.length > 0);
+    bindingValid &&
+    defaultsValid &&
+    (runStart === "preserve" || defaultState.length > 0) &&
+    (successAction !== "apply_safe_state" || safeActionsConfigured(spec));
   const busy = probePending || publishPending;
 
   const chooseDriver = (nextDriverId: string) => {
@@ -382,6 +385,9 @@ function InstrumentConfigEditor({
                 >
                   <option value="release">Release in terminal state</option>
                   <option value="restore_baseline">Restore baseline</option>
+                  <option value="apply_safe_state" disabled={!safeActionsConfigured(spec)}>
+                    Apply configured safe state
+                  </option>
                 </select>
               </label>
 
@@ -795,7 +801,17 @@ function proposedSpec(
     success_action: successAction,
     failure_action: existing?.failure_action ?? "abort_and_release",
     ...(existing?.safe_state === undefined ? {} : { safe_state: existing.safe_state }),
+    ...(existing?.safe_operations === undefined
+      ? {}
+      : { safe_operations: existing.safe_operations }),
+    ...(existing?.safe_state_requirement === undefined
+      ? {}
+      : { safe_state_requirement: existing.safe_state_requirement }),
   };
+}
+
+function safeActionsConfigured(spec: InstrumentSpec): boolean {
+  return (spec.safe_state?.length ?? 0) > 0 || (spec.safe_operations?.length ?? 0) > 0;
 }
 
 function initialConnection(

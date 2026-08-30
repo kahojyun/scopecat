@@ -132,9 +132,12 @@ def test_inactive_safe_state_controls_preserve_legacy_config_wire_identity() -> 
     )
 
     wire = spec.model_dump(mode="json")
+    wire_schema = InstrumentSpec.model_json_schema(mode="serialization")
 
     assert "safe_operations" not in wire
     assert "safe_state_requirement" not in wire
+    assert "safe_state_requirement" not in wire_schema.get("required", [])
+    assert "default" not in wire_schema["properties"]["safe_state_requirement"]
 
 
 def test_catalog_resolution_validates_defaults_against_advertised_interface() -> None:
