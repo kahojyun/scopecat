@@ -39,7 +39,7 @@ def test_measurement_buffer_rejects_duplicate_or_committed_points() -> None:
         buffer.add((_record(0),))
 
 
-def test_measurement_buffer_does_not_publish_through_an_illegal_block_cut() -> None:
+def test_measurement_buffer_does_not_publish_inside_a_recovery_group() -> None:
     buffer = CanonicalMeasurementBuffer(
         next_index=2,
         is_durable_cut=lambda point_count: point_count in (2, 6),

@@ -63,6 +63,7 @@ from scopecat.program.logical import (
     ValueDef,
 )
 from scopecat.program.measurement_types import MeasurementDType
+from scopecat.program.scans import PointGrouping, PointSchedule
 from scopecat.program.value_graph import (
     ComputeOutput,
     OperationId,
@@ -293,7 +294,7 @@ def program_fixture(
     product_uses: Sequence[ProductUse] = (),
     record_uses: Sequence[BoundRecordUse] = (),
     effects: Sequence[EffectFixture] | None = None,
-    point_execution_block_size: int = 1,
+    point_grouping: PointGrouping | None = None,
 ) -> ProgramFixture:
     """Build canonical logical semantics plus explicit config-derived facts."""
 
@@ -466,7 +467,7 @@ def program_fixture(
         program=LogicalProgram(
             experiment_id="test.bound-program",
             kind="test",
-            point_execution_block_size=point_execution_block_size,
+            point_schedule=PointSchedule(grouping=point_grouping),
             value_defs=tuple(value_defs),
             compute_nodes=logical_compute_nodes,
             implementations=implementations,

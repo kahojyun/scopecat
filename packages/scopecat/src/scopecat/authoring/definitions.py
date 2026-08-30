@@ -109,6 +109,7 @@ from scopecat.program.recording import (
 from scopecat.program.scans import (
     GridSpec,
     PointDomainSpec,
+    PointGrouping,
     PointPlan,
     PointTraversal,
     RepeatMode,
@@ -118,6 +119,7 @@ from scopecat.program.state import StateBinding
 from scopecat.program.value_refs import (
     CoordinateRef,
     ValueRef,
+    internal_coordinate_ref_id,
     internal_value_ref_point_dependencies,
     internal_value_ref_point_id,
     internal_value_ref_record_source_id,
@@ -622,7 +624,6 @@ class ExperimentContext:
         repeat: int = 1,
         repeat_mode: RepeatMode = "point",
         traversal: PointTraversal = "forward",
-        execution_block_size: int | None = None,
     ) -> None:
         """Declare the complete Cartesian point domain for this experiment."""
 
@@ -631,19 +632,33 @@ class ExperimentContext:
             repeat=repeat,
             repeat_mode=repeat_mode,
             traversal=traversal,
-            execution_block_size=execution_block_size,
         )
 
-    def execution_blocks(self, size: int) -> None:
-        """Group adjacent design rows into fixed-size indivisible blocks.
+    def group_points(
+        self,
+        id: str,
+        *,
+        varying: Sequence[CoordinateRef],
+    ) -> None:
+        """Prefer related points together and restart an interrupted group.
 
-        This scheduling declaration is independent of whether the point domain
-        is built incrementally with ``scan`` or declared with ``grid``/``points``.
+        Coordinates in ``varying`` may differ inside a group. Every other
+        coordinate identifies the group, so group sizes may vary naturally.
+        This is a scheduling preference and recovery boundary, not a hardware
+        batch requirement.
         """
 
         self._point_plan = replace(
             self._point_plan,
-            execution_block_size=size,
+            schedule=replace(
+                self._point_plan.schedule,
+                grouping=PointGrouping(
+                    id=id,
+                    varying_coordinate_ids=tuple(
+                        internal_coordinate_ref_id(coordinate) for coordinate in varying
+                    ),
+                ),
+            ),
         )
 
     @overload
@@ -771,7 +786,6 @@ class ExperimentContext:
         coordinates: Sequence[CoordinateRef] = (),
         repeat: int = 1,
         repeat_mode: RepeatMode = "point",
-        execution_block_size: int | None = None,
     ) -> None:
         """Declare the complete point cloud in its explicit row order."""
 
@@ -780,7 +794,6 @@ class ExperimentContext:
             repeat=repeat,
             repeat_mode=repeat_mode,
             traversal="forward",
-            execution_block_size=execution_block_size,
         )
 
     def _declare_point_domain(
@@ -790,7 +803,6 @@ class ExperimentContext:
         repeat: int,
         repeat_mode: RepeatMode,
         traversal: PointTraversal,
-        execution_block_size: int | None,
     ) -> None:
         if self._point_domain_mode == "scan":
             raise ValueError(
@@ -803,11 +815,9 @@ class ExperimentContext:
             domain=domain,
             repeat=repeat,
             repeat_mode=repeat_mode,
-            traversal=traversal,
-            execution_block_size=(
-                self._point_plan.execution_block_size
-                if execution_block_size is None
-                else execution_block_size
+            schedule=replace(
+                self._point_plan.schedule,
+                traversal=traversal,
             ),
         )
         self._point_domain_mode = "explicit"

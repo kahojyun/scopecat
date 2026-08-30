@@ -40,6 +40,7 @@ from scopecat.program.scans import (
     AroundScanSource,
     AxisSpec,
     PointDomainSpec,
+    PointGrouping,
     PointPlan,
     PointsSpec,
     expand_point_plan,
@@ -48,7 +49,9 @@ from scopecat.program.value_refs import ValueRef
 from scopecat.records.run_request import (
     AdaptiveDomainPlanRecord,
     GridDomainRecord,
+    PointGroupingRecord,
     PointPlanRecord,
+    PointScheduleRecord,
     RunRequest,
 )
 from scopecat.records.sample import SampleSelector
@@ -108,6 +111,11 @@ def compile_invocation(
         expand_point_plan(base_plan),
         inputs=inputs,
     )
+    _validate_point_grouping(
+        base_plan.schedule.grouping,
+        expanded_domain,
+        adaptive=invocation.adaptive_domain_plan is not None,
+    )
     logical = compose_experiment(
         invocation.definition,
         inputs=inputs,
@@ -115,8 +123,7 @@ def compile_invocation(
         point_domain_layout=expanded_domain.layout,
         point_repeat=base_plan.repeat,
         point_repeat_mode=base_plan.repeat_mode,
-        point_traversal=base_plan.traversal,
-        point_execution_block_size=base_plan.execution_block_size,
+        point_schedule=base_plan.schedule,
     )
     _validate_point_dependencies(logical, expanded_domain)
     return CompiledInvocation(
@@ -220,8 +227,23 @@ def _materialized_request(
                 domain=request_point_domain,
                 repeat=point_plan.repeat,
                 repeat_mode=point_plan.repeat_mode,
-                traversal=point_plan.traversal,
-                execution_block_size=point_plan.execution_block_size,
+                schedule=PointScheduleRecord(
+                    traversal=point_plan.schedule.traversal,
+                    grouping=(
+                        None
+                        if point_plan.schedule.grouping is None
+                        else PointGroupingRecord(
+                            id=point_plan.schedule.grouping.id,
+                            varying_coordinate_ids=(
+                                point_plan.schedule.grouping.varying_coordinate_ids
+                            ),
+                            scheduling=point_plan.schedule.grouping.scheduling,
+                            on_interruption=(
+                                point_plan.schedule.grouping.on_interruption
+                            ),
+                        )
+                    ),
+                ),
             ),
             "adaptive_domain_plan": (
                 None
@@ -269,6 +291,42 @@ def _verified_point_domain(
                 for issue in error.issues
             ]
         ) from error
+
+
+def _validate_point_grouping(
+    grouping: PointGrouping | None,
+    point_domain: VerifiedPointDomain,
+    *,
+    adaptive: bool,
+) -> None:
+    if grouping is None:
+        return
+    coordinate_ids = {axis.id for axis in point_domain.axes}
+    missing = sorted(set(grouping.varying_coordinate_ids) - coordinate_ids)
+    problems: list[Problem] = []
+    if missing:
+        problems.append(
+            _problem(
+                "point_grouping_coordinate_missing",
+                "point grouping references coordinates not present in the point "
+                "domain: " + ", ".join(missing),
+                "point_plan",
+                path=("grouping", "varying_coordinate_ids"),
+                details={"missing_coordinate_ids": missing},
+            )
+        )
+    if adaptive:
+        problems.append(
+            _problem(
+                "adaptive_point_grouping_unsupported",
+                "adaptive point plans cannot yet restart coordinate groups as a unit",
+                "point_plan",
+                path=("grouping",),
+                details={"grouping_id": grouping.id},
+            )
+        )
+    if problems:
+        raise CheckFailed(problems)
 
 
 def _validate_point_dependencies(

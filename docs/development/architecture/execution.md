@@ -45,8 +45,8 @@ when all of the following remain true:
   effect, result, and bounded-work envelope;
 - every result has one stable typed schema, including acquisition-local axes
   such as shot, capture, round, cycle, entity, or sample;
-- logical point order, state carry, reset policy, indivisible point blocks, and
-  legal partition cuts are explicit enough to reproduce the comparison;
+- logical point order, state carry, reset policy, and named recovery groups are
+  explicit enough to reproduce the comparison;
 - splitting physical jobs at any legal cut does not change the demanded logical
   results; and
 - execution does not publish or activate a new persistent configuration that
@@ -57,14 +57,14 @@ The resulting hierarchy is:
 ```text
 procedure
   run: accepted configuration, authority, point design, result contract
-    logical point block: indivisible ordering/state unit
+    point recovery group: preferred scheduling and restart unit
       design row: one coordinate identity
         real-time trial: target-owned shots, rounds, and bounded feedback
 ```
 
 An execution segment is deliberately absent from this semantic hierarchy. It
 is immutable evidence for one interval of executor ownership. A resumed run may
-have several execution segments while retaining the same run, point, and block
+have several execution segments while retaining the same run, point, and group
 identities.
 
 Ordinary sweeps, paired target/reference rows, tomography bases, bounded
@@ -76,21 +76,23 @@ configuration publication, an optimizer that intentionally changes the
 accepted configuration, durable retries with policy decisions, or long-lived
 monitoring instead belongs in a procedure composed from multiple runs.
 
-Point blocks express comparisons whose adjacency or shared state is semantic.
-Core may shorten a compiler candidate, split a host-state region, commit
-measurement coverage, or resume only at a declared block cut. A target may
-impose a smaller physical capacity, but a capacity that ends inside a block is a
-planning rejection rather than permission to weaken the authored experiment.
-The canonical durable watermark advances only through a complete block even
-when physical traversal visits canonical point ordinals out of order.
+Point recovery groups express comparisons that should remain close in execution
+and be repeated together after an interruption. Core may shorten a compiler
+candidate or split a host-state region at any point boundary. It publishes
+measurement coverage and advances the durable watermark only after a complete
+group, even when physical traversal visits canonical point ordinals out of
+order. A smaller target capacity therefore splits physical work without
+weakening the authored recovery policy.
 
 This boundary keeps the common authoring path compact. A static program needs
 no extra declaration. Point-dependent elaboration declares only its family
 envelope; result-local repetition stays on typed local axes instead of becoming
-anonymous point columns; and the uncommon adjacency-sensitive scan opts into a
-block size. The corresponding costs are intentional: block buffering is
-bounded by one or more declared blocks, large blocks reduce batching freedom,
-and a target that cannot implement a requested real-time construct rejects it
+anonymous point columns; and a comparison-sensitive scan opts into a named
+coordinate grouping. The corresponding cost is intentional: unpublished result
+buffering is bounded by the unfinished group, while physical batching freedom
+is unchanged. Truly indivisible realtime sequences remain target-local axes
+inside one point rather than being modeled as a scan grouping, and a target
+that cannot implement a requested real-time construct rejects it
 during compilation with a capability finding.
 
 ## Authoring ownership
@@ -119,8 +121,9 @@ identity. An explicit `id=` distinguishes definitions when needed, while
 `lab.run(..., name=...)` supplies the durable operator-facing name.
 
 Every invocation resolves to one `PointPlan`: a grid or ordered point cloud,
-plus repeat and traversal policy. Invocation edits replace or adjust that plan
-without changing the experiment definition. An optional `AdaptiveDomainPlan`
+repeat policy, and one `PointSchedule` that composes base traversal with an
+optional grouping. Invocation edits replace or adjust that plan without
+changing the experiment definition. An optional `AdaptiveDomainPlan`
 pairs that initial prefix with a process-local domain optimizer and a hard point
 limit.
 The
@@ -193,11 +196,23 @@ selected ordinals for the current bounded coverage batch. The
 costs; the stable semantic promise is that physical partitioning does not change
 logical point identity or results.
 
-The point plan also owns physical traversal and logical execution blocks. A
-block groups adjacent rows in traversal order whose cross-row adjacency must be
-preserved. Its boundaries are the only legal physical partition cuts exposed to
-domain compilers. Blocks do not change canonical point identities or add dataset
-coordinates.
+The point schedule may declare one named, coordinate-defined recovery grouping.
+The listed coordinates may vary within a group; all other coordinates form its
+key. Scheduling first resolves the base forward or snake traversal, orders
+groups by the first appearance of their key on that path, and preserves path
+order among members of each group. Group sizes may differ and singleton groups
+are valid. The grouping adds no dataset coordinate and imposes no divisibility
+rule.
+
+A recovery group is deliberately not a hardware batch. Domain limits, host-state
+regions, and local coverage windows may split one group at any point boundary.
+Measurements remain buffered until the complete group has executed; only then
+may durable coverage advance. An interruption therefore restarts the unfinished
+group even when earlier physical batches from that group had completed. Durable
+coverage is currently a canonical point prefix, so reordered schedules may also
+conservatively replay completed groups that lie beyond the last publishable
+prefix; a future completed-group ledger can remove that extra replay without
+changing scheduling or dataset identity.
 
 One `ExperimentSystem` owns one domain compiler. The compiler may internally
 route supported dialects or invoke a lower-level target compiler after resolving
@@ -209,11 +224,12 @@ artifact, point/product mapping, physical authority, and target job invocation.
 Planning asks the domain compiler for a small initial candidate maximum before
 any point-local inputs are resolved. For each candidate, the compiler inspects
 the complete request and returns a candidate with the length of its largest
-compatible prefix ending at a declared block cut. Core may shorten or split that
-prefix only at block cuts to align host-state regions or another domain call,
-then asks the same candidate to close each exact final subrange. Every prepared
-execution reports the maximum candidate point
-count for the following window. The compiler may derive compatibility and
+compatible prefix ending at a point boundary. Core may shorten or split that
+prefix to align host-state regions or another domain call, then asks the same
+candidate to close each exact final subrange. Group boundaries are preferred
+candidate ends when capacity permits, but are not legal-cut restrictions. Every
+prepared execution reports the maximum candidate point count for the following
+window. The compiler may derive compatibility and
 continuation feedback from aggregate payload bytes, channels, samples, shots,
 device entries, or another target-owned limit. Core still schedules contiguous
 logical points and uses the minimum prefix or feedback when a window contains
@@ -227,16 +243,15 @@ regions inside the window from adjacent points with equal, statically known
 desired state. It reconciles that state at a region anchor and suppresses an
 identical anchor at the next window. A physical state change, invocation,
 acquisition, or payload-backed write creates a point boundary. Pure host
-computation creates no hardware boundary. A host-state boundary inside a logical
-execution block is rejected: core cannot preserve realtime adjacency by silently
-splitting the block around a host effect.
+computation creates no hardware boundary. A host-state boundary may split a
+recovery group without changing its restart semantics.
 
 Consequential stages retain author order inside each bounded region. Coverage
 windows execute in point order; there is no promise that one stage remains
-contiguous across every physical batch in a scan. Hardware behavior that
-requires cross-point adjacency belongs inside one logical block compiled by the
-domain execution contract, while stable peripheral state may remain a host
-effect around each region.
+contiguous across every physical batch in a scan. Hardware behavior that truly
+requires indivisible realtime adjacency belongs inside one logical point as a
+target-owned shot, phase, round, or feedback axis, while stable peripheral state
+may remain a host effect around each region.
 
 Program inputs configure runtime semantics. Compiler inputs configure lowering.
 Both resolve from the same accepted snapshot and point overlays before the
@@ -302,13 +317,14 @@ accepted run-contract fingerprint and the global coverage interval, so later
 continuation work has an immutable ownership boundary without adding a field to
 every measurement record.
 
-A logical point block and a durable execution segment are different boundaries.
-Blocks belong to the accepted run contract and restrict every physical
-partition. Segments are immutable evidence for one executor lease and may contain
-many blocks. Because durable coverage is stored as a canonical point prefix, a
-segment watermark is publishable only when a completed physical block prefix
-covers exactly a canonical prefix; reordered rows may therefore delay durable
-advancement until a later block boundary.
+A point recovery group and a durable execution segment are different boundaries.
+Grouping belongs to the accepted run contract and controls scheduling preference
+and result publication, not physical partitioning. Segments are immutable
+evidence for one executor lease and may contain many groups or part of the final
+unfinished group. Because durable coverage is stored as a canonical point
+prefix, a segment watermark is publishable only when completed groups cover
+exactly a canonical prefix; reordered rows may therefore delay durable
+advancement until a later group boundary.
 
 Execution segments are immutable evidence rather than transparent process
 resume. After hardware reconciliation, explicit continuation can return an

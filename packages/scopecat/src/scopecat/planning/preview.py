@@ -23,6 +23,9 @@ from scopecat.planning.preview_models import (
     ExperimentPreviewCompute,
     ExperimentPreviewDomainInspection,
     ExperimentPreviewPoint,
+    ExperimentPreviewPointGroup,
+    ExperimentPreviewPointGrouping,
+    ExperimentPreviewPointSchedule,
     ExperimentPreviewRecord,
 )
 from scopecat.program.parameters import ParameterContract, ParameterValueContract
@@ -111,6 +114,10 @@ def build_run_program_preview(
                 ),
             )
             for record in selected.records
+        ),
+        point_schedule=ExperimentPreviewPointSchedule(
+            traversal=program.point_schedule.traversal,
+            grouping=_preview_point_grouping(program),
         ),
         selected_point=(
             None
@@ -237,6 +244,39 @@ def _preview_point_ordinals(point_count: int) -> tuple[int, ...]:
         return tuple(range(point_count))
     edge_count = _PREVIEW_POINT_LIMIT // 2
     return (*range(edge_count), *range(point_count - edge_count, point_count))
+
+
+def _preview_point_grouping(
+    program: RunProgram,
+) -> ExperimentPreviewPointGrouping | None:
+    grouping = program.point_schedule.grouping
+    if grouping is None:
+        return None
+    groups = program.point_groups
+    sampled = (
+        groups
+        if len(groups) <= _PREVIEW_POINT_LIMIT
+        else (
+            *groups[: _PREVIEW_POINT_LIMIT // 2],
+            *groups[-(_PREVIEW_POINT_LIMIT // 2) :],
+        )
+    )
+    return ExperimentPreviewPointGrouping(
+        id=grouping.id,
+        varying_coordinate_ids=grouping.varying_coordinate_ids,
+        scheduling=grouping.scheduling,
+        on_interruption=grouping.on_interruption,
+        group_count=len(groups),
+        groups=tuple(
+            ExperimentPreviewPointGroup(
+                id=group.id,
+                key=dict(group.key),
+                point_indices=group.ordinals,
+            )
+            for group in sampled
+        ),
+        groups_truncated=len(sampled) < len(groups),
+    )
 
 
 def _preview_binding_graph(

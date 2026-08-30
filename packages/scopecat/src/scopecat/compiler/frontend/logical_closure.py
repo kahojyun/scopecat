@@ -47,7 +47,7 @@ from scopecat.program.parameters import ParameterContract
 from scopecat.program.point_domain import PointAxes
 from scopecat.program.products import ModuleProductDecl
 from scopecat.program.recording import ExperimentResultField, LogicalRecordSelection
-from scopecat.program.scans import AxisSpec, PointTraversal, RepeatMode
+from scopecat.program.scans import AxisSpec, PointSchedule, RepeatMode
 from scopecat.program.value_graph import OperationId, operation_result_id
 from scopecat.program.value_refs import (
     PointValueDependency,
@@ -308,8 +308,7 @@ class LogicalProgramBuilder:
         point_domain_layout: PointDomainLayout,
         point_repeat: int,
         point_repeat_mode: RepeatMode,
-        point_traversal: PointTraversal,
-        point_execution_block_size: int,
+        point_schedule: PointSchedule,
         effects: tuple[
             LogicalStateAssignment
             | LogicalEnsureState
@@ -337,8 +336,7 @@ class LogicalProgramBuilder:
             point_domain_layout=point_domain_layout,
             point_repeat=point_repeat,
             point_repeat_mode=point_repeat_mode,
-            point_traversal=point_traversal,
-            point_execution_block_size=point_execution_block_size,
+            point_schedule=point_schedule,
             value_defs=tuple(self._definitions.values()),
             compute_nodes=tuple(self._compute_nodes.values()),
             measurement_computes=tuple(self._measurement_computes),

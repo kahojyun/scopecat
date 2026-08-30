@@ -99,6 +99,7 @@ from scopecat.program.logical import (
     MeasurementComputeId,
 )
 from scopecat.program.point_domain import point_axis_values
+from scopecat.program.scans import PointGrouping
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     DomainTargetBinding,
@@ -350,7 +351,7 @@ def _bound_program(
     acquisition_before_domain: bool = False,
     record_instrument_products: bool = True,
     point_count: int = 2,
-    point_execution_block_size: int = 1,
+    point_grouping: PointGrouping | None = None,
     domain_input: ScalarExpr | None = None,
     parameter_overlays: Sequence[PointParameterOverlay] = (),
     parameter_data: ParameterRelationData | None = None,
@@ -535,7 +536,7 @@ def _bound_program(
         ),
         parameter_overlays=tuple(parameter_overlays),
         effects=effects,
-        point_execution_block_size=point_execution_block_size,
+        point_grouping=point_grouping,
         product_defs=products,
         product_uses=tuple(use for use, _record in recorded_selections),
         record_uses=tuple(record for _use, record in recorded_selections),
@@ -854,6 +855,41 @@ def test_planning_executes_repeated_grid_in_snake_order() -> None:
     ) == (0, 1, 2, 3, 4, 5, 10, 11, 8, 9, 6, 7)
 
 
+def test_planning_and_preview_resolve_grouped_snake_as_one_schedule() -> None:
+    x = sc.coordinate("x", sc.ScalarType(sc.IntType()))
+    y = sc.coordinate("y", sc.ScalarType(sc.IntType()))
+
+    @sc.experiment(id="test.grouped-snake", kind="point_plan")
+    def definition(experiment: sc.ExperimentContext) -> None:
+        experiment.grid(
+            sc.axis(x, (0, 1)),
+            sc.axis(y, (0, 1, 2)),
+            traversal="snake",
+        )
+        experiment.group_points("y-within-x", varying=(y,))
+
+    bound = bind_program(
+        compile_invocation(definition()).program,
+        build_config_environment(load_config()),
+    )
+    plan = ExperimentSystem(instrument_catalog=_catalog(bound)).compile(bound)
+    preview = build_run_program_preview(plan)
+
+    assert [group.ordinals for group in plan.point_groups] == [
+        (0, 1, 2),
+        (5, 4, 3),
+    ]
+    assert preview.point_schedule is not None
+    assert preview.point_schedule.traversal == "snake"
+    grouping = preview.point_schedule.grouping
+    assert grouping is not None
+    assert grouping.id == "y-within-x"
+    assert [group.point_indices for group in grouping.groups] == [
+        (0, 1, 2),
+        (5, 4, 3),
+    ]
+
+
 def test_planning_rejects_catalog_for_another_config() -> None:
     bound = _bound_program()
     catalog = _catalog(bound).model_copy(
@@ -1169,13 +1205,13 @@ def test_domain_target_adapts_followup_batches_from_compiler_feedback() -> None:
     )
 
 
-def test_domain_batches_partition_only_between_logical_point_blocks() -> None:
+def test_domain_batches_may_split_a_recovery_group() -> None:
     bound = _bound_program(
         point_count=6,
-        point_execution_block_size=2,
+        point_grouping=PointGrouping("comparison", ("frequency",)),
     )
     compiler = _DomainCompiler(
-        "tests.logical-blocks",
+        "tests.recovery-groups",
         initial_size=3,
         next_batch_capacities=(3,),
     )
@@ -1187,37 +1223,54 @@ def test_domain_batches_partition_only_between_logical_point_blocks() -> None:
     operations = tuple(plan.coverage)
 
     assert [request.point_ordinals for request in compiler.compatibility_requests] == [
-        (0, 1),
-        (2, 3),
-        (4, 5),
+        (0, 1, 2),
+        (3, 4, 5),
     ]
     compatibility_cuts = [
         request.legal_cut_offsets for request in compiler.compatibility_requests
     ]
     assert compatibility_cuts == [
-        (2,),
-        (2,),
-        (2,),
+        (1, 2, 3),
+        (1, 2, 3),
     ]
     assert [request.point_ordinals for request in compiler.compile_requests] == [
-        (0, 1),
-        (2, 3),
-        (4, 5),
+        (0, 1, 2),
+        (3, 4, 5),
     ]
     assert [
         operation.point_indices
         for operation in operations
         if isinstance(operation, RunCoverageCheckpoint)
-    ] == [(0, 1), (2, 3), (4, 5)]
+    ] == [(0, 1, 2, 3, 4, 5)]
+    preview_bound = _bound_program(
+        product_count=0,
+        domain_product_count=0,
+        point_count=6,
+        point_grouping=PointGrouping("comparison", ("frequency",)),
+    )
+    preview = build_run_program_preview(
+        ExperimentSystem(instrument_catalog=_catalog(preview_bound)).compile(
+            preview_bound
+        )
+    )
+    assert preview.point_schedule is not None
+    assert preview.point_schedule.traversal == "forward"
+    grouping = preview.point_schedule.grouping
+    assert grouping is not None
+    assert grouping.id == "comparison"
+    assert grouping.varying_coordinate_ids == ("frequency",)
+    assert grouping.group_count == 1
+    assert grouping.groups[0].key == {}
+    assert grouping.groups[0].point_indices == (0, 1, 2, 3, 4, 5)
 
 
-def test_domain_compiler_compatible_prefix_must_end_at_a_block_cut() -> None:
+def test_domain_compiler_may_choose_a_prefix_inside_a_recovery_group() -> None:
     bound = _bound_program(
         point_count=4,
-        point_execution_block_size=2,
+        point_grouping=PointGrouping("comparison", ("frequency",)),
     )
     compiler = _DomainCompiler(
-        "tests.invalid-logical-block-prefix",
+        "tests.recovery-group-prefix",
         initial_size=4,
         compatible_sizes=(1,),
     )
@@ -1226,46 +1279,52 @@ def test_domain_compiler_compatible_prefix_must_end_at_a_block_cut() -> None:
         domain_compiler=compiler,
     ).compile(bound)
 
-    with pytest.raises(ValueError, match="legal point-block cut"):
-        tuple(plan.coverage)
+    operations = tuple(plan.coverage)
+
+    assert compiler.compatibility_requests[0].legal_cut_offsets == (1, 2, 3, 4)
+    assert [
+        operation.point_indices
+        for operation in operations
+        if isinstance(operation, RunCoverageCheckpoint)
+    ] == [(0, 1, 2, 3)]
 
 
-def test_host_state_boundary_cannot_split_a_logical_point_block() -> None:
+def test_host_state_boundary_may_split_a_recovery_group() -> None:
     bound = _bound_program(
         state_mode="varying",
         point_count=2,
-        point_execution_block_size=2,
+        point_grouping=PointGrouping("comparison", ("frequency",)),
     )
-    compiler = _DomainCompiler("tests.host-state-splits-logical-block")
+    compiler = _DomainCompiler("tests.host-state-splits-recovery-group")
     provider = _TrackingProvider()
     plan = ExperimentSystem(
         instrument_catalog=_catalog(bound, provider),
         domain_compiler=compiler,
     ).compile(bound)
 
-    with pytest.raises(
-        ValueError,
-        match="host state boundary splits a logical point block",
-    ):
-        tuple(plan.coverage)
+    operations = tuple(plan.coverage)
+
+    assert [
+        operation.point_indices
+        for operation in operations
+        if isinstance(operation, RunCoverageCheckpoint)
+    ] == [(0, 1)]
 
 
-def test_static_coverage_resume_starts_only_between_complete_blocks() -> None:
+def test_static_coverage_resume_starts_only_after_a_complete_group() -> None:
     bound = _bound_program(
         product_count=0,
         domain_product_count=0,
         point_count=4,
-        point_execution_block_size=2,
+        point_grouping=PointGrouping("comparison", ("frequency",)),
     )
     plan = ExperimentSystem(instrument_catalog=_catalog(bound)).compile(bound)
 
-    with pytest.raises(ValueError, match="inside a logical point block"):
+    with pytest.raises(ValueError, match="inside a point group"):
         tuple(plan.coverage.suffix(1))
-    assert [
-        operation.point_indices
-        for operation in plan.coverage.suffix(2)
-        if isinstance(operation, RunCoverageCheckpoint)
-    ] == [(2, 3)]
+    with pytest.raises(ValueError, match="inside a point group"):
+        tuple(plan.coverage.suffix(2))
+    assert tuple(plan.coverage.suffix(4)) == ()
 
 
 def test_domain_target_uses_the_largest_compatible_candidate_prefix() -> None:

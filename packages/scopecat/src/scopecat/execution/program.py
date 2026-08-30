@@ -29,6 +29,8 @@ if TYPE_CHECKING:
     from scopecat.measurements.points import RunPointCatalog
     from scopecat.measurements.projection import MeasurementProjection
     from scopecat.optimization import AdaptiveDomainPlan
+    from scopecat.planning.point_order import PointExecutionGroup
+    from scopecat.program.scans import PointSchedule
     from scopecat.records.config import ConfigContentHash
     from scopecat.sdk.domain.execution import PreparedDomainExecution
     from scopecat.sdk.instruments.contracts import InstrumentDescription
@@ -71,7 +73,7 @@ class RunCoverageEffect:
 
 @dataclass(frozen=True, slots=True)
 class RunCoverageCheckpoint:
-    """Commit one completed indivisible logical point block."""
+    """Commit one completed point recovery group."""
 
     point_indices: tuple[int, ...]
 
@@ -147,7 +149,7 @@ class RunCoverage:
         if start_point_index < 0:
             raise ValueError("coverage suffix start must be non-negative")
         if not self.is_durable_cut(start_point_index):
-            raise ValueError("coverage suffix starts inside a logical point block")
+            raise ValueError("coverage suffix starts inside a point group")
         return self._factory(start_point_index)
 
     def is_durable_cut(self, completed_point_count: int) -> bool:
@@ -244,6 +246,8 @@ class RunProgram:
     coverage: RunCoverage = field(repr=False, compare=False)
     points: RunPointCatalog = field(repr=False)
     measurements: MeasurementProjection = field(repr=False)
+    point_schedule: PointSchedule
+    point_groups: tuple[PointExecutionGroup, ...] = field(repr=False)
     resource_requirements: tuple[ResourceRequirement, ...]
     domain_target_requirement: DomainTargetRequirement | None
     adaptive_domain_plan: AdaptiveDomainPlan | None = field(

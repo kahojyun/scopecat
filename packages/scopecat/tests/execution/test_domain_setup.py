@@ -17,7 +17,7 @@ from scopecat.execution.effects.domain import (
     _PreparedDomainJobRuntime,
     execute_domain_job_values,
 )
-from scopecat.execution.program import RunDomainJob
+from scopecat.execution.program import RunCoverageCheckpoint, RunDomainJob
 from scopecat.kernel.errors import DomainExecutionFailed, OperationFailure
 from scopecat.kernel.point_identity import LogicalPointId, PointDomainId
 from scopecat.kernel.points import AcceptedRunPoint
@@ -33,6 +33,7 @@ from scopecat.sdk.domain.execution import (
     ErasedDomainInvocation,
     ErasedDomainJobRuntime,
     ErasedDomainRealizer,
+    ErasedDomainResultSink,
     ErasedDomainSetup,
     PreparedDomainExecution,
 )
@@ -1298,6 +1299,148 @@ def test_domain_instrument_batches_stop_at_the_next_cancellation_boundary() -> N
 
     assert first.operation_id == "first"
     assert [batch.operation_id for batch in inner.batches] == ["first"]
+
+
+def test_interruption_between_domain_batches_restarts_the_unpublished_group() -> None:
+    @dataclass(frozen=True, slots=True)
+    class ResultContract:
+        contract_fingerprint: str = "group-recovery-result-contract"
+
+    @dataclass
+    class Runtime:
+        calls: int = 0
+
+        def start(
+            self,
+            execution_key: str,
+            payload: object,
+            *,
+            instruments: object,
+        ) -> DomainExecutionResult[object]:
+            del payload, instruments
+            self.calls += 1
+            return DomainExecutionResult(
+                DomainExecutionReceipt(
+                    execution_key=execution_key,
+                    status="completed",
+                    result_fingerprint=f"group-result-{self.calls}",
+                    result_count=0,
+                ),
+                object(),
+            )
+
+    class TransitionWriter:
+        def invocation(
+            self,
+            *,
+            logical_compute_node_id: str,
+            point_ordinals: tuple[int, ...],
+            execution_id: DomainExecutionId,
+            intent: DomainInvocationIntent,
+            write_ahead: bool,
+        ) -> None:
+            del (
+                logical_compute_node_id,
+                point_ordinals,
+                execution_id,
+                intent,
+                write_ahead,
+            )
+
+        def checkpoint(
+            self,
+            *,
+            logical_compute_node_id: str,
+            point_ordinals: tuple[int, ...],
+            checkpoint: DomainJobCheckpoint,
+        ) -> None:
+            del logical_compute_node_id, point_ordinals, checkpoint
+
+        def terminal(
+            self,
+            *,
+            logical_compute_node_id: str,
+            point_ordinals: tuple[int, ...],
+            receipt: DomainExecutionReceipt,
+            write_ahead: bool,
+        ) -> None:
+            del logical_compute_node_id, point_ordinals, receipt, write_ahead
+
+        def flush(self) -> None:
+            return None
+
+    invocation = close_domain_invocation(
+        cast("DomainResultMapping[str]", cast("object", ResultContract())),
+        invocation_id="group-recovery-invocation",
+        target_id="group-recovery-target",
+        compiler_id="test-compiler",
+        capability_fingerprint="test-capability",
+        artifact_id="group-recovery-artifact",
+        artifact_fingerprint="group-recovery-artifact-fingerprint",
+        execution_summary={},
+        target_intent={},
+        payload=object(),
+    )
+    runtime = Runtime()
+
+    def discard_result(
+        _result: DomainExecutionResult[object],
+        _accept: ErasedDomainResultSink,
+    ) -> None:
+        return None
+
+    prepared = PreparedDomainExecution(
+        instrument_ids=(),
+        setup_write_footprint=(),
+        setup_state_invalidations=(),
+        state_requirements=(),
+        realtime_write_footprint=(),
+        realtime_state_invalidations=(),
+        next_batch_max_points=1,
+        invocation=cast("ErasedDomainInvocation", invocation),
+        setup=None,
+        job_runtime=cast("ErasedDomainJobRuntime", runtime),
+        realize_into=cast("ErasedDomainRealizer", discard_result),
+    )
+    domain_id = PointDomainId("group-recovery", "root")
+    points = tuple(
+        AcceptedRunPoint(LogicalPointId(domain_id, ordinal), {}) for ordinal in range(2)
+    )
+    operations = (
+        RunDomainJob("group-batch-0", (0,), prepared),
+        RunDomainJob("group-batch-1", (1,), prepared),
+        RunCoverageCheckpoint((0, 1)),
+    )
+    committed: list[tuple[int, ...]] = []
+
+    interrupted = RunEffectInterpreter(
+        run_id="group-recovery-interrupted",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+        domain_job_transitions=TransitionWriter(),
+        cancellation_requested=lambda: runtime.calls == 1,
+        coverage_observer=lambda selected, _candidates, _values: committed.append(
+            tuple(point.ordinal for point in selected)
+        ),
+    ).run(operations, points=points)
+
+    assert interrupted.cancelled
+    assert runtime.calls == 1
+    assert committed == []
+
+    resumed = RunEffectInterpreter(
+        run_id="group-recovery-resumed",
+        coordinate_ids=(),
+        instruments=TestRunInstrumentHost(),
+        domain_job_transitions=TransitionWriter(),
+        coverage_observer=lambda selected, _candidates, _values: committed.append(
+            tuple(point.ordinal for point in selected)
+        ),
+    ).run(operations, points=points)
+
+    assert not resumed.problems
+    assert runtime.calls == 3
+    assert committed == [(0, 1)]
 
 
 def test_domain_batches_contribute_bounded_state_action_evidence() -> None:

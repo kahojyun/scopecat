@@ -31,6 +31,8 @@ type ScanRangeValue = Quantity | int | float
 type PointRow = Mapping[CoordinateRef, ScanValue]
 type RepeatMode = Literal["point", "sweep"]
 type PointTraversal = Literal["forward", "snake"]
+type PointGroupScheduling = Literal["prefer_together"]
+type PointGroupInterruption = Literal["restart_group"]
 
 _REPEAT_AXIS_ID = "repeat"
 
@@ -99,35 +101,81 @@ type PointDomainSpec = GridSpec | PointsSpec
 
 
 @dataclass(frozen=True, slots=True)
+class PointGrouping:
+    """A named point partition used for scheduling preference and recovery.
+
+    Coordinates listed in ``varying_coordinate_ids`` may vary within one
+    group; all remaining coordinates form the group key. Scheduling keeps
+    equal-key rows adjacent when practical, but hardware batching may split a
+    group. Durable coverage advances only after the whole group completes, so
+    interruption restarts that group.
+    """
+
+    id: str
+    varying_coordinate_ids: tuple[str, ...]
+    scheduling: PointGroupScheduling = "prefer_together"
+    on_interruption: PointGroupInterruption = "restart_group"
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("point grouping id must be non-empty")
+        if any(not coordinate_id for coordinate_id in self.varying_coordinate_ids):
+            raise ValueError("point grouping coordinate ids must be non-empty")
+        if len(self.varying_coordinate_ids) != len(set(self.varying_coordinate_ids)):
+            raise ValueError("point grouping coordinate ids must be unique")
+        if self.scheduling != "prefer_together":
+            raise ValueError("point grouping scheduling must be 'prefer_together'")
+        if self.on_interruption != "restart_group":
+            raise ValueError(
+                "point grouping interruption policy must be 'restart_group'"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class PointSchedule:
+    """Preferred physical point order and its related-point partition.
+
+    ``traversal`` defines the base path. When ``grouping`` is present, the
+    resolved order follows groups by their first appearance on that path and
+    preserves the path order of members inside each group. Hardware batching
+    may still split that preferred order at any point boundary. The grouping's
+    interruption policy is consumed separately by durable recovery.
+    """
+
+    traversal: PointTraversal = "forward"
+    grouping: PointGrouping | None = None
+
+    def __post_init__(self) -> None:
+        if self.traversal not in ("forward", "snake"):
+            raise ValueError("point traversal must be 'forward' or 'snake'")
+
+
+@dataclass(frozen=True, slots=True)
 class PointPlan:
     """One complete logical point plan for an experiment invocation.
 
     ``domain`` is either a Cartesian grid or explicit ordered point rows.
     ``repeat`` adds the canonical ``repeat`` coordinate: ``point`` mode keeps
     repeats of each base point adjacent, while ``sweep`` mode keeps complete
-    sweeps adjacent. ``traversal`` may change physical grid execution order,
-    but logical point identities and result order remain canonical. Explicit
-    point rows therefore support only forward traversal. ``execution_block_size``
-    keeps that many adjacent execution rows in one logical block. Core may
-    partition or resume execution only between complete blocks.
+    sweeps adjacent. ``schedule.traversal`` may change physical grid execution
+    order, but logical point identities and result order remain canonical.
+    Explicit point rows therefore support only forward traversal. ``schedule`` combines
+    base traversal with a coordinate-defined comparison or recovery grouping.
+    It influences preferred order and durable restart boundaries without
+    imposing a hardware batch shape.
     """
 
     domain: PointDomainSpec = field(default_factory=GridSpec)
     repeat: int = 1
     repeat_mode: RepeatMode = "point"
-    traversal: PointTraversal = "forward"
-    execution_block_size: int = 1
+    schedule: PointSchedule = field(default_factory=PointSchedule)
 
     def __post_init__(self) -> None:
         if type(self.repeat) is not int or self.repeat <= 0:
             raise ValueError("point repeat must be a positive integer")
         if self.repeat_mode not in ("point", "sweep"):
             raise ValueError("point repeat mode must be 'point' or 'sweep'")
-        if self.traversal not in ("forward", "snake"):
-            raise ValueError("point traversal must be 'forward' or 'snake'")
-        if type(self.execution_block_size) is not int or self.execution_block_size <= 0:
-            raise ValueError("point execution block size must be a positive integer")
-        if isinstance(self.domain, PointsSpec) and self.traversal == "snake":
+        if isinstance(self.domain, PointsSpec) and self.schedule.traversal == "snake":
             raise ValueError("point clouds only support forward traversal")
         if self.repeat > 1 and any(
             axis.id == _REPEAT_AXIS_ID for axis in self.domain.axes

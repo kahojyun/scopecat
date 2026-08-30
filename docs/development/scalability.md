@@ -620,13 +620,15 @@ fail when their bounded batch is reached. A separate explicit exhaustive check
 may be useful for unattended runs, but it must not become the default launch
 path or silently materialize the full waveform volume.
 
-Physical batching remains expressed as a bounded point count, rounded down to
-an author-declared logical block cut. A target capacity smaller than the next
-complete block is an error rather than permission to split its adjacency
-contract. Capacity is not point-only. The reference compiler currently combines the
-device entry limit with an 8 MiB aggregate waveform target derived from the
-largest entry in the preceding compiled batch. Waveform channel count, sample
-count, and dtype therefore reduce the following point count automatically. A
+Physical batching remains expressed as a bounded point count. When a named
+point recovery group is present, core prefers a candidate end at a group
+boundary if one fits the capacity, but every point boundary remains a legal
+physical cut. Group completion controls result publication and interruption
+recovery instead of target packing. Capacity is not point-only. The reference
+compiler currently combines the device entry limit with an 8 MiB aggregate
+waveform target derived from the largest entry in the preceding compiled batch.
+Waveform channel count, sample count, and dtype therefore reduce the following
+point count automatically. A
 later abrupt increase in entry size can overshoot the target for one batch; the
 next feedback corrects it. This adaptive target is a working-set control, not a
 new logical experiment dimension.

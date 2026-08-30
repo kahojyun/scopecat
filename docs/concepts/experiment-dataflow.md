@@ -264,6 +264,27 @@ experiment.grid(
 coordinate. Snake traversal reduces retracing but changes only physical
 execution order: logical point identities and durable row order stay canonical.
 
+When several points form one comparison, declare that relation by naming the
+coordinates allowed to vary inside the group. For example, this keeps the two
+prepared states for each delay together when practical and repeats both states
+if that comparison is interrupted:
+
+```python
+delay = experiment.scan("delay", (0, 100, 200), unit="ns")
+prepared_state = experiment.scan("prepared_state", (False, True))
+experiment.group_points(
+    "prepared-state-comparison",
+    varying=(prepared_state,),
+)
+```
+
+Every coordinate not listed in `varying` forms the group key. Groups may have
+different sizes for explicit point rows. Grouping is a scheduling preference
+and recovery boundary, not a hardware batch requirement: target capacity or a
+host-side state change may split a group, but its measurements become durable
+only after the complete group succeeds. Truly indivisible real-time sequences
+belong inside one point as target-owned shots, rounds, or feedback instead.
+
 Use explicit rows when coordinates are correlated, sparse, duplicated, or do
 not form a rectangular product:
 
@@ -293,15 +314,21 @@ edited = (
     .without_axis(bias)
     .with_repeat(3, mode="sweep")
     .with_traversal("snake")
+    .with_point_grouping(
+        "power-comparison",
+        varying=(power,),
+    )
 )
 definition_default = edited.reset_points()
 ```
 
 `.grid(...)` and `.points(...)` replace the complete domain while retaining
-repeat policy. Grid replacement retains traversal; explicit rows restore
-forward traversal. `.with_axis(...)` replaces an axis in place or appends one,
-and `.without_axis(...)` applies only to a grid. `reset_points()` discards all
-invocation point-plan edits.
+repeat and grouping policy. Grid replacement retains traversal; explicit rows
+restore forward traversal. `.with_axis(...)` replaces an axis in place or
+appends one, and `.without_axis(...)` applies only to a grid. A retained grouping
+must still reference coordinates in the replacement domain; use
+`.without_point_grouping()` to clear it. `reset_points()` discards all invocation
+point-plan edits.
 
 Ordinary point plans are materialized before execution. A measurement-dependent
 run opts into the separate adaptive-plan abstraction explicitly:

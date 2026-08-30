@@ -66,7 +66,7 @@ from scopecat.program.recording import (
 )
 from scopecat.program.scans import (
     AxisSpec,
-    PointTraversal,
+    PointSchedule,
     RepeatMode,
     axis_parameter_contracts,
 )
@@ -76,6 +76,8 @@ from scopecat.program.value_refs import (
     internal_value_ref_source_id,
 )
 from scopecat.program.value_transforms import internal_bind_value_ref_inputs
+
+_DEFAULT_POINT_SCHEDULE = PointSchedule()
 
 
 class _LogicalProgramComposer:
@@ -200,8 +202,7 @@ def compose_experiment(
     point_domain_layout: PointDomainLayout = "product_grid",
     point_repeat: int = 1,
     point_repeat_mode: RepeatMode = "point",
-    point_traversal: PointTraversal = "forward",
-    point_execution_block_size: int = 1,
+    point_schedule: PointSchedule = _DEFAULT_POINT_SCHEDULE,
 ) -> LogicalProgram:
     """Elaborate a native experiment root without a synthetic module."""
 
@@ -227,8 +228,7 @@ def compose_experiment(
         point_domain_layout=point_domain_layout,
         point_repeat=point_repeat,
         point_repeat_mode=point_repeat_mode,
-        point_traversal=point_traversal,
-        point_execution_block_size=point_execution_block_size,
+        point_schedule=point_schedule,
         success_state=definition.success_state,
     )
 
@@ -248,8 +248,7 @@ def _elaborate_hierarchy(
     point_domain_layout: PointDomainLayout = "product_grid",
     point_repeat: int = 1,
     point_repeat_mode: RepeatMode = "point",
-    point_traversal: PointTraversal = "forward",
-    point_execution_block_size: int = 1,
+    point_schedule: PointSchedule = _DEFAULT_POINT_SCHEDULE,
     success_state: EnsureStateIntent | None,
 ) -> LogicalProgram:
     composer = _LogicalProgramComposer()
@@ -346,8 +345,7 @@ def _elaborate_hierarchy(
         point_domain_layout=point_domain_layout,
         point_repeat=point_repeat,
         point_repeat_mode=point_repeat_mode,
-        point_traversal=point_traversal,
-        point_execution_block_size=point_execution_block_size,
+        point_schedule=point_schedule,
         effects=logical_effects,
         success_state=(
             None

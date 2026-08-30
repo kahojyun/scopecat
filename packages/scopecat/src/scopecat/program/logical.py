@@ -38,7 +38,7 @@ from scopecat.program.recording import (
     LogicalRecordSelection,
     LogicalValueRecordSelection,
 )
-from scopecat.program.scans import AxisSpec, PointTraversal, RepeatMode
+from scopecat.program.scans import AxisSpec, PointSchedule, RepeatMode
 from scopecat.program.table_values import TableSource
 from scopecat.program.value_refs import PointValueDependency, ValueRef
 
@@ -246,8 +246,7 @@ class LogicalProgram:
     point_domain_layout: PointDomainLayout = "product_grid"
     point_repeat: int = 1
     point_repeat_mode: RepeatMode = "point"
-    point_traversal: PointTraversal = "forward"
-    point_execution_block_size: int = 1
+    point_schedule: PointSchedule = field(default_factory=PointSchedule)
     value_defs: tuple[ValueDef, ...] = ()
     compute_nodes: tuple[LogicalComputeNode, ...] = ()
     measurement_computes: tuple[LogicalMeasurementCompute, ...] = ()

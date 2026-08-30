@@ -241,20 +241,42 @@ type PointDomainRecord = Annotated[
 ]
 
 
+class PointGroupingRecord(_RunRequestModel):
+    """Durable named partition without hardware-batch semantics."""
+
+    id: str = Field(min_length=1)
+    varying_coordinate_ids: tuple[Annotated[str, Field(min_length=1)], ...]
+    scheduling: Literal["prefer_together"] = "prefer_together"
+    on_interruption: Literal["restart_group"] = "restart_group"
+
+    @field_validator("varying_coordinate_ids")
+    @classmethod
+    def validate_unique_coordinate_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(value) != len(set(value)):
+            raise ValueError("point grouping coordinate ids must be unique")
+        return value
+
+
+class PointScheduleRecord(_RunRequestModel):
+    """Durable composition of base traversal and related-point grouping."""
+
+    traversal: Literal["forward", "snake"] = "forward"
+    grouping: PointGroupingRecord | None = None
+
+
 class PointPlanRecord(_RunRequestModel):
     """Persisted base point domain and its execution-independent expansion policy."""
 
     domain: PointDomainRecord = Field(default_factory=GridDomainRecord)
     repeat: StrictInt = Field(default=1, ge=1)
     repeat_mode: Literal["point", "sweep"] = "point"
-    traversal: Literal["forward", "snake"] = "forward"
-    execution_block_size: StrictInt = Field(default=1, ge=1)
+    schedule: PointScheduleRecord = Field(default_factory=PointScheduleRecord)
 
     @model_validator(mode="after")
     def validate_policy(self) -> PointPlanRecord:
         if (
             isinstance(self.domain, PointCloudDomainRecord)
-            and self.traversal == "snake"
+            and self.schedule.traversal == "snake"
         ):
             raise ValueError("snake traversal requires a Cartesian grid point domain")
         if self.repeat > 1 and _point_domain_ids(self.domain).intersection({"repeat"}):
@@ -324,7 +346,9 @@ __all__ = [
     "GridDomainRecord",
     "PointCloudDomainRecord",
     "PointDomainRecord",
+    "PointGroupingRecord",
     "PointPlanRecord",
+    "PointScheduleRecord",
     "RunRequest",
     "RunRequestBinaryOperator",
     "RunRequestBinaryValue",

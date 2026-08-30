@@ -34,6 +34,36 @@ class ExperimentPreviewRecord:
 
 
 @dataclass(frozen=True)
+class ExperimentPreviewPointGroup:
+    """One sampled recovery group in preferred traversal order."""
+
+    id: str
+    key: dict[str, object]
+    point_indices: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class ExperimentPreviewPointGrouping:
+    """Named grouping policy and its resolved point partition."""
+
+    id: str
+    varying_coordinate_ids: tuple[str, ...]
+    scheduling: Literal["prefer_together"]
+    on_interruption: Literal["restart_group"]
+    group_count: int
+    groups: tuple[ExperimentPreviewPointGroup, ...]
+    groups_truncated: bool
+
+
+@dataclass(frozen=True)
+class ExperimentPreviewPointSchedule:
+    """Resolved composition of base traversal and optional grouping."""
+
+    traversal: Literal["forward", "snake"]
+    grouping: ExperimentPreviewPointGrouping | None
+
+
+@dataclass(frozen=True)
 class ExperimentPreviewCompute:
     """Why one live compute runs at its compiler-selected placement."""
 
@@ -100,6 +130,7 @@ class ExperimentPreview:
     points: tuple[ExperimentPreviewPoint, ...]
     points_truncated: bool
     records: tuple[ExperimentPreviewRecord, ...]
+    point_schedule: ExperimentPreviewPointSchedule | None = None
     selected_point: ExperimentPreviewPoint | None = None
     domain_inspections: tuple[ExperimentPreviewDomainInspection, ...] = ()
     computes: tuple[ExperimentPreviewCompute, ...] = ()
