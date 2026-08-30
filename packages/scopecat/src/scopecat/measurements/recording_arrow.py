@@ -42,10 +42,11 @@ from scopecat.records.measurement_recording import (
 from scopecat.records.metadata import JsonMetadata, validate_json_metadata
 
 MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v10"
-MEASUREMENT_RECOVERY_STAGE_ARROW_FORMAT = "scopecat.measurement_recovery_stage.arrow.v1"
+MEASUREMENT_RECOVERY_STAGE_ARROW_FORMAT = "scopecat.measurement_recovery_stage.arrow.v2"
 
 _FORMAT_KEY = b"scopecat.format"
 _RUN_ID_KEY = b"scopecat.run_id"
+_SEGMENT_ID_KEY = b"scopecat.segment_id"
 _HEADER_CONTENT_HASH_KEY = b"scopecat.header_content_hash"
 _DATASET_SCHEMA_HASH_KEY = b"scopecat.dataset_schema_hash"
 _START_INDEX_KEY = b"scopecat.start_index"
@@ -54,6 +55,7 @@ _CONTENT_HASH_KEY = b"scopecat.content_hash"
 _RECORD_COUNT_KEY = b"scopecat.record_count"
 _SCHEDULE_FINGERPRINT_KEY = b"scopecat.schedule_fingerprint"
 _GROUP_ID_KEY = b"scopecat.group_id"
+_CHUNK_INDEX_KEY = b"scopecat.chunk_index"
 _VARIABLE_ROLE_KEY = b"scopecat.variable_role"
 _VARIABLE_DTYPE_KEY = b"scopecat.variable_dtype"
 _VARIABLE_KIND_KEY = b"scopecat.variable_kind"
@@ -85,9 +87,11 @@ class _AppendIdentity:
 @dataclass(frozen=True, slots=True)
 class _RecoveryStageIdentity:
     run_id: str
+    segment_id: str
     header_content_hash: str
     schedule_fingerprint: str
     group_id: str
+    chunk_index: int
     operation_id: str
     content_hash: str
     record_count: int
@@ -147,12 +151,14 @@ def encode_measurement_recovery_stage(
         metadata = {
             _FORMAT_KEY: MEASUREMENT_RECOVERY_STAGE_ARROW_FORMAT.encode(),
             _RUN_ID_KEY: stage.run_id.encode(),
+            _SEGMENT_ID_KEY: stage.segment_id.encode(),
             _HEADER_CONTENT_HASH_KEY: stage.header_content_hash.encode(),
             _DATASET_SCHEMA_HASH_KEY: (
                 dataset_schema_hash or measurement_dataset_schema_hash(dataset_schema)
             ).encode(),
             _SCHEDULE_FINGERPRINT_KEY: stage.schedule_fingerprint.encode(),
             _GROUP_ID_KEY: stage.group_id.encode(),
+            _CHUNK_INDEX_KEY: str(stage.chunk_index).encode(),
             _OPERATION_ID_KEY: stage.operation_id.encode(),
             _CONTENT_HASH_KEY: stage.content_hash.encode(),
             _RECORD_COUNT_KEY: str(len(stage.records)).encode(),
@@ -239,9 +245,11 @@ def decode_measurement_recovery_stage(
     try:
         stage = MeasurementRecoveryGroupStage(
             run_id=identity.run_id,
+            segment_id=identity.segment_id,
             header_content_hash=identity.header_content_hash,
             schedule_fingerprint=identity.schedule_fingerprint,
             group_id=identity.group_id,
+            chunk_index=identity.chunk_index,
             records=records,
         )
     except ValueError as error:
@@ -778,9 +786,11 @@ def _decode_recovery_stage_identity(
         schema_hash = metadata[_DATASET_SCHEMA_HASH_KEY].decode()
         identity = _RecoveryStageIdentity(
             run_id=metadata[_RUN_ID_KEY].decode(),
+            segment_id=metadata[_SEGMENT_ID_KEY].decode(),
             header_content_hash=metadata[_HEADER_CONTENT_HASH_KEY].decode(),
             schedule_fingerprint=metadata[_SCHEDULE_FINGERPRINT_KEY].decode(),
             group_id=metadata[_GROUP_ID_KEY].decode(),
+            chunk_index=int(metadata[_CHUNK_INDEX_KEY]),
             operation_id=metadata[_OPERATION_ID_KEY].decode(),
             content_hash=metadata[_CONTENT_HASH_KEY].decode(),
             record_count=int(metadata[_RECORD_COUNT_KEY]),
@@ -800,9 +810,9 @@ def _decode_recovery_stage_identity(
         raise MeasurementArrowCodecError(
             "measurement recovery stage does not match its registered dataset schema"
         )
-    if identity.record_count < 0:
+    if identity.chunk_index < 0 or identity.record_count < 0:
         raise MeasurementArrowCodecError(
-            "measurement recovery stage record count cannot be negative"
+            "measurement recovery stage coordinates cannot be negative"
         )
     return identity
 

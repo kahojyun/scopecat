@@ -3014,48 +3014,91 @@ def test_sparse_measurement_recovery_group_is_staged_and_survives_restart(
             expected_record_count=3,
             record_count_limit=3,
         )
-        stage = MeasurementRecoveryGroupStage(
-            run_id=run_id,
-            header_content_hash=header.content_hash,
+        records = tuple(
+            MeasurementRecord(
+                run_id=run_id,
+                logical_point_id=f"point-{point_index}",
+                point_index=point_index,
+                coordinates={},
+                observables={
+                    "signal": MeasurementScalar.create(
+                        dtype="float64",
+                        value=float(point_index),
+                    )
+                },
+            )
+            for point_index in (0, 2)
+        )
+        stages = tuple(
+            MeasurementRecoveryGroupStage(
+                run_id=run_id,
+                segment_id=lease.segment_id,
+                header_content_hash=header.content_hash,
+                schedule_fingerprint="schedule-v1",
+                group_id=group_id,
+                chunk_index=chunk_index,
+                records=(record,),
+            )
+            for chunk_index, record in enumerate(records)
+        )
+        completion = RecoveryGroupCompletion(
             schedule_fingerprint="schedule-v1",
             group_id=group_id,
-            records=tuple(
-                MeasurementRecord(
-                    run_id=run_id,
-                    logical_point_id=f"point-{point_index}",
-                    point_index=point_index,
-                    coordinates={},
-                    observables={
-                        "signal": MeasurementScalar.create(
-                            dtype="float64",
-                            value=float(point_index),
-                        )
-                    },
-                )
-                for point_index in (0, 2)
+            point_indices=tuple(record.point_index for record in records),
+            output_kind="staged_measurement",
+            record_content_hashes=tuple(
+                content_hash
+                for stage in stages
+                for content_hash in stage.record_content_hashes
             ),
         )
         runtime.application.executor.initialize_measurements(
             run_id,
             MeasurementHeaderCommand(lease_id=lease.lease_id, header=header),
         )
-        committed = runtime.application.executor.commit_recovery_group_measurements(
+        stage_receipts = tuple(
+            runtime.application.executor.stage_recovery_group_measurements(
+                run_id,
+                lease_id=lease.lease_id,
+                content=encode_measurement_recovery_stage(
+                    stage,
+                    header.dataset_schema,
+                ),
+            )
+            for stage in stages
+        )
+        with pytest.raises(BackendConflict, match="measurements are unavailable"):
+            runtime.application.executor.recovery_group_measurement_index(
+                run_id,
+                group_id,
+            )
+        committed = runtime.application.executor.commit_recovery_groups(
             run_id,
-            lease_id=lease.lease_id,
-            content=encode_measurement_recovery_stage(
-                stage,
-                header.dataset_schema,
+            RunRecoveryGroupCommitCommand(
+                lease_id=lease.lease_id,
+                groups=(completion,),
             ),
         )
-        restored = decode_measurement_recovery_stage(
-            runtime.application.executor.recovery_group_measurements(run_id, group_id),
-            header.dataset_schema,
+        restored_index = runtime.application.executor.recovery_group_measurement_index(
+            run_id,
+            group_id,
+        )
+        restored = tuple(
+            decode_measurement_recovery_stage(
+                runtime.application.executor.recovery_group_measurement_chunk(
+                    run_id,
+                    group_id,
+                    chunk_index,
+                ),
+                header.dataset_schema,
+            )
+            for chunk_index in range(restored_index.chunk_count)
         )
         client = TestClient(runtime.app())
         http_retry = client.post(
             f"/api/v1/runs/{quote(run_id, safe='')}/recovery-groups/measurements",
             content=encode_measurement_recovery_stage(
-                stage,
+                stages[1],
                 header.dataset_schema,
             ),
             headers={
@@ -3067,49 +3110,71 @@ def test_sparse_measurement_recovery_group_is_staged_and_survives_restart(
             f"/api/v1/runs/{quote(run_id, safe='')}/recovery-groups/"
             f"{quote(group_id, safe='')}/measurements"
         )
-
-        assert tuple(item.completion for item in committed.items) == (stage.completion,)
-        assert restored == stage
-        assert http_retry.status_code == 200
-        assert http_retry.json()["items"][0][
-            "completion"
-        ] == stage.completion.model_dump(mode="json")
-        assert http_read.status_code == 200
-        assert (
-            decode_measurement_recovery_stage(
-                http_read.content,
-                header.dataset_schema,
+        http_chunks = tuple(
+            client.get(
+                f"/api/v1/runs/{quote(run_id, safe='')}/recovery-groups/"
+                f"{quote(group_id, safe='')}/measurements/{chunk_index}"
             )
-            == stage
+            for chunk_index in range(len(stages))
+        )
+
+        assert tuple(item.completion for item in committed.items) == (completion,)
+        assert restored == stages
+        assert restored_index.chunk_count == 2
+        assert restored_index.record_count == 2
+        assert http_retry.status_code == 200
+        assert http_retry.json() == stage_receipts[1].model_dump(mode="json")
+        assert http_read.status_code == 200
+        assert http_read.json() == restored_index.model_dump(mode="json")
+        assert (
+            tuple(
+                decode_measurement_recovery_stage(
+                    response.content, header.dataset_schema
+                )
+                for response in http_chunks
+            )
+            == stages
         )
         assert (
             runtime.application.executor.run_coverage(run_id).completed_point_count == 0
         )
         [pack_path] = tuple(tmp_path.rglob("*.pack"))
         pack_size = pack_path.stat().st_size
-        retry = runtime.application.executor.commit_recovery_group_measurements(
+        retry = runtime.application.executor.stage_recovery_group_measurements(
             run_id,
             lease_id=lease.lease_id,
             content=encode_measurement_recovery_stage(
-                stage,
+                stages[1],
                 header.dataset_schema,
             ),
         )
-        assert retry == committed
+        assert retry == stage_receipts[1]
         assert pack_path.stat().st_size == pack_size
 
     with LocalDaemonRuntime(tmp_path) as restarted:
-        [completion] = restarted.application.executor.recovery_groups(run_id).items
-        assert completion.completion == stage.completion
-        assert (
-            decode_measurement_recovery_stage(
-                restarted.application.executor.recovery_group_measurements(
-                    run_id,
-                    group_id,
-                ),
-                header.dataset_schema,
+        [restored_completion] = restarted.application.executor.recovery_groups(
+            run_id
+        ).items
+        assert restored_completion.completion == completion
+        restarted_index = (
+            restarted.application.executor.recovery_group_measurement_index(
+                run_id,
+                group_id,
             )
-            == stage
+        )
+        assert (
+            tuple(
+                decode_measurement_recovery_stage(
+                    restarted.application.executor.recovery_group_measurement_chunk(
+                        run_id,
+                        group_id,
+                        chunk_index,
+                    ),
+                    header.dataset_schema,
+                )
+                for chunk_index in range(restarted_index.chunk_count)
+            )
+            == stages
         )
 
 

@@ -212,9 +212,11 @@ schedule fingerprint, exact point membership, and output hashes are committed
 to a sparse recovery ledger. Runs without a dataset can publish that proof
 directly. A measurement group already inside the durable prefix cites canonical
 records; an out-of-order group publishes its exact Arrow records as
-`staged_measurement` evidence. The latter shares the current execution
-segment's append-only pack and does not turn the group into a file or hardware
-boundary.
+`staged_measurement` evidence. A logical group may span several bounded Arrow
+frames in the current execution segment's append-only pack. Those frames remain
+provisional until one final transaction verifies their contiguous frame index,
+ordered point membership, and record hashes against the group proof. The group
+therefore becomes neither a file nor a hardware boundary.
 
 One `ExperimentSystem` owns one domain compiler. The compiler may internally
 route supported dialects or invoke a lower-level target compiler after resolving

@@ -199,6 +199,8 @@ from scopecat.daemon.wire import (
     RunRecoveryGroupCommitCommand,
     RunRecoveryGroupCommitReceipt,
     RunRecoveryGroupPage,
+    RunRecoveryMeasurementStageIndex,
+    RunRecoveryMeasurementStageReceipt,
     RunSubmission,
     SampleCreateCommand,
     SampleMutationReceipt,
@@ -1448,32 +1450,45 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
         return application.executor.commit_recovery_groups(run_id, command)
 
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/recovery-groups/measurements")
-    async def commit_run_recovery_group_measurements(
+    async def stage_run_recovery_group_measurements(
         run_id: str,
         request: Request,
         lease_id: Annotated[
             str,
             Header(alias="X-Scopecat-Lease-ID", min_length=1),
         ],
-    ) -> RunRecoveryGroupCommitReceipt:
-        return application.executor.commit_recovery_group_measurements(
+    ) -> RunRecoveryMeasurementStageReceipt:
+        return application.executor.stage_recovery_group_measurements(
             run_id,
             lease_id=lease_id,
             content=await request.body(),
         )
 
-    @app.get(
-        f"{_API_PREFIX}/runs/{{run_id}}/recovery-groups/{{group_id}}/measurements",
-        response_class=Response,
-    )
-    def get_run_recovery_group_measurements(
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/recovery-groups/{{group_id}}/measurements")
+    def get_run_recovery_group_measurement_index(
         run_id: str,
         group_id: str,
+    ) -> RunRecoveryMeasurementStageIndex:
+        return application.executor.recovery_group_measurement_index(
+            run_id,
+            group_id,
+        )
+
+    @app.get(
+        f"{_API_PREFIX}/runs/{{run_id}}/recovery-groups/"
+        "{group_id}/measurements/{chunk_index}",
+        response_class=Response,
+    )
+    def get_run_recovery_group_measurement_chunk(
+        run_id: str,
+        group_id: str,
+        chunk_index: Annotated[int, ApiPath(ge=0)],
     ) -> Response:
         return Response(
-            content=application.executor.recovery_group_measurements(
+            content=application.executor.recovery_group_measurement_chunk(
                 run_id,
                 group_id,
+                chunk_index,
             ),
             media_type="application/vnd.apache.arrow.file",
         )

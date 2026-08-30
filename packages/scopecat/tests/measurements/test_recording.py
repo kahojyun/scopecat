@@ -214,9 +214,11 @@ def test_arrow_recording_round_trips_non_contiguous_recovery_group() -> None:
     )
     stage = MeasurementRecoveryGroupStage(
         run_id=projected.run_id,
+        segment_id="segment-recovery-stage",
         header_content_hash=header.content_hash,
         schedule_fingerprint="schedule-v1",
         group_id="comparison:alternating",
+        chunk_index=1,
         records=(projected.records[0], second),
     )
 
@@ -231,7 +233,8 @@ def test_arrow_recording_round_trips_non_contiguous_recovery_group() -> None:
 
     assert restored == stage
     assert restored.point_indices == (0, 2)
-    assert restored.completion.output_kind == "staged_measurement"
+    assert restored.segment_id == "segment-recovery-stage"
+    assert restored.chunk_index == 1
     assert encode_measurement_recovery_stage(stage, header.dataset_schema) == encoded
 
 

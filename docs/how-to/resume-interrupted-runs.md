@@ -41,9 +41,11 @@ belong to a new segment-owned fragment. The final dataset identity covers both
 the old prefix and the new suffix.
 
 If the point schedule declares a recovery group, measurements from that group
-remain unpublished until every member completes. Interruption therefore makes
-resume repeat the whole unfinished group, even when one or more hardware
-batches from it had already completed. Hardware batch boundaries do not weaken
+remain unavailable to resume until every member completes and the final group
+proof is durable. The daemon may already hold provisional bounded Arrow frames,
+but they are not completion evidence. Interruption therefore makes resume repeat
+the whole unfinished group, even when one or more hardware batches or frame
+uploads from it had completed. Hardware and storage boundaries do not weaken
 this policy. With a reordered traversal, the current contiguous watermark may
 also conservatively replay a completed group that lies beyond an unfinished
 canonical prefix.

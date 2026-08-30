@@ -865,6 +865,28 @@ class RunRecoveryGroupCommitReceipt(_WireModel):
     items: tuple[RunRecoveryGroupView, ...] = Field(min_length=1)
 
 
+class RunRecoveryMeasurementStageReceipt(_WireModel):
+    """One bounded recovery frame accepted under an executor lease."""
+
+    run_id: NonEmptyText
+    group_id: NonEmptyText
+    segment_id: NonEmptyText
+    chunk_index: int = Field(ge=0)
+    operation_id: NonEmptyText
+    content_hash: NonEmptyText
+    record_count: int = Field(gt=0)
+
+
+class RunRecoveryMeasurementStageIndex(_WireModel):
+    """Physical frame coordinates for one published recovery group."""
+
+    run_id: NonEmptyText
+    group_id: NonEmptyText
+    segment_id: NonEmptyText
+    chunk_count: int = Field(gt=0)
+    record_count: int = Field(gt=0)
+
+
 class RunDomainJobTransitionItem(_WireModel):
     """One correlated target-job transition inside a durable append batch."""
 
@@ -1371,6 +1393,8 @@ __all__ = [
     "RunRecoveryGroupCommitReceipt",
     "RunRecoveryGroupPage",
     "RunRecoveryGroupView",
+    "RunRecoveryMeasurementStageIndex",
+    "RunRecoveryMeasurementStageReceipt",
     "RunSubmission",
     "SampleCreateCommand",
     "SampleMutationReceipt",

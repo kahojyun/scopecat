@@ -243,16 +243,36 @@ def _read_recovery_measurements(
     for completion in groups:
         if completion.output_kind != "staged_measurement":
             continue
-        stage = client.run_recovery_group_measurements(
+        stages = client.run_recovery_group_measurements(
             run_id,
             completion.group_id,
             dataset_schema=dataset_schema,
         )
-        if stage.run_id != run_id or stage.completion != completion:
+        if not stages or any(
+            stage.run_id != run_id
+            or stage.group_id != completion.group_id
+            or stage.schedule_fingerprint != completion.schedule_fingerprint
+            for stage in stages
+        ):
             raise ValueError(
                 "staged recovery measurements do not match their completion proof"
             )
-        records.extend(stage.records)
+        point_indices = tuple(
+            point_index for stage in stages for point_index in stage.point_indices
+        )
+        record_hashes = tuple(
+            content_hash
+            for stage in stages
+            for content_hash in stage.record_content_hashes
+        )
+        if (
+            point_indices != completion.point_indices
+            or record_hashes != completion.record_content_hashes
+        ):
+            raise ValueError(
+                "staged recovery measurements do not match their completion proof"
+            )
+        records.extend(record for stage in stages for record in stage.records)
     return tuple(records)
 
 
@@ -309,6 +329,14 @@ class _LeaseAuthority:
         if lease is None:
             raise RuntimeError("executor has not started")
         return lease.lease_id
+
+    def segment_id(self) -> str:
+        self.fence()
+        with self._lock:
+            lease = self._lease
+        if lease is None:
+            raise RuntimeError("executor has not started")
+        return lease.segment_id
 
     def heartbeat(self) -> ExecutorLease:
         lease_id = self.fence()
@@ -433,27 +461,52 @@ class _DaemonRunRecoveryGroups:
     ) -> None:
         if completion.output_kind != "staged_measurement":
             raise ValueError("measurement staging requires a staged group completion")
-        stage = MeasurementRecoveryGroupStage(
-            run_id=self._authority.run_id,
-            header_content_hash=header_content_hash,
-            schedule_fingerprint=completion.schedule_fingerprint,
-            group_id=completion.group_id,
-            records=records,
+        segment_id = self._authority.segment_id()
+        stages = tuple(
+            MeasurementRecoveryGroupStage(
+                run_id=self._authority.run_id,
+                segment_id=segment_id,
+                header_content_hash=header_content_hash,
+                schedule_fingerprint=completion.schedule_fingerprint,
+                group_id=completion.group_id,
+                chunk_index=chunk_index,
+                records=chunk,
+            )
+            for chunk_index, chunk in enumerate(_measurement_record_chunks(records))
         )
-        if stage.completion != completion:
+        if (
+            tuple(point for stage in stages for point in stage.point_indices)
+            != completion.point_indices
+            or tuple(
+                content_hash
+                for stage in stages
+                for content_hash in stage.record_content_hashes
+            )
+            != completion.record_content_hashes
+        ):
             raise ValueError(
                 "staged recovery measurements do not match their completion proof"
             )
-        receipt = self._authority.client.commit_run_recovery_group_measurements(
-            self._authority.run_id,
-            lease_id=self._authority.fence(),
-            stage=stage,
-            dataset_schema=dataset_schema,
-        )
-        if receipt.run_id != self._authority.run_id or tuple(
-            item.completion for item in receipt.items
-        ) != (completion,):
-            raise ValueError("recovery group stage receipt does not match its request")
+        for stage in stages:
+            receipt = self._authority.client.stage_run_recovery_group_measurements(
+                self._authority.run_id,
+                lease_id=self._authority.fence(),
+                stage=stage,
+                dataset_schema=dataset_schema,
+            )
+            if (
+                receipt.run_id != stage.run_id
+                or receipt.group_id != stage.group_id
+                or receipt.segment_id != stage.segment_id
+                or receipt.chunk_index != stage.chunk_index
+                or receipt.operation_id != stage.operation_id
+                or receipt.content_hash != stage.content_hash
+                or receipt.record_count != len(stage.records)
+            ):
+                raise ValueError(
+                    "recovery measurement frame receipt does not match its request"
+                )
+        self.commit((completion,))
 
 
 class _DaemonRunDomainJobTransitions:
@@ -874,6 +927,29 @@ def _measurement_record_value_bytes(record: MeasurementRecord) -> int:
         for value in values.values()
         if isinstance(value, MeasurementArray | MeasurementPartitionedArray)
     )
+
+
+def _measurement_record_chunks(
+    records: tuple[MeasurementRecord, ...],
+) -> tuple[tuple[MeasurementRecord, ...], ...]:
+    chunks: list[tuple[MeasurementRecord, ...]] = []
+    pending: list[MeasurementRecord] = []
+    pending_value_bytes = 0
+    for record in records:
+        value_bytes = _measurement_record_value_bytes(record)
+        if pending and (
+            len(pending) >= _MEASUREMENT_TRANSPORT_RECORD_LIMIT
+            or pending_value_bytes + value_bytes
+            > _MEASUREMENT_TRANSPORT_VALUE_BYTE_LIMIT
+        ):
+            chunks.append(tuple(pending))
+            pending = []
+            pending_value_bytes = 0
+        pending.append(record)
+        pending_value_bytes += value_bytes
+    if pending:
+        chunks.append(tuple(pending))
+    return tuple(chunks)
 
 
 __all__ = [

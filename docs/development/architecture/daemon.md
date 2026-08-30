@@ -18,7 +18,10 @@ exact run-to-sample bindings, event order, and durable writes. SQLite is the
 transaction and ordering boundary. General immutable content lives in a SHA-256
 object store. Measurement Arrow frames append to a segment-owned pack and are
 addressed by SQLite offset, length, and digest only after the pack is fsynced.
-Clients open none of these stores directly.
+Clients open none of these stores directly. Sparse recovery measurements use
+the same physical frames and pack: a client may upload several bounded frames
+for one logical group, but only the separate final group proof makes the
+verified frame set visible to resume.
 
 Sample creation and revision activation append `sample_created` and
 `sample_revision_activated` events in the same SQLite transaction as the

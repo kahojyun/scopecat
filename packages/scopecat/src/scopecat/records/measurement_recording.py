@@ -15,7 +15,6 @@ from scopecat.kernel.content_identity import (
     model_wire_content_hash,
     stable_content_hash,
 )
-from scopecat.records.execution import RecoveryGroupCompletion
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDatasetSchema,
@@ -187,18 +186,21 @@ class MeasurementDatasetAppend(MeasurementDatasetBatch):
 
 
 class MeasurementRecoveryGroupStage(_FrozenRecordingModel):
-    """One exact recovery group's non-contiguous measurement records."""
+    """One bounded physical frame of a recovery group's sparse records."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
+    segment_id: str
     header_content_hash: str
     schedule_fingerprint: str
     group_id: str
+    chunk_index: int = Field(ge=0)
     records: tuple[MeasurementRecord, ...] = Field(min_length=1)
 
     @field_validator(
         "run_id",
+        "segment_id",
         "header_content_hash",
         "schedule_fingerprint",
         "group_id",
@@ -234,10 +236,12 @@ class MeasurementRecoveryGroupStage(_FrozenRecordingModel):
     def operation_id(self) -> str:
         digest = stable_content_hash(
             {
-                "schema": "scopecat.measurement_recovery_stage_operation.v1",
+                "schema": "scopecat.measurement_recovery_stage_operation.v2",
                 "run_id": self.run_id,
+                "segment_id": self.segment_id,
                 "schedule_fingerprint": self.schedule_fingerprint,
                 "group_id": self.group_id,
+                "chunk_index": self.chunk_index,
             }
         )
         return f"measurement-recovery-stage:{digest}"
@@ -246,24 +250,16 @@ class MeasurementRecoveryGroupStage(_FrozenRecordingModel):
     def content_hash(self) -> str:
         return stable_content_hash(
             {
-                "schema": "scopecat.measurement_recovery_stage_content.v1",
+                "schema": "scopecat.measurement_recovery_stage_content.v2",
                 "run_id": self.run_id,
+                "segment_id": self.segment_id,
                 "header_content_hash": self.header_content_hash,
                 "schedule_fingerprint": self.schedule_fingerprint,
                 "group_id": self.group_id,
+                "chunk_index": self.chunk_index,
                 "point_indices": self.point_indices,
                 "record_content_hashes": self.record_content_hashes,
             }
-        )
-
-    @property
-    def completion(self) -> RecoveryGroupCompletion:
-        return RecoveryGroupCompletion(
-            schedule_fingerprint=self.schedule_fingerprint,
-            group_id=self.group_id,
-            point_indices=self.point_indices,
-            output_kind="staged_measurement",
-            record_content_hashes=self.record_content_hashes,
         )
 
 

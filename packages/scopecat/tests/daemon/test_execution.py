@@ -96,6 +96,26 @@ from scopecat.sdk.instruments.members import PropertyRef
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
 
 
+def test_recovery_measurement_frames_use_bounded_transport_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(daemon_execution, "_MEASUREMENT_TRANSPORT_RECORD_LIMIT", 2)
+    records = tuple(
+        _measurement().model_copy(
+            update={
+                "logical_point_id": f"point-{point_index}",
+                "point_index": point_index,
+            }
+        )
+        for point_index in range(5)
+    )
+
+    chunks = daemon_execution._measurement_record_chunks(records)
+
+    assert tuple(len(chunk) for chunk in chunks) == (2, 2, 1)
+    assert tuple(record for chunk in chunks for record in chunk) == records
+
+
 def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

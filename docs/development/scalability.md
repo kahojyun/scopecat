@@ -750,11 +750,17 @@ The present architecture provides a direct end-to-end baseline:
   coverage separately from the canonical prefix and rejects overlapping points,
   conflicting retries, or measurement proofs whose record hashes have not been
   published. Out-of-order measurement groups publish schema-checked Arrow
-  frames into the same segment pack used by canonical appends, with the frame
-  locator and group proof committed atomically. Resume verifies those hashes,
-  ignores staged rows already below the canonical watermark, and hydrates the
-  remaining sparse rows into the ordering buffer. Logical recovery groups do
-  not become one-file or one-hardware-batch boundaries;
+  frames into the same segment pack used by canonical appends. Each bounded
+  frame is durably indexed under its fenced execution segment but remains
+  invisible to recovery reads. A final transaction verifies the complete,
+  gap-free frame set against the group proof and publishes the group. Interrupted
+  partial uploads do not count as completion; a later execution segment can
+  stage the full group again, and successful publication discards obsolete
+  locator rows while harmless orphaned pack tails remain invisible. Resume
+  verifies the published hashes, ignores staged rows already below the canonical
+  watermark, and hydrates the remaining sparse rows into the ordering buffer.
+  Logical recovery groups do not become one-file or one-hardware-batch
+  boundaries;
 - ordinary command payload uploads use an in-memory spool scoped by run and
   hardware operation, or by direct session and command. A completed, rejected,
   or replayed operation releases its bytes immediately; owner termination and

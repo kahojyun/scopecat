@@ -186,6 +186,8 @@ from scopecat.daemon.wire import (
     RunRecoveryGroupCommitCommand,
     RunRecoveryGroupCommitReceipt,
     RunRecoveryGroupPage,
+    RunRecoveryMeasurementStageIndex,
+    RunRecoveryMeasurementStageReceipt,
     RunSubmission,
     SampleCreateCommand,
     SampleMutationReceipt,
@@ -1713,14 +1715,14 @@ class DaemonClient:
             RunRecoveryGroupCommitReceipt,
         )
 
-    def commit_run_recovery_group_measurements(
+    def stage_run_recovery_group_measurements(
         self,
         run_id: str,
         *,
         lease_id: str,
         stage: MeasurementRecoveryGroupStage,
         dataset_schema: MeasurementDatasetSchema,
-    ) -> RunRecoveryGroupCommitReceipt:
+    ) -> RunRecoveryMeasurementStageReceipt:
         response = self._request(
             "POST",
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/recovery-groups/measurements",
@@ -1730,7 +1732,7 @@ class DaemonClient:
                 "X-Scopecat-Lease-ID": lease_id,
             },
         )
-        return RunRecoveryGroupCommitReceipt.model_validate_json(response.content)
+        return RunRecoveryMeasurementStageReceipt.model_validate_json(response.content)
 
     def run_recovery_group_measurements(
         self,
@@ -1738,13 +1740,35 @@ class DaemonClient:
         group_id: str,
         *,
         dataset_schema: MeasurementDatasetSchema,
-    ) -> MeasurementRecoveryGroupStage:
-        response = self._request(
-            "GET",
+    ) -> tuple[MeasurementRecoveryGroupStage, ...]:
+        base_path = (
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/recovery-groups/"
-            f"{quote(group_id, safe='')}/measurements",
+            f"{quote(group_id, safe='')}/measurements"
         )
-        return decode_measurement_recovery_stage(response.content, dataset_schema)
+        index = self._get_model(
+            base_path,
+            RunRecoveryMeasurementStageIndex,
+        )
+        if index.run_id != run_id or index.group_id != group_id:
+            raise ValueError("recovery measurement index does not match its request")
+        stages: list[MeasurementRecoveryGroupStage] = []
+        for chunk_index in range(index.chunk_count):
+            response = self._request("GET", f"{base_path}/{chunk_index}")
+            stage = decode_measurement_recovery_stage(
+                response.content,
+                dataset_schema,
+            )
+            if (
+                stage.run_id != run_id
+                or stage.group_id != group_id
+                or stage.segment_id != index.segment_id
+                or stage.chunk_index != chunk_index
+            ):
+                raise ValueError("recovery measurement frame does not match its index")
+            stages.append(stage)
+        if sum(len(stage.records) for stage in stages) != index.record_count:
+            raise ValueError("recovery measurement frame count is inconsistent")
+        return tuple(stages)
 
     def get_run_domain_job_transitions(
         self,

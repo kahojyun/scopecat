@@ -42,14 +42,16 @@ CREATE TABLE IF NOT EXISTS execution_recovery_group_points (
         ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS execution_recovery_group_measurements (
+CREATE TABLE IF NOT EXISTS execution_recovery_group_measurement_chunks (
     run_id TEXT NOT NULL,
     group_id TEXT NOT NULL,
     segment_id TEXT NOT NULL
         REFERENCES run_execution_segments(segment_id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL CHECK (chunk_index >= 0),
     operation_id TEXT NOT NULL,
     content_hash TEXT NOT NULL,
     header_content_hash TEXT NOT NULL,
+    schedule_fingerprint TEXT NOT NULL,
     point_indices_json TEXT NOT NULL,
     record_content_hashes_json TEXT NOT NULL,
     record_count INTEGER NOT NULL CHECK (record_count > 0),
@@ -58,12 +60,14 @@ CREATE TABLE IF NOT EXISTS execution_recovery_group_measurements (
     pack_offset INTEGER NOT NULL CHECK (pack_offset >= 0),
     pack_length INTEGER NOT NULL CHECK (pack_length > 0),
     payload_digest TEXT NOT NULL,
-    PRIMARY KEY (run_id, group_id),
+    PRIMARY KEY (run_id, group_id, segment_id, chunk_index),
     UNIQUE (run_id, operation_id),
-    UNIQUE (run_id, ref),
-    FOREIGN KEY (run_id, group_id)
-        REFERENCES execution_recovery_groups(run_id, group_id)
-        ON DELETE CASCADE
+    UNIQUE (run_id, ref)
+);
+
+CREATE INDEX IF NOT EXISTS execution_recovery_measurement_chunks_group
+ON execution_recovery_group_measurement_chunks(
+    run_id, group_id, segment_id, chunk_index
 );
 
 CREATE TABLE IF NOT EXISTS execution_domain_job_transitions (

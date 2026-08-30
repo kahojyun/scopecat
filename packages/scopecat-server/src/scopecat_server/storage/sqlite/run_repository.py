@@ -898,7 +898,7 @@ class SQLiteRunRepository:
                         WHERE run_id = ? AND ref = ?
                         UNION ALL
                         SELECT pack_id, pack_offset, pack_length, payload_digest
-                        FROM execution_recovery_group_measurements
+                        FROM execution_recovery_group_measurement_chunks
                         WHERE run_id = ? AND ref = ?
                         LIMIT 1
                         """,

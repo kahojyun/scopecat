@@ -846,7 +846,7 @@ def test_measurement_appends_share_one_segment_pack_without_chunk_objects(
     assert runs.read_bytes(run_id, cast("str", rows[0]["ref"]))
 
 
-def test_sparse_recovery_group_shares_segment_pack_and_replays_exact_frame(
+def test_sparse_recovery_group_shares_segment_pack_and_replays_bounded_frames(
     tmp_path: Path,
 ) -> None:
     run_id = "run-staged-recovery"
@@ -856,67 +856,104 @@ def test_sparse_recovery_group_shares_segment_pack_and_replays_exact_frame(
     header = _header(run_id, point_count=3)
     _commit_header(runs, measurements, header)
     _commit_append(runs, measurements, _append(header, point_index=0, value=1))
-    stage = MeasurementRecoveryGroupStage(
-        run_id=run_id,
-        header_content_hash=header.content_hash,
+    records = (
+        _append(header, point_index=0, value=1).records[0],
+        _append(header, point_index=2, value=3).records[0],
+    )
+    stages = tuple(
+        MeasurementRecoveryGroupStage(
+            run_id=run_id,
+            segment_id=_segment_id(run_id),
+            header_content_hash=header.content_hash,
+            schedule_fingerprint="schedule-v1",
+            group_id="comparison:alternating",
+            chunk_index=chunk_index,
+            records=(record,),
+        )
+        for chunk_index, record in enumerate(records)
+    )
+    completion = RecoveryGroupCompletion(
         schedule_fingerprint="schedule-v1",
         group_id="comparison:alternating",
-        records=(
-            _append(header, point_index=0, value=1).records[0],
-            _append(header, point_index=2, value=3).records[0],
+        point_indices=tuple(record.point_index for record in records),
+        output_kind="staged_measurement",
+        record_content_hashes=tuple(
+            content_hash
+            for stage in stages
+            for content_hash in stage.record_content_hashes
         ),
     )
-    prepared = measurements.prepare_recovery_stage(
-        stage,
-        segment_id=_segment_id(run_id),
-    )
-    with _sqlite_transaction(runs) as connection:
-        committed = groups.append_staged_in_transaction(
-            connection,
-            prepared,
+    prepared = tuple(
+        measurements.prepare_recovery_stage(
+            stage,
             segment_id=_segment_id(run_id),
         )
+        for stage in stages
+    )
+    with _sqlite_transaction(runs) as connection:
+        for item in prepared:
+            _receipt, created = measurements.stage_prepared_in_transaction(
+                connection,
+                item,
+                segment_id=_segment_id(run_id),
+            )
+            assert created
+        committed = groups.append_in_transaction(
+            connection,
+            (completion,),
+            segment_id=_segment_id(run_id),
+        )[0]
 
     [pack_path] = tuple(runs.measurement_packs.root.rglob("*.pack"))
     pack_size = pack_path.stat().st_size
     replay = measurements.prepare_recovery_stage(
-        stage,
+        stages[1],
         segment_id=_segment_id(run_id),
     )
     with _sqlite_transaction(runs) as connection:
-        replayed = groups.append_staged_in_transaction(
+        _receipt, created = measurements.stage_prepared_in_transaction(
             connection,
             replay,
             segment_id=_segment_id(run_id),
         )
-        proof_only = groups.append_in_transaction(
+        replayed = groups.append_in_transaction(
             connection,
-            (stage.completion,),
+            (completion,),
             segment_id=_segment_id(run_id),
         )[0]
 
-    assert committed == replayed == proof_only
-    assert committed.completion == stage.completion
+    assert not created
+    assert committed == replayed
+    assert committed.completion == completion
     assert pack_path.stat().st_size == pack_size
+    index = measurements.recovery_stage_index(completion.group_id)
+    assert index.chunk_count == 2
+    assert index.record_count == 2
     assert (
-        recording_arrow.decode_measurement_recovery_stage(
-            measurements.recovery_stage_content(stage.group_id),
-            header.dataset_schema,
+        tuple(
+            recording_arrow.decode_measurement_recovery_stage(
+                measurements.recovery_stage_content(completion.group_id, chunk_index),
+                header.dataset_schema,
+            )
+            for chunk_index in range(index.chunk_count)
         )
-        == stage
+        == stages
     )
     with runs.sqlite.read_connection() as connection:
-        row = connection.execute(
+        rows = connection.execute(
             """
             SELECT pack_id, ref, point_indices_json, record_content_hashes_json
-            FROM execution_recovery_group_measurements
+            FROM execution_recovery_group_measurement_chunks
             WHERE run_id = ? AND group_id = ?
+            ORDER BY chunk_index
             """,
-            (run_id, stage.group_id),
-        ).fetchone()
-    assert row is not None
-    assert cast("str", row["pack_id"]) == prepared.packed.pack_id
-    assert runs.read_bytes(run_id, cast("str", row["ref"]))
+            (run_id, completion.group_id),
+        ).fetchall()
+    assert len(rows) == 2
+    assert all(
+        cast("str", row["pack_id"]) == prepared[0].packed.pack_id for row in rows
+    )
+    assert all(runs.read_bytes(run_id, cast("str", row["ref"])) for row in rows)
 
 
 def test_staged_recovery_proof_without_measurement_frame_is_rejected(
@@ -939,7 +976,7 @@ def test_staged_recovery_proof_without_measurement_frame_is_rejected(
         _sqlite_transaction(runs) as connection,
         pytest.raises(
             ExecutionStateConflict,
-            match="requires its exact records",
+            match="missing its measurement frames",
         ),
     ):
         SQLiteRecoveryGroups(runs, run_id=run_id).append_in_transaction(
@@ -947,6 +984,198 @@ def test_staged_recovery_proof_without_measurement_frame_is_rejected(
             (completion,),
             segment_id=_segment_id(run_id),
         )
+
+
+def test_partial_recovery_frames_remain_invisible_until_final_proof(
+    tmp_path: Path,
+) -> None:
+    run_id = "run-partial-recovery-stage"
+    runs = _runs(tmp_path)
+    measurements = SQLiteMeasurementDatasetRepository(runs, run_id=run_id)
+    groups = SQLiteRecoveryGroups(runs, run_id=run_id)
+    header = _header(run_id, point_count=2)
+    _commit_header(runs, measurements, header)
+    records = (
+        _append(header, point_index=0, value=1).records[0],
+        _append(header, point_index=1, value=2).records[0],
+    )
+    stages = tuple(
+        MeasurementRecoveryGroupStage(
+            run_id=run_id,
+            segment_id=_segment_id(run_id),
+            header_content_hash=header.content_hash,
+            schedule_fingerprint="schedule-v1",
+            group_id="paired-points",
+            chunk_index=chunk_index,
+            records=(record,),
+        )
+        for chunk_index, record in enumerate(records)
+    )
+    completion = RecoveryGroupCompletion(
+        schedule_fingerprint="schedule-v1",
+        group_id="paired-points",
+        point_indices=(0, 1),
+        output_kind="staged_measurement",
+        record_content_hashes=tuple(
+            content_hash
+            for stage in stages
+            for content_hash in stage.record_content_hashes
+        ),
+    )
+
+    first = measurements.prepare_recovery_stage(
+        stages[0],
+        segment_id=_segment_id(run_id),
+    )
+    with _sqlite_transaction(runs) as connection:
+        measurements.stage_prepared_in_transaction(
+            connection,
+            first,
+            segment_id=_segment_id(run_id),
+        )
+    with (
+        pytest.raises(
+            ExecutionStateConflict,
+            match="do not match its completion proof",
+        ),
+        _sqlite_transaction(runs) as connection,
+    ):
+        groups.append_in_transaction(
+            connection,
+            (completion,),
+            segment_id=_segment_id(run_id),
+        )
+    assert groups.read(limit=64).items == ()
+    with pytest.raises(ExecutionStateConflict, match="no published"):
+        measurements.recovery_stage_index(completion.group_id)
+
+    second = measurements.prepare_recovery_stage(
+        stages[1],
+        segment_id=_segment_id(run_id),
+    )
+    with _sqlite_transaction(runs) as connection:
+        measurements.stage_prepared_in_transaction(
+            connection,
+            second,
+            segment_id=_segment_id(run_id),
+        )
+        committed = groups.append_in_transaction(
+            connection,
+            (completion,),
+            segment_id=_segment_id(run_id),
+        )
+
+    assert committed[0].completion == completion
+    assert measurements.recovery_stage_index(completion.group_id).chunk_count == 2
+
+
+def test_new_segment_can_replace_an_interrupted_recovery_upload(
+    tmp_path: Path,
+) -> None:
+    run_id = "run-recovery-segment-retry"
+    runs = _runs(tmp_path)
+    measurements = SQLiteMeasurementDatasetRepository(runs, run_id=run_id)
+    groups = SQLiteRecoveryGroups(runs, run_id=run_id)
+    header = _header(run_id, point_count=2)
+    _commit_header(runs, measurements, header)
+    records = (
+        _append(header, point_index=0, value=1).records[0],
+        _append(header, point_index=1, value=2).records[0],
+    )
+
+    def stage(segment_id: str, chunk_index: int) -> MeasurementRecoveryGroupStage:
+        return MeasurementRecoveryGroupStage(
+            run_id=run_id,
+            segment_id=segment_id,
+            header_content_hash=header.content_hash,
+            schedule_fingerprint="schedule-v1",
+            group_id="retry-whole-group",
+            chunk_index=chunk_index,
+            records=(records[chunk_index],),
+        )
+
+    old_stage = stage(_segment_id(run_id), 0)
+    old_prepared = measurements.prepare_recovery_stage(
+        old_stage,
+        segment_id=old_stage.segment_id,
+    )
+    with _sqlite_transaction(runs) as connection:
+        measurements.stage_prepared_in_transaction(
+            connection,
+            old_prepared,
+            segment_id=old_stage.segment_id,
+        )
+        connection.execute(
+            """
+            INSERT INTO run_execution_segments(
+                segment_id, run_id, ordinal, executor_id,
+                run_contract_fingerprint, started_at, start_point_count
+            )
+            VALUES (?, ?, 1, 'replacement-executor', ?, ?, 0)
+            """,
+            (
+                _segment_id(run_id, 1),
+                run_id,
+                "0" * 64,
+                datetime.now(UTC).isoformat(),
+            ),
+        )
+        measurements.header_prepared_in_transaction(
+            connection,
+            measurements.prepare_header(header),
+            segment_id=_segment_id(run_id, 1),
+        )
+
+    replacement_stages = tuple(
+        stage(_segment_id(run_id, 1), chunk_index) for chunk_index in range(2)
+    )
+    completion = RecoveryGroupCompletion(
+        schedule_fingerprint="schedule-v1",
+        group_id="retry-whole-group",
+        point_indices=(0, 1),
+        output_kind="staged_measurement",
+        record_content_hashes=tuple(
+            content_hash
+            for item in replacement_stages
+            for content_hash in item.record_content_hashes
+        ),
+    )
+    prepared = tuple(
+        measurements.prepare_recovery_stage(
+            item,
+            segment_id=_segment_id(run_id, 1),
+        )
+        for item in replacement_stages
+    )
+    with _sqlite_transaction(runs) as connection:
+        for item in prepared:
+            measurements.stage_prepared_in_transaction(
+                connection,
+                item,
+                segment_id=_segment_id(run_id, 1),
+            )
+        groups.append_in_transaction(
+            connection,
+            (completion,),
+            segment_id=_segment_id(run_id, 1),
+        )
+
+    with runs.sqlite.read_connection() as connection:
+        stored_segments = tuple(
+            cast("str", row["segment_id"])
+            for row in connection.execute(
+                """
+                SELECT DISTINCT segment_id
+                FROM execution_recovery_group_measurement_chunks
+                WHERE run_id = ? AND group_id = ?
+                """,
+                (run_id, completion.group_id),
+            ).fetchall()
+        )
+    assert stored_segments == (_segment_id(run_id, 1),)
+    assert measurements.recovery_stage_index(completion.group_id).segment_id == (
+        _segment_id(run_id, 1)
+    )
 
 
 def test_in_transaction_primitives_report_created_and_replay_durable_values(
