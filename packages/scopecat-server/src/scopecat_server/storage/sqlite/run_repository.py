@@ -61,6 +61,14 @@ from scopecat_server.storage.sqlite.analysis_index import (
     read_publication,
 )
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
+from scopecat_server.storage.sqlite.measurement_pack import (
+    MeasurementPackCorruptError,
+    MeasurementPackError,
+    MeasurementPackNotFoundError,
+    MeasurementPackStore,
+    PackedMeasurementPayload,
+    measurement_pack_root,
+)
 from scopecat_server.storage.sqlite.object_store import (
     ImmutableObjectStore,
     ObjectCorruptError,
@@ -123,6 +131,8 @@ class SQLiteRunRepository:
         self.sqlite = database
         self.database = database.path
         self.objects = ImmutableObjectStore(objects)
+        self.measurement_packs = MeasurementPackStore(measurement_pack_root(objects))
+        self.measurement_packs.bootstrap()
 
     def exists(self, run_id: str, ref: str) -> bool:
         _validate_identity(run_id, ref)
@@ -556,17 +566,17 @@ class SQLiteRunRepository:
             MeasurementDatasetHeader,
         )
         dataset_schema_hash = measurement_dataset_schema_hash(header.dataset_schema)
-        prefix = f"{ref}/chunks/"
         try:
             with self.sqlite.read_connection() as connection:
                 rows = _all(
                     connection.execute(
                         """
-                        SELECT ref FROM run_repository_refs
-                        WHERE run_id = ? AND substr(ref, 1, ?) = ?
-                        ORDER BY ref
+                        SELECT ref
+                        FROM execution_measurement_appends
+                        WHERE run_id = ?
+                        ORDER BY start_index
                         """,
-                        (run_id, len(prefix), prefix),
+                        (run_id,),
                     )
                 )
         except sqlite3.Error as error:
@@ -593,7 +603,24 @@ class SQLiteRunRepository:
             raise _invalid_ref(run_id, ref) from error
 
     def read_bytes(self, run_id: str, ref: str) -> bytes:
-        return self._read_ref(run_id, ref)
+        _validate_identity(run_id, ref)
+        digest = self._digest(run_id, ref)
+        if digest is not None:
+            return self._read_object(digest, run_id=run_id, ref=ref)
+        packed = self._packed_measurement_payload(run_id, ref)
+        if packed is None:
+            raise _integrity_failure(
+                run_id=run_id,
+                ref=ref,
+                code="run.ref_missing",
+                message="run is missing a referenced durable record",
+            )
+        try:
+            return self.measurement_packs.read(packed)
+        except (MeasurementPackNotFoundError, MeasurementPackCorruptError) as error:
+            raise _invalid_ref(run_id, ref) from error
+        except MeasurementPackError as error:
+            raise _storage_failure(run_id=run_id, ref=ref) from error
 
     def _prepare_model(
         self,
@@ -856,6 +883,37 @@ class SQLiteRunRepository:
             raise _storage_failure(run_id=run_id, ref=ref) from error
         return None if row is None else _text(row, "digest")
 
+    def _packed_measurement_payload(
+        self,
+        run_id: str,
+        ref: str,
+    ) -> PackedMeasurementPayload | None:
+        try:
+            with self.sqlite.read_connection() as connection:
+                row = _one(
+                    connection.execute(
+                        """
+                        SELECT pack_id, pack_offset, pack_length, payload_digest
+                        FROM execution_measurement_appends
+                        WHERE run_id = ? AND ref = ?
+                        """,
+                        (run_id, ref),
+                    )
+                )
+        except sqlite3.Error as error:
+            raise _storage_failure(run_id=run_id, ref=ref) from error
+        if row is None:
+            return None
+        try:
+            return PackedMeasurementPayload(
+                pack_id=_text(row, "pack_id"),
+                offset=_integer(row, "pack_offset"),
+                length=_integer(row, "pack_length"),
+                digest=_text(row, "payload_digest"),
+            )
+        except ValueError as error:
+            raise _invalid_ref(run_id, ref) from error
+
     def _read_object(self, digest: str, *, run_id: str, ref: str) -> bytes:
         try:
             return self.objects.read(digest)
@@ -1047,3 +1105,7 @@ def _all(cursor: sqlite3.Cursor) -> list[sqlite3.Row]:
 
 def _text(row: sqlite3.Row, column: str) -> str:
     return cast("str", row[column])
+
+
+def _integer(row: sqlite3.Row, column: str) -> int:
+    return cast("int", row[column])

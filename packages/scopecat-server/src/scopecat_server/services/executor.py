@@ -576,7 +576,10 @@ class ExecutorService:
                 records=records,
             )
             try:
-                prepared = repository.prepare_append(append)
+                prepared = repository.prepare_append(
+                    append,
+                    segment_id=segment_id,
+                )
             except ExecutionStateConflict as error:
                 raise BackendConflict(
                     "measurement command conflicts with durable state"

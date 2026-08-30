@@ -159,7 +159,7 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
         return self._flush(force=True)
 
     def append(self, append: MeasurementDatasetAppend) -> MeasurementDatasetReceipt:
-        prepared = self.prepare_append(append)
+        prepared = self.prepare_append(append, segment_id=self._segment_id)
         with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:
             receipt, _created = self.append_prepared_in_transaction(
                 connection,

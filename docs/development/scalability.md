@@ -559,7 +559,8 @@ The retention invariants are:
 - the reference list-mode runtime retains raw integrated-IQ as one
   address-major `complex128` matrix plus a boolean availability mask; it does
   not allocate one Python frame object per acquisition shot;
-- measurement files grow with bounded chunks, not one file per point;
+- measurement payloads grow as bounded frames inside one append-only file per
+  execution segment, not one file per point or per frame;
 - the direct-runner discard lower bound creates no durable metadata or
   measurement dataset.
 
@@ -725,16 +726,21 @@ The present architecture provides a direct end-to-end baseline:
   structurally compatible local route candidates. Point-local routing narrows
   the operations actually emitted, so a run may conservatively reserve an
   unused candidate rather than scanning every point before admission;
-- one SQLite writer owns durable ordering while immutable object storage carries
-  large content. The executor-to-daemon ingest path, durable chunks, and live
-  GUI latest-point path all use the same schema-driven Arrow IPC columns, so
-  numeric arrays never expand into JSON lists. Measurement chunks remain
+- one SQLite writer owns durable ordering. Immutable records use the content
+  object store, while bounded Arrow frames for one execution segment share an
+  append-only measurement pack. Frame bytes are fsynced before SQLite publishes
+  their offset, length, and payload digest; a crash between those steps can only
+  leave an invisible tail. Idempotent retries reuse the indexed frame. The
+  executor-to-daemon ingest path, durable frames, and live GUI latest-point path
+  all use the same schema-driven Arrow IPC columns, so numeric arrays never
+  expand into JSON lists. Measurement chunks remain
   bounded by record count and value bytes and gain a daemon-buffer age trigger
   evaluated as active ingest advances. Any of those three storage-policy bounds
   can make a chunk ready; explicit checkpoint, seal, and shutdown paths still
   force a flush. The default count limit is deliberately much larger than the
   transport envelope, so fast scalar scans do not turn every network batch into
-  a file and fsync. Projects can tune the daemon-local
+  a new frame and fsync; frame count no longer equals file count. Projects can
+  tune the daemon-local
   `MeasurementDurabilityPolicy` for their storage without changing experiment
   identity, grouping, traversal, or hardware batches. Dataset identity hashes
   the ordered record identities and is therefore independent of those chunk

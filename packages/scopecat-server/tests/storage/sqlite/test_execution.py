@@ -676,7 +676,10 @@ def _commit_append(
     repository: SQLiteMeasurementDatasetRepository,
     append: MeasurementDatasetAppend,
 ) -> None:
-    prepared = repository.prepare_append(append)
+    prepared = repository.prepare_append(
+        append,
+        segment_id=_segment_id(append.run_id),
+    )
     with _sqlite_transaction(runs) as connection:
         repository.append_prepared_in_transaction(
             connection,
@@ -780,6 +783,66 @@ def test_measurement_repository_reuses_schema_hash_for_appends(
     assert hash_calls == 1
 
 
+def test_measurement_appends_share_one_segment_pack_without_chunk_objects(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    run_id = "run-segment-pack"
+    repository = SQLiteMeasurementDatasetRepository(runs, run_id=run_id)
+    header = _header(run_id, point_count=2)
+    _commit_header(runs, repository, header)
+    _commit_append(runs, repository, _append(header, point_index=0))
+    _commit_append(runs, repository, _append(header, point_index=1))
+
+    with runs.sqlite.read_connection() as connection:
+        rows = cast(
+            "list[sqlite3.Row]",
+            connection.execute(
+                """
+                SELECT pack_id, pack_offset, pack_length, payload_digest, ref
+                FROM execution_measurement_appends
+                WHERE run_id = ?
+                ORDER BY start_index
+                """,
+                (run_id,),
+            ).fetchall(),
+        )
+        chunk_ref_count = cast(
+            "int",
+            connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM run_repository_refs
+                WHERE run_id = ? AND ref LIKE '%/chunks/%'
+                """,
+                (run_id,),
+            ).fetchone()[0],
+        )
+
+    assert len(rows) == 2
+    assert rows[0]["pack_id"] == rows[1]["pack_id"]
+    assert cast("int", rows[1]["pack_offset"]) > cast("int", rows[0]["pack_offset"])
+    assert all(cast("int", row["pack_length"]) > 0 for row in rows)
+    assert all(cast("str", row["payload_digest"]).startswith("sha256:") for row in rows)
+    assert chunk_ref_count == 0
+    [pack_path] = tuple(runs.measurement_packs.root.rglob("*.pack"))
+    pack_size = pack_path.stat().st_size
+    replay = repository.prepare_append(
+        _append(header, point_index=1),
+        segment_id=_segment_id(run_id),
+    )
+    with _sqlite_transaction(runs) as connection:
+        _receipt, created = repository.append_prepared_in_transaction(
+            connection,
+            replay,
+            segment_id=_segment_id(run_id),
+        )
+    assert not created
+    assert pack_path.stat().st_size == pack_size
+    assert [record.point_index for record in repository.measurements()] == [0, 1]
+    assert runs.read_bytes(run_id, cast("str", rows[0]["ref"]))
+
+
 def test_in_transaction_primitives_report_created_and_replay_durable_values(
     tmp_path: Path,
 ) -> None:
@@ -792,6 +855,7 @@ def test_in_transaction_primitives_report_created_and_replay_durable_values(
     prepared_header = measurements.prepare_header(header)
     prepared_append = measurements.prepare_append(
         append,
+        segment_id=_segment_id(run_id),
         dataset_schema=header.dataset_schema,
     )
     prepared_seal = measurements.prepare_seal(seal)
@@ -871,7 +935,10 @@ def test_two_measurement_connections_replay_and_conflict_by_canonical_slot(
         repository: SQLiteMeasurementDatasetRepository,
     ) -> tuple[str, bool]:
         barrier.wait()
-        prepared = repository.prepare_append(append)
+        prepared = repository.prepare_append(
+            append,
+            segment_id=_segment_id(header.run_id),
+        )
         with _sqlite_transaction(runs) as connection:
             receipt, created = repository.append_prepared_in_transaction(
                 connection,

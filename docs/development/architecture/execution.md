@@ -341,6 +341,14 @@ measurement records gain no segment field and no extra per-point transaction.
 Run-level paging and dataset identity still concatenate all chunks by global
 point index, independent of fragment boundaries.
 
+Physically, one segment's Arrow chunks are framed inside one append-only pack.
+The daemon fsyncs a frame before atomically publishing its pack id, offset,
+length, payload digest, coverage advance, and effect event in SQLite. A failed
+metadata transaction can leave unused bytes but cannot expose a partial record;
+readers never infer content by scanning the file. Logical chunk refs remain
+stable and resolve through the relational pack index, so paging and typed data
+access do not depend on the physical container.
+
 Chunk durability is a daemon storage policy rather than an experiment-plan
 property. Record count and array-value bytes bound memory and object size; an
 age trigger checked as ingest advances prevents a continuously active scalar

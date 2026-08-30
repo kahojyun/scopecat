@@ -157,6 +157,21 @@ def test_static_run_resumes_end_to_end_after_daemon_restart(
         assert [fragment.record_count for fragment in fragments] == [1, 2]
         dataset = resumed.content("dataset", RAW_MEASUREMENTS_DATASET_ID)
         assert fragments[-1].dataset_content_hash == dataset.content_hash
+        pack_files = tuple(
+            (tmp_path / ".scopecat" / "measurement-packs").rglob("*.pack")
+        )
+        assert len(pack_files) == 2
+        sqlite = resumed_runtime.application.executor._runs.sqlite
+        with sqlite.read_connection() as connection:
+            append_count = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM execution_measurement_appends
+                WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()[0]
+        assert append_count == 2
 
     assert [len(driver.collect_requests) for driver in provider.drivers] == [1, 2]
 

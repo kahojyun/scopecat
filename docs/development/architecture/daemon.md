@@ -6,7 +6,7 @@ local experiment closures.
 
 ```text
 GUI ─────────────────┐
-                     ├─ HTTP + SSE ─ daemon ─ SQLite + object store
+                     ├─ HTTP + SSE ─ daemon ─ SQLite + object/measurement stores
 notebook client ─────┘                    │
   └─ client executor ── fenced results ──┤
                          hardware batches ─ instrument worker
@@ -15,8 +15,10 @@ notebook client ─────┘                    │
 The daemon owns admission, run state, resource claims, executor leases,
 configuration activation, the sample registry and immutable sample revisions,
 exact run-to-sample bindings, event order, and durable writes. SQLite is the
-transaction and ordering boundary. Large immutable content lives in a SHA-256
-object store, and clients open neither store directly.
+transaction and ordering boundary. General immutable content lives in a SHA-256
+object store. Measurement Arrow frames append to a segment-owned pack and are
+addressed by SQLite offset, length, and digest only after the pack is fsynced.
+Clients open none of these stores directly.
 
 Sample creation and revision activation append `sample_created` and
 `sample_revision_activated` events in the same SQLite transaction as the
@@ -197,10 +199,16 @@ replaying those external effects.
 
 The daemon groups transport envelopes into durable Arrow chunks according to a
 local measurement durability policy. Its record and array-byte limits plus an
-age trigger evaluated during active ingest control object size and file/fsync
+age trigger evaluated during active ingest control frame size and frame/fsync
 frequency. Explicit checkpoint and terminal operations force the remaining
 prefix. These are operational storage settings and do not alter the accepted
 run contract or create a background flush timer.
+
+Every execution segment has at most one measurement pack file. Frames are never
+published before their bytes are durable. A process loss between pack append and
+SQLite commit leaves an unindexed tail; readers use exact indexed offsets and do
+not scan that tail. A later segment uses a different pack, preserving the
+original segment as immutable execution evidence.
 The high-level `lab.resume(...)` path reconstructs and validates the accepted
 run contract before it submits the `continue` attention disposition. Calling it
 therefore serves as the operator's explicit confirmation that external hardware

@@ -53,6 +53,11 @@ from scopecat.records.measurement_recording import (
     measurement_fragment_content_hash,
 )
 
+from scopecat_server.storage.sqlite.measurement_pack import (
+    MeasurementPackError,
+    PackedMeasurementPayload,
+    measurement_segment_pack_id,
+)
 from scopecat_server.storage.sqlite.object_store import ObjectStoreError, StoredObject
 from scopecat_server.storage.sqlite.run_repository import SQLiteRunRepository
 
@@ -72,6 +77,15 @@ class PreparedExecutionRecord[TModel: BaseModel]:
     durable: TModel
     ref: str
     stored: StoredObject
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedMeasurementAppend:
+    """Arrow frame made durable before publishing its relational coordinates."""
+
+    durable: MeasurementDatasetAppend
+    ref: str
+    packed: PackedMeasurementPayload
 
 
 class SQLiteRunCoverage:
@@ -1361,9 +1375,10 @@ class SQLiteMeasurementDatasetRepository:
         self,
         append: MeasurementDatasetAppend,
         *,
+        segment_id: str,
         dataset_schema: MeasurementDatasetSchema | None = None,
-    ) -> PreparedExecutionRecord[MeasurementDatasetAppend]:
-        """Publish immutable append content before entering the write transaction."""
+    ) -> PreparedMeasurementAppend:
+        """Fsync one segment-pack frame before entering the write transaction."""
 
         durable = append
         if durable.run_id != self._run_id:
@@ -1383,22 +1398,78 @@ class SQLiteMeasurementDatasetRepository:
             raise ExecutionStateConflict(
                 "measurement dataset append requires a registered schema"
             )
+        existing = self._existing_prepared_append(
+            durable,
+            ref=ref,
+            segment_id=segment_id,
+        )
+        if existing is not None:
+            return existing
         selected_schema, selected_schema_hash = schema_assets
-        return PreparedExecutionRecord(
+        return PreparedMeasurementAppend(
             durable=durable,
             ref=ref,
-            stored=_store_measurement_append(
+            packed=_store_measurement_append(
                 self._runs,
                 durable,
+                segment_id=segment_id,
                 dataset_schema=selected_schema,
                 dataset_schema_hash=selected_schema_hash,
             ),
         )
 
+    def _existing_prepared_append(
+        self,
+        append: MeasurementDatasetAppend,
+        *,
+        ref: str,
+        segment_id: str,
+    ) -> PreparedMeasurementAppend | None:
+        try:
+            with self._runs.sqlite.read_connection() as connection:
+                row = _one(
+                    connection.execute(
+                        """
+                        SELECT segment_id, operation_id, content_hash, ref,
+                               pack_id, pack_offset, pack_length, payload_digest
+                        FROM execution_measurement_appends
+                        WHERE run_id = ? AND start_index = ?
+                        """,
+                        (self._run_id, append.start_index),
+                    )
+                )
+            if row is None:
+                return None
+            if (
+                _text(row, "segment_id") != segment_id
+                or _text(row, "operation_id") != append.operation_id
+                or _text(row, "content_hash") != append.content_hash
+                or _text(row, "ref") != ref
+            ):
+                raise ExecutionStateConflict(
+                    "measurement dataset append already has different content"
+                )
+            return PreparedMeasurementAppend(
+                durable=append,
+                ref=ref,
+                packed=PackedMeasurementPayload(
+                    pack_id=_text(row, "pack_id"),
+                    offset=_integer(row, "pack_offset"),
+                    length=_integer(row, "pack_length"),
+                    digest=_text(row, "payload_digest"),
+                ),
+            )
+        except ExecutionStateError:
+            raise
+        except Exception as error:
+            raise ExecutionStateError(
+                f"failed to inspect a measurement append retry: {error}"
+            ) from error
+
     def append_prepared_in_transaction(
         self,
         connection: sqlite3.Connection,
-        prepared: PreparedExecutionRecord[MeasurementDatasetAppend],
+        prepared: PreparedMeasurementAppend,
         *,
         segment_id: str,
     ) -> tuple[MeasurementDatasetReceipt, bool]:
@@ -1460,16 +1531,22 @@ class SQLiteMeasurementDatasetRepository:
                 raise ExecutionStateConflict(
                     "measurement dataset append exceeds its declared point count"
                 )
-            _publish_ref(connection, self._run_id, ref, prepared.stored)
+            if prepared.packed.pack_id != measurement_segment_pack_id(
+                run_id=self._run_id,
+                segment_id=segment_id,
+            ):
+                raise ExecutionStateConflict(
+                    "measurement append belongs to a different segment pack"
+                )
             connection.execute(
                 """
                 INSERT INTO execution_measurement_appends(
                     run_id, segment_id, start_index, operation_id,
                     content_hash, header_content_hash,
                     record_content_hashes_json, record_count,
-                    ref
+                    ref, pack_id, pack_offset, pack_length, payload_digest
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     self._run_id,
@@ -1481,6 +1558,10 @@ class SQLiteMeasurementDatasetRepository:
                     json.dumps(durable.record_content_hashes),
                     len(durable.records),
                     ref,
+                    prepared.packed.pack_id,
+                    prepared.packed.offset,
+                    prepared.packed.length,
+                    prepared.packed.digest,
                 ),
             )
             return _append_receipt(durable), True
@@ -2124,23 +2205,29 @@ def _store_measurement_append(
     runs: SQLiteRunRepository,
     append: MeasurementDatasetAppend,
     *,
+    segment_id: str,
     dataset_schema: MeasurementDatasetSchema,
     dataset_schema_hash: str,
-) -> StoredObject:
+) -> PackedMeasurementPayload:
     from scopecat.measurements.recording_arrow import (
         MeasurementArrowCodecError,
         encode_measurement_append,
     )
 
     try:
-        return runs.objects.put(
-            encode_measurement_append(
-                append,
-                dataset_schema,
-                dataset_schema_hash=dataset_schema_hash,
-            )
+        content = encode_measurement_append(
+            append,
+            dataset_schema,
+            dataset_schema_hash=dataset_schema_hash,
         )
-    except (MeasurementArrowCodecError, ObjectStoreError) as error:
+        return runs.measurement_packs.append(
+            measurement_segment_pack_id(
+                run_id=append.run_id,
+                segment_id=segment_id,
+            ),
+            content,
+        )
+    except (MeasurementArrowCodecError, MeasurementPackError) as error:
         raise ExecutionStateError(
             f"measurement append is not durably serializable: {error}"
         ) from error

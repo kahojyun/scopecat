@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import cast
 
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
+from scopecat_server.storage.sqlite.measurement_pack import (
+    MeasurementPackStore,
+    measurement_pack_root,
+)
 from scopecat_server.storage.sqlite.object_store import ImmutableObjectStore
 from scopecat_server.storage.sqlite.schema import (
     PROJECT_SCHEMA_SQL,
@@ -34,6 +38,7 @@ class SQLiteProjectStore:
         self.sqlite = database
         self.database = database.path
         self.objects = ImmutableObjectStore(objects)
+        self.measurement_packs = MeasurementPackStore(measurement_pack_root(objects))
 
     def bootstrap(self) -> None:
         """Create the current store, refusing implicit schema migration."""
@@ -41,6 +46,7 @@ class SQLiteProjectStore:
         try:
             self.database.parent.mkdir(parents=True, exist_ok=True)
             self.objects.bootstrap()
+            self.measurement_packs.bootstrap()
             with closing(self._connect()) as connection:
                 connection.execute("PRAGMA journal_mode = WAL")
                 if _has_project_schema(connection):

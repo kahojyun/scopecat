@@ -165,6 +165,10 @@ CREATE TABLE IF NOT EXISTS execution_measurement_appends (
     record_content_hashes_json TEXT NOT NULL,
     record_count INTEGER NOT NULL CHECK (record_count > 0),
     ref TEXT NOT NULL,
+    pack_id TEXT NOT NULL,
+    pack_offset INTEGER NOT NULL CHECK (pack_offset >= 0),
+    pack_length INTEGER NOT NULL CHECK (pack_length > 0),
+    payload_digest TEXT NOT NULL,
     FOREIGN KEY (run_id) REFERENCES execution_measurement_headers(run_id),
     PRIMARY KEY (run_id, start_index),
     UNIQUE (run_id, operation_id)
