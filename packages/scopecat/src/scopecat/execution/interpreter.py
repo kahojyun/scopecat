@@ -583,11 +583,13 @@ def _execute_instrument_effects(
         )
 
     if setup_problems:
+        release_actions = ()
         try:
             finished = instruments.finish(
                 operation_id="hardware.reject-setup",
                 failed=True,
             )
+            release_actions = finished.actions
             release_problems = list(finished.problems)
             release_unknown = finished.indeterminate
         except Exception as error:
@@ -606,6 +608,7 @@ def _execute_instrument_effects(
             observed_state=(),
             baseline_state=(),
             final_state=(),
+            finalization_actions=release_actions,
             indeterminate=release_unknown,
         )
 

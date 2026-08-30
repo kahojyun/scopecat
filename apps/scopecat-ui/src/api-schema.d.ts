@@ -2971,6 +2971,34 @@ export interface components {
         };
         /** @enum {string} */
         InstrumentRunStartPolicy: "preserve" | "apply_default_state";
+        /**
+         * InstrumentSafeOperation
+         * @description One provider-declared operation executed only during device finalization.
+         */
+        InstrumentSafeOperation: {
+            /**
+             * Arguments
+             * @default []
+             */
+            arguments: components["schemas"]["InstrumentSafeOperationArgument"][];
+            /**
+             * Component Path
+             * @default []
+             */
+            component_path: components["schemas"]["_NonEmptyId"][];
+            interface_id: components["schemas"]["InterfaceId"];
+            operation_id: components["schemas"]["_NonEmptyId"];
+        };
+        /**
+         * InstrumentSafeOperationArgument
+         * @description One serializable argument for a configured device-safe operation.
+         */
+        InstrumentSafeOperationArgument: {
+            id: components["schemas"]["_NonEmptyId"];
+            value: components["schemas"]["StateValue"];
+        };
+        /** @enum {string} */
+        InstrumentSafeStateRequirement: "best_effort" | "required";
         /** InstrumentSessionEndReceipt */
         InstrumentSessionEndReceipt: {
             session_id: components["schemas"]["NonEmptyText"];
@@ -3049,9 +3077,13 @@ export interface components {
          *     Default and safe states are sparse patches over freshly observed state.
          *     After exclusive acquisition, ``run_start`` either preserves that observed
          *     baseline or applies ``default_state`` to establish the execution baseline.
-         *     A successful run either releases its final authored state or restores that
-         *     baseline before terminal readback. Failure always aborts first and may then
-         *     apply ``safe_state`` while the instrument remains commandable.
+         *     A successful run either releases its final authored state, restores that
+         *     baseline, or applies the configured safe-state actions before terminal
+         *     readback. Failure always aborts first and may then apply the same safe-state
+         *     actions while the instrument remains commandable. Safe operations run in
+         *     declaration order before the sparse ``safe_state`` patch. A required safe
+         *     state keeps the physical access domain quarantined when a known rejection
+         *     prevents completion.
          */
         InstrumentSpec: {
             connection: components["schemas"]["InstrumentConnection"];
@@ -3065,8 +3097,12 @@ export interface components {
             /** Id */
             id: string;
             run_start: components["schemas"]["InstrumentRunStartPolicy"];
+            /** Safe Operations */
+            safe_operations?: components["schemas"]["InstrumentSafeOperation"][];
             /** Safe State */
             safe_state?: components["schemas"]["InstrumentStateSetting"][];
+            /** @description Defaults to best_effort when omitted. */
+            safe_state_requirement?: components["schemas"]["InstrumentSafeStateRequirement"];
             success_action: components["schemas"]["InstrumentSuccessAction"];
         };
         /** InstrumentStateAssignment */
@@ -3181,7 +3217,7 @@ export interface components {
             observations?: components["schemas"]["InstrumentStateObservation"][];
         };
         /** @enum {string} */
-        InstrumentSuccessAction: "release" | "restore_baseline";
+        InstrumentSuccessAction: "release" | "restore_baseline" | "apply_safe_state";
         /**
          * InstrumentView
          * @description Instrument status without exposing configuration policy or driver options.

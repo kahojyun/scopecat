@@ -12,6 +12,7 @@ from scopecat.compiler.frontend.resolution import (
     CompiledInvocation,
     compile_invocation,
 )
+from scopecat.execution.evidence import instrument_state_evidence_ref
 from scopecat.execution.interpreter import execute_admitted_run
 from scopecat.execution.program import (
     RunCoverage,
@@ -33,6 +34,7 @@ from scopecat.records.config import (
     config_content_hash,
     instrument_bindings,
 )
+from scopecat.records.execution import InstrumentStateEvidence
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetHeader,
@@ -40,7 +42,10 @@ from scopecat.records.measurement_recording import (
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.runs.service import load_run_request
-from scopecat.sdk.instruments.execution import RunHardwareFinalizationReceipt
+from scopecat.sdk.instruments.execution import (
+    RunHardwareFinalizationActionReceipt,
+    RunHardwareFinalizationReceipt,
+)
 from scopecat.sdk.instruments.provider import InstrumentProviderContext
 from scopecat_testkit.authoring import simple_experiment
 from scopecat_testkit.execution_fakes import FakeMeasurementDatasetRepository
@@ -77,6 +82,30 @@ class _IndeterminateFinalizationHost(TestRunInstrumentHost):
                 failed=failed,
             )
             .model_copy(update={"indeterminate": True})
+        )
+
+
+class _FinalizationEvidenceHost(TestRunInstrumentHost):
+    @override
+    def finish(
+        self,
+        *,
+        operation_id: str,
+        failed: bool,
+    ) -> RunHardwareFinalizationReceipt:
+        finished = super().finish(operation_id=operation_id, failed=failed)
+        return finished.model_copy(
+            update={
+                "actions": (
+                    RunHardwareFinalizationActionReceipt(
+                        operation_id=f"{operation_id}.safe_operation.source-0.0",
+                        instrument_id="source-0",
+                        kind="safe_operation",
+                        status="completed",
+                        metadata={"device_status": "safe"},
+                    ),
+                )
+            }
         )
 
 
@@ -480,6 +509,51 @@ def test_cancelled_run_with_unknown_hardware_finalization_is_indeterminate(
     assert outcome.certainty == "indeterminate"
     assert {item.code for item in outcome.problems} == {"run_cancellation_requested"}
     assert services.runs.read_snapshot(accepted.run_id).outcome == outcome
+
+
+def test_finalization_actions_are_committed_with_terminal_instrument_evidence(
+    tmp_path: Path,
+) -> None:
+    services = sqlite_project_services(tmp_path)
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
+    planned = plan_experiment(
+        load_invocation(),
+        config=config,
+        services=services,
+        system=composition.system,
+    )
+    accepted = admit_test_run(
+        config=planned.config,
+        request=planned.request,
+        repository=services.runs,
+    )
+    session = sqlite_execution_session(
+        tmp_path,
+        accepted.run_id,
+        instruments=_FinalizationEvidenceHost(),
+    )
+
+    with pytest.raises(RunCancelled):
+        execute_admitted_run(
+            program=planned.program,
+            session=replace(session, cancellation_requested=lambda: True),
+        )
+
+    evidence = services.runs.read_model(
+        accepted.run_id,
+        instrument_state_evidence_ref(),
+        InstrumentStateEvidence,
+    )
+    [action] = evidence.finalization_actions
+    assert action.operation_id == "hardware.finish.safe_operation.source-0.0"
+    assert action.instrument_id == "source-0"
+    assert action.kind == "safe_operation"
+    assert action.status == "completed"
+    assert action.metadata == {"device_status": "safe"}
 
 
 def test_terminal_cancellation_arbitration_is_reflected_to_the_caller(

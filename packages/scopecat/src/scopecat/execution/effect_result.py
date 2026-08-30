@@ -10,6 +10,7 @@ from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import MeasurementValueCandidate
+from scopecat.records.execution import InstrumentFinalizationActionEvidence
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.domain.evidence import DomainExecutionEvidence
 
@@ -31,6 +32,7 @@ class RunEffectResult:
     observed_state: tuple[InstrumentStateSnapshot, ...]
     baseline_state: tuple[InstrumentStateSnapshot, ...]
     final_state: tuple[InstrumentStateSnapshot, ...]
+    finalization_actions: tuple[InstrumentFinalizationActionEvidence, ...] = ()
     domain_execution: DomainExecutionEvidence | None = None
     indeterminate: bool = False
     cancelled: bool = False

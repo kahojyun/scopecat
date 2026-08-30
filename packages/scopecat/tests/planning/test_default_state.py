@@ -90,8 +90,8 @@ def test_apply_default_state_requires_declared_defaults() -> None:
         )
 
 
-def test_abort_then_safe_state_requires_declared_safe_state() -> None:
-    with pytest.raises(ValidationError, match="non-empty safe state"):
+def test_abort_then_safe_state_requires_declared_safe_action() -> None:
+    with pytest.raises(ValidationError, match="non-empty action"):
         InstrumentSpec.model_validate(
             {
                 **_instrument_spec_data(),
@@ -99,6 +99,45 @@ def test_abort_then_safe_state_requires_declared_safe_state() -> None:
                 "failure_action": "abort_then_safe_state",
             }
         )
+
+
+def test_apply_safe_state_requires_declared_safe_action() -> None:
+    with pytest.raises(ValidationError, match="non-empty action"):
+        InstrumentSpec.model_validate(
+            {
+                **_instrument_spec_data(),
+                "run_start": "preserve",
+                "success_action": "apply_safe_state",
+            }
+        )
+
+
+def test_required_safe_state_must_be_selected_by_finalization() -> None:
+    with pytest.raises(ValidationError, match="must be selected"):
+        InstrumentSpec.model_validate(
+            {
+                **_instrument_spec_data(),
+                "run_start": "preserve",
+                "safe_state_requirement": "required",
+            }
+        )
+
+
+def test_inactive_safe_state_controls_preserve_legacy_config_wire_identity() -> None:
+    spec = InstrumentSpec.model_validate(
+        {
+            **_instrument_spec_data(),
+            "run_start": "preserve",
+        }
+    )
+
+    wire = spec.model_dump(mode="json")
+    wire_schema = InstrumentSpec.model_json_schema(mode="serialization")
+
+    assert "safe_operations" not in wire
+    assert "safe_state_requirement" not in wire
+    assert "safe_state_requirement" not in wire_schema.get("required", [])
+    assert "default" not in wire_schema["properties"]["safe_state_requirement"]
 
 
 def test_catalog_resolution_validates_defaults_against_advertised_interface() -> None:

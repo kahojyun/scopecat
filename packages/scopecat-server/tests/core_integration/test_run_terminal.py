@@ -12,6 +12,7 @@ from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.kernel.state import StateValue
 from scopecat.records.content import ContentEntry
 from scopecat.records.execution import (
+    InstrumentFinalizationActionEvidence,
     InstrumentStateEvidence,
     summarize_instrument_state_evidence,
 )
@@ -170,6 +171,15 @@ def test_terminal_contents_index_supplied_instrument_state() -> None:
         observed_state=[observed],
         baseline_state=[baseline],
         final_state=[final],
+        finalization_actions=[
+            InstrumentFinalizationActionEvidence(
+                operation_id="hardware.finish.safe_operation.scope.0",
+                instrument_id="scope",
+                kind="safe_operation",
+                status="completed",
+                metadata={"device_status": "safe"},
+            )
+        ],
     )
 
     contents = build_terminal_contents(
@@ -191,6 +201,7 @@ def test_terminal_contents_index_supplied_instrument_state() -> None:
             "baseline_changed_instrument_ids": ["scope"],
             "final_changed_instrument_ids": ["scope"],
             "missing_final_instrument_ids": [],
+            "finalization_action_count": 1,
         }
     }
 
@@ -208,6 +219,9 @@ def test_state_evidence_summary_keeps_missing_final_readback_neutral() -> None:
     assert summary.final_change_count == 0
     assert summary.final_changed_instrument_ids == ()
     assert summary.missing_final_instrument_ids == ("scope",)
+    assert "finalization_actions" not in evidence.model_dump(mode="json")
+    assert "finalization_action_count" not in summary.model_dump(mode="json")
+    assert "rejected_finalization_action_count" not in summary.model_dump(mode="json")
 
 
 def _instrument_state(

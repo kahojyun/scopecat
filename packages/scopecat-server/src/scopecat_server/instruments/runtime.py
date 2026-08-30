@@ -41,6 +41,7 @@ from scopecat.planning.provider_validation import (
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     InstrumentBindingSpec,
+    InstrumentSafeOperation,
     InstrumentSpec,
     config_content_hash,
     instrument_bindings,
@@ -67,6 +68,7 @@ from scopecat.sdk.instruments.commands import (
     CollectCommand,
     CollectReceipt,
     InstrumentConfiguredDefaultsApplyReceipt,
+    InstrumentOperationArgument,
     InstrumentStateCommand,
     InstrumentStateReadCommand,
     InteractiveCollectIntent,
@@ -90,6 +92,7 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareApply,
     RunHardwareBatchReceipt,
     RunHardwareCollect,
+    RunHardwareFinalizationActionReceipt,
     RunHardwareFinalizationReceipt,
     RunHardwareInvoke,
     RunHardwareValue,
@@ -592,7 +595,10 @@ class InstrumentRuntime:
                 status="ready",
             )
         except BackendConflict:
-            fault_ownership(runtime, abort=True)
+            self._emergency_fault_ownership(
+                runtime,
+                operation_id="hardware.provision.owner_loss",
+            )
             self._mark_run_unknown(
                 run_id,
                 token=command.lease_id,
@@ -793,7 +799,10 @@ class InstrumentRuntime:
                 problems=error.problems,
             )
         except DefaultStateReconciliationUnknown as error:
-            fault_ownership(runtime, abort=True)
+            self._emergency_fault_ownership(
+                runtime,
+                operation_id="hardware.provision.unknown",
+            )
             self._mark_run_unknown(
                 run_id,
                 token=command.lease_id,
@@ -1618,7 +1627,7 @@ class InstrumentRuntime:
                 provision = context.provision
                 if provision is None or provision.receipt.status != "ready":
                     raise BackendConflict("run instruments are not provisioned")
-                final_state, problems = self._finalize_run_instruments(
+                final_state, actions, problems = self._finalize_run_instruments(
                     run_id,
                     token=command.lease_id,
                     runtime=runtime,
@@ -1628,6 +1637,7 @@ class InstrumentRuntime:
                 )
                 receipt = RunHardwareFinalizationReceipt(
                     operation_id=command.operation_id,
+                    actions=tuple(actions),
                     final_state=tuple(final_state),
                     problems=tuple(problems),
                 )
@@ -1650,19 +1660,41 @@ class InstrumentRuntime:
         baseline_state: Sequence[InstrumentStateSnapshot],
         failed: bool,
         operation_id: str,
-    ) -> tuple[list[InstrumentStateSnapshot], list[Problem]]:
+    ) -> tuple[
+        list[InstrumentStateSnapshot],
+        list[RunHardwareFinalizationActionReceipt],
+        list[Problem],
+    ]:
         problems: list[Problem] = []
+        actions: list[RunHardwareFinalizationActionReceipt] = []
+        required_safe_instruments: set[str] = set()
         with runtime.lock:
             if not failed:
-                restore_problems = self._restore_baseline_or_quarantine(
+                restore_problems, restore_actions = (
+                    self._restore_baseline_or_quarantine(
+                        run_id,
+                        token=token,
+                        runtime=runtime,
+                        baseline_state=baseline_state,
+                        operation_id=operation_id,
+                    )
+                )
+                actions.extend(restore_actions)
+                if restore_problems:
+                    problems.extend(restore_problems)
+                    failed = True
+            if not failed:
+                safe_problems = self._apply_safe_states_or_quarantine(
                     run_id,
                     token=token,
                     runtime=runtime,
-                    baseline_state=baseline_state,
                     operation_id=operation_id,
+                    selected=lambda spec: spec.success_action == "apply_safe_state",
+                    actions=actions,
+                    required_safe_instruments=required_safe_instruments,
                 )
-                if restore_problems:
-                    problems.extend(restore_problems)
+                if safe_problems:
+                    problems.extend(safe_problems)
                     failed = True
             if failed:
                 for instrument_id in reversed(tuple(runtime.instruments)):
@@ -1679,12 +1711,26 @@ class InstrumentRuntime:
                         raise BackendConflict(
                             "instrument abort failed with unknown state"
                         ) from error
-                self._recover_failed_run_or_quarantine(
-                    run_id,
-                    token=token,
-                    runtime=runtime,
-                    operation_id=operation_id,
-                    problems=problems,
+                    actions.append(
+                        RunHardwareFinalizationActionReceipt(
+                            operation_id=f"{operation_id}.abort.{instrument_id}",
+                            instrument_id=instrument_id,
+                            kind="abort",
+                            status="completed",
+                        )
+                    )
+                problems.extend(
+                    self._apply_safe_states_or_quarantine(
+                        run_id,
+                        token=token,
+                        runtime=runtime,
+                        operation_id=operation_id,
+                        selected=(
+                            lambda spec: spec.failure_action == "abort_then_safe_state"
+                        ),
+                        actions=actions,
+                        required_safe_instruments=required_safe_instruments,
+                    )
                 )
             final_state: list[InstrumentStateSnapshot] = []
             faulted: set[str] = set()
@@ -1692,6 +1738,17 @@ class InstrumentRuntime:
                 try:
                     final_state.append(observe_instrument(instrument))
                 except BackendConflict as error:
+                    if instrument_id in required_safe_instruments:
+                        self._lose_run_runtime(
+                            run_id,
+                            runtime,
+                            token=token,
+                            reason="run_instrument_required_safe_state_unconfirmed",
+                            abort=False,
+                        )
+                        raise BackendConflict(
+                            "required instrument safe state could not be confirmed"
+                        ) from error
                     faulted.add(instrument_id)
                     with suppress(Exception):
                         instrument.fault()
@@ -1717,7 +1774,7 @@ class InstrumentRuntime:
                 )
                 raise BackendConflict("instrument ownership release failed")
         self._pop_run_runtime(run_id, expected=runtime)
-        return final_state, problems
+        return final_state, actions, problems
 
     def _restore_baseline_or_quarantine(
         self,
@@ -1727,7 +1784,8 @@ class InstrumentRuntime:
         runtime: OwnershipRuntime,
         baseline_state: Sequence[InstrumentStateSnapshot],
         operation_id: str,
-    ) -> list[Problem]:
+    ) -> tuple[list[Problem], list[RunHardwareFinalizationActionReceipt]]:
+        actions: list[RunHardwareFinalizationActionReceipt] = []
         baseline_by_instrument = {
             state.instrument_id: state for state in baseline_state
         }
@@ -1752,6 +1810,14 @@ class InstrumentRuntime:
                 )
                 if command is None:
                     instrument.adopt_state(observed_state)
+                    actions.append(
+                        RunHardwareFinalizationActionReceipt(
+                            operation_id=restore_operation_id,
+                            instrument_id=instrument_id,
+                            kind="restore_baseline",
+                            status="unchanged",
+                        )
+                    )
                     continue
                 receipt = execute_instrument_apply(
                     instrument,
@@ -1759,7 +1825,7 @@ class InstrumentRuntime:
                     assignments=command.assignments,
                 )
             except DefaultStateReconciliationRejected as rejection:
-                return list(
+                contextualized = tuple(
                     contextualize_problems(
                         rejection.problems,
                         run_id=run_id,
@@ -1767,6 +1833,16 @@ class InstrumentRuntime:
                         instrument_id=instrument_id,
                     )
                 )
+                actions.append(
+                    RunHardwareFinalizationActionReceipt(
+                        operation_id=restore_operation_id,
+                        instrument_id=instrument_id,
+                        kind="restore_baseline",
+                        status="rejected",
+                        problems=contextualized,
+                    )
+                )
+                return list(contextualized), actions
             except (BackendConflict, InstrumentCommandExecutionError) as error:
                 self._lose_run_runtime(
                     run_id,
@@ -1788,7 +1864,7 @@ class InstrumentRuntime:
                     "instrument baseline restore failed with unknown state"
                 )
             if receipt.status != "applied":
-                return list(
+                contextualized = tuple(
                     contextualize_problems(
                         receipt.problems,
                         run_id=run_id,
@@ -1796,21 +1872,130 @@ class InstrumentRuntime:
                         instrument_id=instrument_id,
                     )
                 )
-        return []
+                actions.append(
+                    RunHardwareFinalizationActionReceipt(
+                        operation_id=restore_operation_id,
+                        instrument_id=instrument_id,
+                        kind="restore_baseline",
+                        status="rejected",
+                        metadata=receipt.metadata,
+                        problems=contextualized,
+                    )
+                )
+                return list(contextualized), actions
+            actions.append(
+                RunHardwareFinalizationActionReceipt(
+                    operation_id=restore_operation_id,
+                    instrument_id=instrument_id,
+                    kind="restore_baseline",
+                    status="completed",
+                    metadata=receipt.metadata,
+                )
+            )
+        return [], actions
 
-    def _recover_failed_run_or_quarantine(
+    def _apply_safe_states_or_quarantine(
         self,
         run_id: str,
         *,
         token: str,
         runtime: OwnershipRuntime,
         operation_id: str,
-        problems: list[Problem],
-    ) -> None:
+        selected: Callable[[InstrumentSpec], bool],
+        actions: list[RunHardwareFinalizationActionReceipt],
+        required_safe_instruments: set[str],
+    ) -> list[Problem]:
+        problems: list[Problem] = []
         for instrument_id, instrument in runtime.instruments.items():
             spec = runtime.specs[instrument_id]
-            if spec.failure_action != "abort_then_safe_state":
+            if not selected(spec):
                 continue
+            if spec.safe_state_requirement == "required":
+                required_safe_instruments.add(instrument_id)
+            rejected = False
+            for index, operation in enumerate(spec.safe_operations):
+                safe_operation_id = (
+                    f"{operation_id}.safe_operation.{instrument_id}.{index}"
+                )
+                command = self._configured_safe_operation_command(
+                    instrument_id,
+                    operation,
+                    operation_id=safe_operation_id,
+                )
+                try:
+                    receipt = execute_instrument_invoke(
+                        instrument,
+                        lower_backend_invoke_request(
+                            command,
+                            materialized_payloads={},
+                        ),
+                    )
+                except InstrumentCommandExecutionError as error:
+                    self._lose_run_runtime(
+                        run_id,
+                        runtime,
+                        token=token,
+                        reason="run_instrument_safe_operation_unknown",
+                        abort=False,
+                    )
+                    raise BackendConflict(
+                        "instrument safe operation failed with unknown state"
+                    ) from error
+                if receipt.status == "unknown":
+                    self._lose_run_runtime(
+                        run_id,
+                        runtime,
+                        token=token,
+                        reason="run_instrument_safe_operation_unknown",
+                        abort=False,
+                    )
+                    raise BackendConflict(
+                        "instrument safe operation failed with unknown state"
+                    )
+                if receipt.status != "invoked":
+                    contextualized = tuple(
+                        contextualize_problems(
+                            receipt.problems,
+                            run_id=run_id,
+                            operation_id=safe_operation_id,
+                            instrument_id=instrument_id,
+                        )
+                    )
+                    actions.append(
+                        RunHardwareFinalizationActionReceipt(
+                            operation_id=safe_operation_id,
+                            instrument_id=instrument_id,
+                            kind="safe_operation",
+                            status="rejected",
+                            metadata=receipt.metadata,
+                            problems=contextualized,
+                        )
+                    )
+                    if spec.safe_state_requirement == "required":
+                        self._lose_run_runtime(
+                            run_id,
+                            runtime,
+                            token=token,
+                            reason="run_instrument_required_safe_state_rejected",
+                        )
+                        raise BackendConflict(
+                            "required instrument safe operation was rejected"
+                        )
+                    problems.extend(contextualized)
+                    rejected = True
+                    break
+                actions.append(
+                    RunHardwareFinalizationActionReceipt(
+                        operation_id=safe_operation_id,
+                        instrument_id=instrument_id,
+                        kind="safe_operation",
+                        status="completed",
+                        metadata=receipt.metadata,
+                    )
+                )
+            if rejected or not spec.safe_state:
+                continue
+            safe_state_operation_id = f"{operation_id}.safe_state.{instrument_id}"
             try:
                 observed_state = observe_instrument(instrument)
                 assignments = configured_state_assignments(
@@ -1823,10 +2008,18 @@ class InstrumentRuntime:
                     assignments=assignments,
                     instrument=instrument,
                     observed_state=observed_state,
-                    operation_id=f"{operation_id}.safe_state.{instrument_id}",
+                    operation_id=safe_state_operation_id,
                 )
                 if command is None:
                     instrument.adopt_state(observed_state)
+                    actions.append(
+                        RunHardwareFinalizationActionReceipt(
+                            operation_id=safe_state_operation_id,
+                            instrument_id=instrument_id,
+                            kind="safe_state",
+                            status="unchanged",
+                        )
+                    )
                     continue
                 receipt = execute_instrument_apply(
                     instrument,
@@ -1859,7 +2052,129 @@ class InstrumentRuntime:
                     "instrument safe-state recovery failed with unknown state"
                 )
             if receipt.status != "applied":
-                problems.extend(receipt.problems)
+                contextualized = tuple(
+                    contextualize_problems(
+                        receipt.problems,
+                        run_id=run_id,
+                        operation_id=safe_state_operation_id,
+                        instrument_id=instrument_id,
+                    )
+                )
+                actions.append(
+                    RunHardwareFinalizationActionReceipt(
+                        operation_id=safe_state_operation_id,
+                        instrument_id=instrument_id,
+                        kind="safe_state",
+                        status="rejected",
+                        metadata=receipt.metadata,
+                        problems=contextualized,
+                    )
+                )
+                if spec.safe_state_requirement == "required":
+                    self._lose_run_runtime(
+                        run_id,
+                        runtime,
+                        token=token,
+                        reason="run_instrument_required_safe_state_rejected",
+                    )
+                    raise BackendConflict("required instrument safe state was rejected")
+                problems.extend(contextualized)
+                continue
+            actions.append(
+                RunHardwareFinalizationActionReceipt(
+                    operation_id=safe_state_operation_id,
+                    instrument_id=instrument_id,
+                    kind="safe_state",
+                    status="completed",
+                    metadata=receipt.metadata,
+                )
+            )
+        return problems
+
+    @staticmethod
+    def _configured_safe_operation_command(
+        instrument_id: str,
+        operation: InstrumentSafeOperation,
+        *,
+        operation_id: str,
+    ) -> InvokeCommand:
+        return InvokeCommand(
+            command_id=operation_id,
+            instrument_id=instrument_id,
+            resource_id=instrument_id,
+            interface_id=operation.interface_id,
+            component_path=list(operation.component_path),
+            operation_id=operation.operation_id,
+            arguments=[
+                InstrumentOperationArgument(id=argument.id, value=argument.value)
+                for argument in operation.arguments
+            ],
+        )
+
+    def _emergency_fault_ownership(
+        self,
+        runtime: OwnershipRuntime,
+        *,
+        operation_id: str,
+    ) -> bool:
+        """Attempt daemon-owned failure actions before discarding a lost owner."""
+
+        failed = abort_instruments(runtime.instruments.values())
+        for instrument_id, instrument in runtime.instruments.items():
+            spec = runtime.specs[instrument_id]
+            if spec.failure_action != "abort_then_safe_state":
+                continue
+            rejected = False
+            for index, operation in enumerate(spec.safe_operations):
+                command = self._configured_safe_operation_command(
+                    instrument_id,
+                    operation,
+                    operation_id=(
+                        f"{operation_id}.safe_operation.{instrument_id}.{index}"
+                    ),
+                )
+                try:
+                    receipt = execute_instrument_invoke(
+                        instrument,
+                        lower_backend_invoke_request(
+                            command,
+                            materialized_payloads={},
+                        ),
+                    )
+                except Exception:
+                    failed = True
+                    rejected = True
+                    break
+                if receipt.status != "invoked":
+                    failed = True
+                    rejected = True
+                    break
+            if rejected or not spec.safe_state:
+                continue
+            try:
+                observed_state = observe_instrument(instrument)
+                assignments = configured_state_assignments(
+                    instrument_id=instrument_id,
+                    configured_state=spec.safe_state,
+                    instrument=instrument,
+                )
+                command = pending_configured_state_command(
+                    instrument_id=instrument_id,
+                    assignments=assignments,
+                    instrument=instrument,
+                    observed_state=observed_state,
+                    operation_id=f"{operation_id}.safe_state.{instrument_id}",
+                )
+                if command is not None:
+                    receipt = execute_instrument_apply(
+                        instrument,
+                        lower_backend_apply_request(command),
+                        assignments=command.assignments,
+                    )
+                    failed = failed or receipt.status != "applied"
+            except Exception:
+                failed = True
+        return fault_ownership(runtime, abort=False) or failed
 
     def _create_run_context(self, run_id: str) -> RunContext:
         with self._run_lock:
@@ -1876,7 +2191,10 @@ class InstrumentRuntime:
         with self._lifecycle_lock:
             if self._stopping:
                 if runtime is not None:
-                    fault_ownership(runtime, abort=True)
+                    self._emergency_fault_ownership(
+                        runtime,
+                        operation_id="hardware.daemon_shutdown",
+                    )
                 self._mark_run_unknown(
                     run_id,
                     token=provision.command.lease_id,
@@ -1886,7 +2204,10 @@ class InstrumentRuntime:
             with self._run_lock:
                 if self._run_contexts.get(run_id) is not context:
                     if runtime is not None:
-                        fault_ownership(runtime, abort=True)
+                        self._emergency_fault_ownership(
+                            runtime,
+                            operation_id="hardware.provision.owner_loss",
+                        )
                     raise BackendConflict("run instrument context is no longer active")
                 context.provision = provision
                 context.runtime = runtime
@@ -3035,7 +3356,10 @@ class InstrumentRuntime:
             self._payloads.release_owner("run", run_id)
             if runtime is not None:
                 with runtime.lock:
-                    fault_ownership(runtime, abort=True)
+                    self._emergency_fault_ownership(
+                        runtime,
+                        operation_id="hardware.owner_loss",
+                    )
 
     def reconcile_startup(self) -> None:
         with self._attention_lock:
@@ -3125,7 +3449,10 @@ class InstrumentRuntime:
                 runtime = context.runtime
                 if runtime is not None:
                     with runtime.lock:
-                        fault_ownership(runtime, abort=True)
+                        self._emergency_fault_ownership(
+                            runtime,
+                            operation_id="hardware.daemon_shutdown",
+                        )
                 if provision is not None:
                     self._mark_run_unknown(
                         run_id,

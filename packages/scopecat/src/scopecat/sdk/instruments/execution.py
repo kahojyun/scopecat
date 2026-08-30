@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.problems import Problem
 from scopecat.records.content import CommandPayload
+from scopecat.records.execution import InstrumentFinalizationActionEvidence
 from scopecat.records.instrument import CommandChannelBinding, InstrumentStateSnapshot
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
@@ -22,6 +23,10 @@ from scopecat.sdk.instruments.commands import (
     InstrumentStateCommand,
     InvokeCommand,
 )
+
+
+def _exclude_empty(value: object) -> bool:
+    return not value
 
 
 class _HardwareModel(BaseModel):
@@ -138,10 +143,18 @@ class RunHardwareBatchReceipt(_HardwareModel):
     indeterminate: bool = False
 
 
+class RunHardwareFinalizationActionReceipt(InstrumentFinalizationActionEvidence):
+    """One confirmed or rejected action attempted during device finalization."""
+
+
 class RunHardwareFinalizationReceipt(_HardwareModel):
-    """Best-effort terminal readback and release evidence for one run host."""
+    """Terminal action, readback, and release evidence for one run host."""
 
     operation_id: str = Field(min_length=1)
+    actions: tuple[RunHardwareFinalizationActionReceipt, ...] = Field(
+        default=(),
+        exclude_if=_exclude_empty,
+    )
     final_state: tuple[InstrumentStateSnapshot, ...] = ()
     problems: tuple[Problem, ...] = ()
     indeterminate: bool = False
@@ -185,6 +198,7 @@ __all__ = [
     "RunHardwareBatchReceipt",
     "RunHardwareCollect",
     "RunHardwareCollectBinding",
+    "RunHardwareFinalizationActionReceipt",
     "RunHardwareFinalizationReceipt",
     "RunHardwareInvoke",
     "RunHardwareValue",

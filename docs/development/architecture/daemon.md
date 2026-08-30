@@ -145,9 +145,17 @@ transition, coverage, or normal-completion boundary.
 An active blocking driver or provider call cannot be interrupted in the middle.
 A resumable domain job first commits its returned checkpoint and then observes
 cancellation before the next `resume`. Provisioned hardware follows normal
-failure finalization before the cancelled outcome is committed. If finalization
-has an unknown outcome, the run is cancelled with indeterminate certainty and
-affected resources remain quarantined.
+failure finalization before the cancelled outcome is committed. The runtime
+first aborts the active operation, then runs the configured ordered safe
+operations and safe-state patch when the instrument selects
+`abort_then_safe_state`. A configured required safe state that is rejected or
+cannot be confirmed quarantines the affected resource. If any finalization
+action has an unknown outcome, the run is cancelled with indeterminate
+certainty and affected resources remain quarantined. The run-hardware receipt
+retains the ordered finalization actions and their returned metadata so
+commanded safety can be distinguished from measured safety. A returned receipt
+is projected into the run's durable instrument-state evidence before terminal
+commit; empty action lists retain the previous evidence wire shape.
 
 Cancellation and terminal commit are serialized by the SQLite writer:
 
@@ -155,16 +163,24 @@ Cancellation and terminal commit are serialized by the SQLite writer:
 - a prior request converts a pending successful intent to known cancellation;
 - actual failed or indeterminate evidence remains stronger than cancellation.
 
-If an executor disappears, its run enters `attention_required` and its resources
-stay quarantined. After externally reconciling hardware, an operator resolves
-attention through the GUI or `lab.control.resolve_attention(...)` with an
-explicit disposition. `close` commits an indeterminate failed outcome, abandons
-the remaining point plan, and releases the claims. `continue` checks the exact
-accepted run-contract fingerprint, including complete ordered-point and
-measurement-schema fingerprints rather than their bounded presentation samples,
-releases the reconciled claims, and returns the same run to the queue. Its next
-executor lease creates a new execution segment at the durable global coverage
-watermark; the lost segment remains an immutable indeterminate interruption.
+If an executor disappears, the daemon fences it, attempts the same configured
+failure finalization against every provisioned instrument, and then discards
+the worker connection. This is a best-effort emergency action: there is no
+surviving executor to accept a terminal receipt, so the run still enters
+`attention_required` and its resources stay quarantined even when every command
+returned normally. Graceful daemon shutdown makes the same attempt. Process or
+host loss cannot run software cleanup and remains the responsibility of device
+watchdogs, output interlocks, and safe hardware defaults.
+
+After externally reconciling hardware, an operator resolves attention through
+the GUI or `lab.control.resolve_attention(...)` with an explicit disposition.
+`close` commits an indeterminate failed outcome, abandons the remaining point
+plan, and releases the claims. `continue` checks the exact accepted run-contract
+fingerprint, including complete ordered-point and measurement-schema
+fingerprints rather than their bounded presentation samples, releases the
+reconciled claims, and returns the same run to the queue. Its next executor
+lease creates a new execution segment at the durable global coverage watermark;
+the lost segment remains an immutable indeterminate interruption.
 
 Continuation deliberately does not claim that the Python workspace, imported
 environment, or external hardware is unchanged. Durable measurement chunks are

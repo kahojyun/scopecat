@@ -1162,6 +1162,15 @@ describe("instrument workspace", () => {
         value: { value: 5_000_000_000, unit: "Hz" },
       },
     ];
+    active.config.system.instrument_registry.instruments[0]!.safe_operations = [
+      {
+        interface_id: "scopecat.rf_output/v1",
+        component_path: [],
+        operation_id: "disable",
+        arguments: [],
+      },
+    ];
+    active.config.system.instrument_registry.instruments[0]!.safe_state_requirement = "required";
     const tcpInstrument = instrument();
     tcpInstrument.driver_id = "keysight.pna";
     tcpInstrument.connection = {
@@ -1185,6 +1194,9 @@ describe("instrument workspace", () => {
     expect(
       within(dialog).queryByRole("textbox", { name: "Configuration actor" }),
     ).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("option", { name: "Apply configured safe state" }),
+    ).toBeEnabled();
     fireEvent.change(within(dialog).getByLabelText("Host"), {
       target: { value: "192.0.2.24" },
     });
@@ -1223,6 +1235,15 @@ describe("instrument workspace", () => {
                 value: { value: 5_000_000_000, unit: "Hz" },
               },
             ],
+            safe_operations: [
+              {
+                interface_id: "scopecat.rf_output/v1",
+                component_path: [],
+                operation_id: "disable",
+                arguments: [],
+              },
+            ],
+            safe_state_requirement: "required",
           }),
         }),
       ),
@@ -1241,6 +1262,9 @@ describe("instrument workspace", () => {
     );
     expect(within(dialog).getByRole("combobox", { name: "Connection" })).toHaveValue("virtual");
     expect(within(dialog).queryByLabelText("Host")).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("option", { name: "Apply configured safe state" }),
+    ).toBeDisabled();
   });
 
   it("publishes sparse interface-derived defaults and an explicit start policy", async () => {
