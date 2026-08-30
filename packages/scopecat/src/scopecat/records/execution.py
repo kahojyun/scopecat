@@ -15,6 +15,11 @@ from scopecat.records.instrument import (
     StateMemberIdentity,
     state_member_identity,
 )
+from scopecat.records.metadata import JsonMetadata
+
+
+def _exclude_empty(value: object) -> bool:
+    return not value
 
 
 class DomainExecutionId(BaseModel):
@@ -291,6 +296,37 @@ class InstrumentStateEvidenceSummary(BaseModel):
     baseline_changed_instrument_ids: tuple[str, ...]
     final_changed_instrument_ids: tuple[str, ...]
     missing_final_instrument_ids: tuple[str, ...]
+    finalization_action_count: int = Field(
+        default=0,
+        ge=0,
+        exclude_if=_exclude_empty,
+    )
+    rejected_finalization_action_count: int = Field(
+        default=0,
+        ge=0,
+        exclude_if=_exclude_empty,
+    )
+
+
+class InstrumentFinalizationActionEvidence(BaseModel):
+    """One durable, payload-free action attempted during device finalization."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operation_id: str = Field(min_length=1)
+    instrument_id: str = Field(min_length=1)
+    kind: Literal["abort", "restore_baseline", "safe_operation", "safe_state"]
+    status: Literal["completed", "unchanged", "rejected"]
+    metadata: JsonMetadata = Field(default_factory=dict)
+    problems: tuple[Problem, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> InstrumentFinalizationActionEvidence:
+        if self.status == "rejected" and not self.problems:
+            raise ValueError("a rejected finalization action requires a problem")
+        if self.status != "rejected" and self.problems:
+            raise ValueError("a completed finalization action cannot contain problems")
+        return self
 
 
 class InstrumentStateEvidence(BaseModel):
@@ -300,6 +336,8 @@ class InstrumentStateEvidence(BaseModel):
     ``baseline_state`` is the execution baseline after the run policy.
     ``final_state`` is best-effort terminal readback gathered during hardware
     release. It may be incomplete and does not imply a successful run.
+    ``finalization_actions`` retains the ordered command evidence returned by
+    that release without treating command confirmation as physical readback.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -308,6 +346,10 @@ class InstrumentStateEvidence(BaseModel):
     observed_state: list[InstrumentStateSnapshot] = Field(default_factory=list)
     baseline_state: list[InstrumentStateSnapshot] = Field(default_factory=list)
     final_state: list[InstrumentStateSnapshot] = Field(default_factory=list)
+    finalization_actions: list[InstrumentFinalizationActionEvidence] = Field(
+        default_factory=list,
+        exclude_if=_exclude_empty,
+    )
 
     @model_validator(mode="after")
     def validate_baseline_evidence(self) -> InstrumentStateEvidence:
@@ -373,6 +415,10 @@ def summarize_instrument_state_evidence(
             instrument_id
             for instrument_id in instrument_ids
             if instrument_id not in final
+        ),
+        finalization_action_count=len(evidence.finalization_actions),
+        rejected_finalization_action_count=sum(
+            action.status == "rejected" for action in evidence.finalization_actions
         ),
     )
 

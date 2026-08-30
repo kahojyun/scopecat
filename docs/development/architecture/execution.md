@@ -454,8 +454,11 @@ requirements live on `DomainExecutionReceipt`.
 `experiment.on_success(...)` is an authored state transition after complete
 point coverage. Instrument configuration then applies its success action and
 collects terminal readback before release. Failure and known cancellation abort
-the instrument and may apply its configured safe-state patch while it remains
-commandable. The `InstrumentSpec` docstring owns the precise lifecycle order.
+the instrument and may execute its configured safe operations followed by its
+safe-state patch while it remains commandable. Required safe finalization keeps
+the physical access domain quarantined after a known rejection or missing
+confirmation. Ordered returned actions are retained with durable instrument
+state evidence. The `InstrumentSpec` docstring owns the precise lifecycle order.
 
 Operator cancellation is durable daemon control. Queued work can stop
 immediately; executing work observes cancellation at effect, coverage, job

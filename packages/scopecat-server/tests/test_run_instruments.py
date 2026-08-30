@@ -39,7 +39,9 @@ from scopecat.kernel.state import PayloadRef, StateValue
 from scopecat.planning.provider_validation import instrument_contract_fingerprint
 from scopecat.records.config import (
     ConfigProfileSnapshot,
+    InstrumentFailureAction,
     InstrumentRunStartPolicy,
+    InstrumentSafeOperation,
     InstrumentSuccessAction,
     config_content_hash,
 )
@@ -91,6 +93,7 @@ from scopecat.sdk.instruments import (
     float_property,
     int_property,
     interface,
+    operation,
     state_readback,
     string_property,
 )
@@ -120,6 +123,7 @@ type _FailAction = (
         "apply",
         "reject_apply",
         "invoke",
+        "reject_invoke",
         "unknown_collect_receipt",
         "abort",
         "disconnect",
@@ -271,6 +275,43 @@ class _PreparingDriver(_Driver):
     ) -> DriverOutcome[DriverReadback]:
         self.events.append("collect")
         return super().collect(request)
+
+
+class _SafeOperationDriver(_Driver):
+    @override
+    def describe(self) -> InstrumentDescription:
+        description = super().describe()
+        return description.model_copy(
+            update={
+                "interfaces": [
+                    *description.interfaces,
+                    interface(
+                        "test.safe_state/v1",
+                        operations=[operation("enter")],
+                    ),
+                ]
+            }
+        )
+
+    @override
+    def invoke(
+        self,
+        request: DriverOperation,
+    ) -> DriverOutcome[DriverStateReadback | None]:
+        self.invoked.append(request)
+        if self.fail_action == "invoke":
+            raise RuntimeError("invoke outcome lost")
+        if self.fail_action == "reject_invoke":
+            return DriverRejected(
+                problems=(
+                    problem(
+                        "test_safe_operation_rejected",
+                        "test driver rejected safe operation",
+                        phase=ProblemPhase.EXECUTION,
+                    ),
+                )
+            )
+        return DriverSuccess(None, metadata={"device_status": "safe"})
 
 
 class _VariantDriver(_Driver):
@@ -845,6 +886,47 @@ def test_unknown_default_state_reconciliation_quarantines_the_run(
             durable.attention_reason == "run_instrument_default_reconciliation_unknown"
         )
         _assert_run_state_discarded(runtime.application.instruments, run_id)
+
+
+def test_unknown_run_start_attempts_safe_operation_before_quarantine(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(
+        fail_action="apply",
+        driver_type=_SafeOperationDriver,
+    )
+    config = _config_with_safe_operation(
+        _config_with_default_state(
+            _setting(
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
+                value=StateValue(Quantity(value=5.0, unit="GHz")),
+            )
+        ),
+        failure_action="abort_then_safe_state",
+        required=True,
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            driver_type=_SafeOperationDriver,
+        )
+
+        with pytest.raises(
+            BackendConflict,
+            match=r"default-state reconciliation .* failed with unknown",
+        ):
+            runtime.application.instruments.provision_run(
+                run_id,
+                _provision(lease_id),
+            )
+
+        [driver] = provider.drivers
+        assert driver.abort_count == 1
+        [invocation] = driver.invoked
+        assert invocation.target.operation_id == "enter"
+        assert driver.disconnect_count == 1
 
 
 def test_run_start_requires_default_state_to_converge(tmp_path: Path) -> None:
@@ -1658,6 +1740,10 @@ def test_failed_finish_applies_configured_safe_state(tmp_path: Path) -> None:
             value=4.25,
             unit="GHz",
         )
+        assert [(action.kind, action.status) for action in receipt.actions] == [
+            ("abort", "completed"),
+            ("safe_state", "completed"),
+        ]
         assert receipt.problems == ()
 
 
@@ -1687,6 +1773,121 @@ def test_successful_finish_does_not_apply_failure_safe_state(tmp_path: Path) -> 
         [driver] = provider.drivers
         assert driver.abort_count == 0
         assert driver.applied == []
+
+
+def test_successful_finish_runs_configured_safe_operation_and_records_evidence(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_SafeOperationDriver)
+    config = _config_with_safe_operation(
+        success_action="apply_safe_state",
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            driver_type=_SafeOperationDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+
+        receipt = instruments.finish_run_hardware(
+            run_id,
+            RunHardwareFinishCommand(
+                lease_id=lease_id,
+                operation_id="hardware.finish",
+                failed=False,
+            ),
+        )
+
+        [driver] = provider.drivers
+        [invocation] = driver.invoked
+        assert invocation.target.interface_id == "test.safe_state/v1"
+        assert invocation.target.operation_id == "enter"
+        [action] = receipt.actions
+        assert action.kind == "safe_operation"
+        assert action.status == "completed"
+        assert action.metadata == {"device_status": "safe"}
+
+
+def test_failed_finish_records_abort_safe_operation_and_patch_in_order(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_SafeOperationDriver)
+    config = _config_with_safe_operation(
+        _config_with_safe_state(
+            _setting(
+                interface_id="test.set_frequency/v1",
+                property_id="frequency",
+                value=StateValue(Quantity(value=4.25, unit="GHz")),
+            )
+        ),
+        failure_action="abort_then_safe_state",
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            driver_type=_SafeOperationDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+
+        receipt = instruments.finish_run_hardware(
+            run_id,
+            RunHardwareFinishCommand(
+                lease_id=lease_id,
+                operation_id="hardware.finish",
+                failed=True,
+            ),
+        )
+
+        assert [(action.kind, action.status) for action in receipt.actions] == [
+            ("abort", "completed"),
+            ("safe_operation", "completed"),
+            ("safe_state", "completed"),
+        ]
+
+
+def test_required_safe_operation_rejection_quarantines_the_run(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(
+        fail_action="reject_invoke",
+        driver_type=_SafeOperationDriver,
+    )
+    config = _config_with_safe_operation(
+        success_action="apply_safe_state",
+        required=True,
+    )
+    with _runtime(tmp_path, provider, config=config) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            config,
+            driver_type=_SafeOperationDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+
+        with pytest.raises(BackendConflict, match="safe operation was rejected"):
+            instruments.finish_run_hardware(
+                run_id,
+                RunHardwareFinishCommand(
+                    lease_id=lease_id,
+                    operation_id="hardware.finish",
+                    failed=False,
+                ),
+            )
+
+        [driver] = provider.drivers
+        assert driver.abort_count == 1
+        assert driver.disconnect_count == 1
+        durable = runtime.application.executor._control.get_run(run_id)
+        assert durable.state == "attention_required"
+        assert durable.attention_reason == (
+            "run_instrument_required_safe_state_rejected"
+        )
+        _assert_run_state_discarded(instruments, run_id)
 
 
 def test_successful_finish_restores_the_preserved_baseline(
@@ -1742,6 +1943,9 @@ def test_successful_finish_restores_the_preserved_baseline(
                 unit="GHz",
             )
         }
+        [action] = receipt.actions
+        assert action.kind == "restore_baseline"
+        assert action.status == "completed"
 
 
 def test_successful_finish_records_but_does_not_restore_unmarked_state(
@@ -2226,6 +2430,64 @@ def test_expiry_and_shutdown_fault_live_run_connections(tmp_path: Path) -> None:
     assert shutdown_driver.disconnect_count == 1
 
 
+def test_expired_run_attempts_configured_safe_operation_before_disconnect(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_SafeOperationDriver)
+    config = _config_with_safe_operation(
+        failure_action="abort_then_safe_state",
+        required=True,
+    )
+    runtime = _runtime(tmp_path, provider, config=config)
+    run_id, lease_id = _start_run(
+        runtime,
+        config,
+        driver_type=_SafeOperationDriver,
+    )
+    runtime.application.instruments.provision_run(run_id, _provision(lease_id))
+    lease = runtime.application.executor._control.validate_executor_lease(
+        run_id,
+        token=lease_id,
+    )
+    expired = runtime.application.executor._control.expire_executor_leases(
+        at=lease.expires_at,
+    )
+
+    runtime.application.instruments.expire_runs(expired)
+
+    [driver] = provider.drivers
+    assert driver.abort_count == 1
+    [invocation] = driver.invoked
+    assert invocation.target.interface_id == "test.safe_state/v1"
+    assert driver.disconnect_count == 1
+    runtime.close()
+
+
+def test_shutdown_attempts_configured_safe_operation_before_disconnect(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_SafeOperationDriver)
+    config = _config_with_safe_operation(
+        failure_action="abort_then_safe_state",
+        required=True,
+    )
+    runtime = _runtime(tmp_path, provider, config=config)
+    run_id, lease_id = _start_run(
+        runtime,
+        config,
+        driver_type=_SafeOperationDriver,
+    )
+    runtime.application.instruments.provision_run(run_id, _provision(lease_id))
+
+    runtime.close()
+
+    [driver] = provider.drivers
+    assert driver.abort_count == 1
+    [invocation] = driver.invoked
+    assert invocation.target.interface_id == "test.safe_state/v1"
+    assert driver.disconnect_count == 1
+
+
 def test_run_without_claims_does_not_build_provider(tmp_path: Path) -> None:
     provider = _Provider()
     with _runtime(tmp_path, provider) as runtime:
@@ -2275,6 +2537,38 @@ def _config_with_safe_state(
         update={
             "safe_state": list(properties),
             "failure_action": "abort_then_safe_state",
+        }
+    )
+    registry = config.instrument_registry.model_copy(
+        update={"instruments": [configured]}
+    )
+    return config.model_copy(
+        update={
+            "system": config.system.model_copy(update={"instrument_registry": registry})
+        }
+    )
+
+
+def _config_with_safe_operation(
+    config: ConfigProfileSnapshot | None = None,
+    *,
+    success_action: InstrumentSuccessAction = "release",
+    failure_action: InstrumentFailureAction = "abort_and_release",
+    required: bool = False,
+) -> ConfigProfileSnapshot:
+    config = config or load_config()
+    [instrument] = config.instrument_registry.instruments
+    configured = instrument.model_copy(
+        update={
+            "success_action": success_action,
+            "failure_action": failure_action,
+            "safe_operations": [
+                InstrumentSafeOperation(
+                    interface_id="test.safe_state/v1",
+                    operation_id="enter",
+                )
+            ],
+            "safe_state_requirement": "required" if required else "best_effort",
         }
     )
     registry = config.instrument_registry.model_copy(

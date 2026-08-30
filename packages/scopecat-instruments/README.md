@@ -468,9 +468,41 @@ may target portable interface state or declared model-specific device state;
 all unlisted members remain untouched. After authored
 normal-completion state, `release` leaves the resulting state in place;
 `restore_baseline` restores the writable portion of the synchronized,
-run-start-adjusted baseline before terminal readback and release. Failure always
-aborts first; `abort_then_safe_state` may additionally apply the configured
-sparse safe state when the device remains commandable.
+run-start-adjusted baseline; and `apply_safe_state` executes the configured
+safe operations followed by the sparse safe-state patch. Failure always aborts
+first; `abort_then_safe_state` executes the same safe actions while the device
+remains commandable. Terminal readback and ownership release follow the selected
+action.
+
+A device whose safe transition is a procedure rather than a state assignment
+can name one or more provider-declared operations. Operations run in declaration
+order before the state patch and cannot carry opaque payloads:
+
+```json
+{
+  "success_action": "apply_safe_state",
+  "safe_operations": [
+    {
+      "interface_id": "example.sequencer/v1",
+      "operation_id": "enter_safe_state"
+    }
+  ],
+  "safe_state_requirement": "required",
+  "failure_action": "abort_then_safe_state"
+}
+```
+
+`best_effort` reports a known rejection and releases the instrument after final
+readback. `required` instead keeps the physical access domain quarantined when a
+safe action is rejected or its final state cannot be confirmed. Unknown command
+outcomes always quarantine regardless of this setting. Executor lease loss and
+daemon shutdown independently attempt the configured failure actions before
+discarding the connection; hardware watchdogs remain responsible for complete
+host or network loss.
+
+Returned finalization actions are committed with the run's durable instrument
+state evidence. Their metadata reports command evidence and must not be treated
+as analog readback unless the provider says so explicitly.
 
 Lifecycle snapshots capture the requested public and model-specific members
 independently. Experiment entity and channel bindings are routing provenance,

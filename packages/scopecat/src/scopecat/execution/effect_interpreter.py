@@ -30,6 +30,7 @@ from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.measurements.records import ValueRecordCandidate
+from scopecat.records.execution import InstrumentFinalizationActionEvidence
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.domain.evidence import DomainExecutionEvidence
 from scopecat.sdk.domain.execution import DomainTransitionPolicy
@@ -159,6 +160,7 @@ class RunEffectInterpreter:
         self.observed_state = list(instruments.observed_state)
         self.baseline_state = list(instruments.baseline_state)
         self.final_state: list[InstrumentStateSnapshot] = []
+        self.finalization_actions: list[InstrumentFinalizationActionEvidence] = []
         self._domain_execution = _DomainExecutionEvidenceBuilder()
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
         self.coverage_failure: BaseException | None = None
@@ -266,6 +268,7 @@ class RunEffectInterpreter:
                     ),
                 )
                 self.final_state = list(finished.final_state)
+                self.finalization_actions = list(finished.actions)
                 self._boundary.problems.extend(finished.problems)
                 self._boundary.indeterminate = (
                     self._boundary.indeterminate or finished.indeterminate
@@ -697,6 +700,7 @@ class RunEffectInterpreter:
             observed_state=tuple(self.observed_state),
             baseline_state=tuple(self.baseline_state),
             final_state=tuple(self.final_state),
+            finalization_actions=tuple(self.finalization_actions),
             domain_execution=self._domain_execution.build(run_id=self.run_id),
             indeterminate=self._boundary.indeterminate,
             cancelled=self.cancelled,

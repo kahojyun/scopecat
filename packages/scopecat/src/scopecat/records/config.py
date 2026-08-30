@@ -17,6 +17,7 @@ from pydantic import (
 
 from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.interface_identity import InterfaceId
+from scopecat.kernel.state import StateValue
 from scopecat.records.instrument import (
     InstrumentStateSetting,
     state_member_identity,
@@ -47,6 +48,14 @@ def _ensure_unique[T: _HasId](items: list[T], label: str) -> list[T]:
             raise ValueError(msg)
         seen.add(item_id)
     return items
+
+
+def _exclude_empty(value: object) -> bool:
+    return not value
+
+
+def _exclude_best_effort(value: object) -> bool:
+    return value == "best_effort"
 
 
 class TopologyConnection(BaseModel):
@@ -182,11 +191,47 @@ class InstrumentBindingSpec(BaseModel):
 
 
 type InstrumentRunStartPolicy = Literal["preserve", "apply_default_state"]
-type InstrumentSuccessAction = Literal["release", "restore_baseline"]
+type InstrumentSuccessAction = Literal[
+    "release",
+    "restore_baseline",
+    "apply_safe_state",
+]
 type InstrumentFailureAction = Literal[
     "abort_and_release",
     "abort_then_safe_state",
 ]
+type InstrumentSafeStateRequirement = Literal["best_effort", "required"]
+
+
+class InstrumentSafeOperationArgument(BaseModel):
+    """One serializable argument for a configured device-safe operation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: _NonEmptyId
+    value: StateValue
+
+
+class InstrumentSafeOperation(BaseModel):
+    """One provider-declared operation executed only during device finalization."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    interface_id: InterfaceId
+    component_path: tuple[_NonEmptyId, ...] = ()
+    operation_id: _NonEmptyId
+    arguments: tuple[InstrumentSafeOperationArgument, ...] = ()
+
+    @field_validator("arguments")
+    @classmethod
+    def validate_unique_arguments(
+        cls,
+        value: tuple[InstrumentSafeOperationArgument, ...],
+    ) -> tuple[InstrumentSafeOperationArgument, ...]:
+        argument_ids = [argument.id for argument in value]
+        if len(argument_ids) != len(set(argument_ids)):
+            raise ValueError("safe operation argument ids must be unique")
+        return value
 
 
 class InstrumentSpec(BaseModel):
@@ -195,9 +240,13 @@ class InstrumentSpec(BaseModel):
     Default and safe states are sparse patches over freshly observed state.
     After exclusive acquisition, ``run_start`` either preserves that observed
     baseline or applies ``default_state`` to establish the execution baseline.
-    A successful run either releases its final authored state or restores that
-    baseline before terminal readback. Failure always aborts first and may then
-    apply ``safe_state`` while the instrument remains commandable.
+    A successful run either releases its final authored state, restores that
+    baseline, or applies the configured safe-state actions before terminal
+    readback. Failure always aborts first and may then apply the same safe-state
+    actions while the instrument remains commandable. Safe operations run in
+    declaration order before the sparse ``safe_state`` patch. A required safe
+    state keeps the physical access domain quarantined when a known rejection
+    prevents completion.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -210,6 +259,14 @@ class InstrumentSpec(BaseModel):
     run_start: InstrumentRunStartPolicy
     success_action: InstrumentSuccessAction
     safe_state: list[InstrumentStateSetting] = Field(default_factory=list)
+    safe_operations: list[InstrumentSafeOperation] = Field(
+        default_factory=list,
+        exclude_if=_exclude_empty,
+    )
+    safe_state_requirement: InstrumentSafeStateRequirement = Field(
+        default="best_effort",
+        exclude_if=_exclude_best_effort,
+    )
     failure_action: InstrumentFailureAction
 
     @field_validator("default_state", "safe_state")
@@ -227,8 +284,17 @@ class InstrumentSpec(BaseModel):
     def validate_lifecycle_state(self) -> InstrumentSpec:
         if self.run_start == "apply_default_state" and not self.default_state:
             raise ValueError("apply_default_state requires a non-empty default state")
-        if self.failure_action == "abort_then_safe_state" and not self.safe_state:
-            raise ValueError("abort_then_safe_state requires a non-empty safe state")
+        uses_safe_state = (
+            self.success_action == "apply_safe_state"
+            or self.failure_action == "abort_then_safe_state"
+        )
+        has_safe_actions = bool(self.safe_state or self.safe_operations)
+        if uses_safe_state and not has_safe_actions:
+            raise ValueError("safe-state finalization requires a non-empty action")
+        if self.safe_state_requirement == "required" and not uses_safe_state:
+            raise ValueError(
+                "required safe state must be selected by a finalization action"
+            )
         return self
 
 

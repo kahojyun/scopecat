@@ -88,6 +88,7 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareApply,
     RunHardwareBatch,
     RunHardwareBatchReceipt,
+    RunHardwareFinalizationActionReceipt,
     RunHardwareFinalizationReceipt,
 )
 from scopecat.sdk.instruments.members import PropertyRef
@@ -286,6 +287,15 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
             return _model(
                 RunHardwareFinalizationReceipt(
                     operation_id=command.operation_id,
+                    actions=(
+                        RunHardwareFinalizationActionReceipt(
+                            operation_id=f"{command.operation_id}.safe.source-0.0",
+                            instrument_id="source-0",
+                            kind="safe_operation",
+                            status="completed",
+                            metadata={"device_status": "safe"},
+                        ),
+                    ),
                 )
             )
         if path.endswith("/measurements/ingest"):
@@ -484,10 +494,11 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
         (accepted_point,),
     )
     domain_proposals.close(completed_point_count=2, reason="test complete")
-    assert (
-        instruments.finish(operation_id="hardware.finish", failed=False).operation_id
-        == "hardware.finish"
-    )
+    finalization = instruments.finish(operation_id="hardware.finish", failed=False)
+    assert finalization.operation_id == "hardware.finish"
+    [finalization_action] = finalization.actions
+    assert finalization_action.operation_id == "hardware.finish.safe.source-0.0"
+    assert finalization_action.metadata == {"device_status": "safe"}
 
     assert measurements.initialize(header) == _header_receipt(header)
     assert measurements.ingest(append) == ()

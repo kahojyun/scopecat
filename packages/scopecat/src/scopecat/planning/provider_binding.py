@@ -18,13 +18,19 @@ from scopecat.kernel.problems import (
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.config import (
     ConfigProfileSnapshot,
+    InstrumentSafeOperation,
     InstrumentSpec,
     config_content_hash,
     instrument_bindings,
 )
-from scopecat.sdk.instruments.commands import InstrumentStateAssignment
+from scopecat.sdk.instruments.commands import (
+    InstrumentOperationArgument,
+    InstrumentStateAssignment,
+    InvokeCommand,
+)
 from scopecat.sdk.instruments.contracts import (
     InstrumentDescription,
+    validate_invoke_command,
     validate_reconciled_state_assignments,
 )
 from scopecat.sdk.instruments.provider import (
@@ -225,6 +231,13 @@ def _validate_described_instruments(
                 )
             )
             problems.extend(
+                _validate_safe_operations(
+                    instrument=instrument,
+                    config_index=config_index,
+                    description=description,
+                )
+            )
+            problems.extend(
                 _validate_configured_state(
                     instrument=instrument,
                     config_index=config_index,
@@ -257,7 +270,79 @@ def _validate_described_instruments(
                         ),
                     )
                 )
+        if instrument.safe_operations and instrument_id not in described_ids:
+            problems.append(
+                problem(
+                    "instrument_safe_operations_description_missing",
+                    f"instrument {instrument_id} safe operations cannot be "
+                    "validated without an advertised description",
+                    phase=ProblemPhase.PROVIDER_PREFLIGHT,
+                    location=model_location(
+                        "config",
+                        "system",
+                        "instrument_registry",
+                        "instruments",
+                        config_index,
+                        "safe_operations",
+                    ),
+                )
+            )
     return problems
+
+
+def _validate_safe_operations(
+    *,
+    instrument: InstrumentSpec,
+    config_index: int,
+    description: InstrumentDescription,
+) -> list[Problem]:
+    normalized: list[Problem] = []
+    for operation_index, operation in enumerate(instrument.safe_operations):
+        issues = validate_invoke_command(
+            command=_safe_operation_command(instrument.id, operation),
+            description=description,
+        )
+        location = model_location(
+            "config",
+            "system",
+            "instrument_registry",
+            "instruments",
+            config_index,
+            "safe_operations",
+            operation_index,
+        )
+        for issue in issues:
+            related_locations = issue.related_locations
+            if issue.location is not None:
+                related_locations = (issue.location, *related_locations)
+            normalized.append(
+                issue.model_copy(
+                    update={
+                        "phase": ProblemPhase.PROVIDER_PREFLIGHT,
+                        "location": location,
+                        "related_locations": related_locations,
+                    }
+                )
+            )
+    return normalized
+
+
+def _safe_operation_command(
+    instrument_id: str,
+    operation: InstrumentSafeOperation,
+) -> InvokeCommand:
+    return InvokeCommand(
+        command_id="configured.safe_state",
+        instrument_id=instrument_id,
+        resource_id=instrument_id,
+        interface_id=operation.interface_id,
+        component_path=list(operation.component_path),
+        operation_id=operation.operation_id,
+        arguments=[
+            InstrumentOperationArgument(id=argument.id, value=argument.value)
+            for argument in operation.arguments
+        ],
+    )
 
 
 def _validate_configured_state(
