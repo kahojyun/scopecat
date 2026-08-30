@@ -23,7 +23,11 @@ from scopecat.project_state import ProjectStateServices
 from scopecat.records.config import ConfigProfileSnapshot, config_content_hash
 
 from scopecat_server.command_payloads import CommandPayloadService
-from scopecat_server.services.active_measurements import ActiveMeasurementStore
+from scopecat_server.services.active_measurements import (
+    DEFAULT_MEASUREMENT_DURABILITY_POLICY,
+    ActiveMeasurementStore,
+    MeasurementDurabilityPolicy,
+)
 from scopecat_server.services.admission import AdmissionService
 from scopecat_server.services.analyses import AnalysisService
 from scopecat_server.services.application import DaemonApplication
@@ -77,6 +81,9 @@ class LocalDaemonRuntime:
         instrument_shutdown_grace: timedelta = _DEFAULT_INSTRUMENT_SHUTDOWN_GRACE,
         instrument_session_lease_ttl: timedelta = (
             _DEFAULT_INSTRUMENT_SESSION_LEASE_TTL
+        ),
+        measurement_durability: MeasurementDurabilityPolicy = (
+            DEFAULT_MEASUREMENT_DURABILITY_POLICY
         ),
         lease_ttl: timedelta | None = None,
     ) -> None:
@@ -139,7 +146,7 @@ class LocalDaemonRuntime:
                 runs=runs,
                 config_registry=config_registry.read_unit_of_work,
             )
-            active_measurements = ActiveMeasurementStore()
+            active_measurements = ActiveMeasurementStore(policy=measurement_durability)
             reviews = ReviewService()
             automation = AutomationService(automation_store)
             calibration_cohorts = CalibrationCohortService(

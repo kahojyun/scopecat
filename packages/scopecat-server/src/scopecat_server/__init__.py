@@ -15,12 +15,17 @@ if TYPE_CHECKING:
     from .errors import BackendConflict, BackendNotFound
     from .http.transport import create_app
     from .runtime import LocalDaemonRuntime
+    from .services.active_measurements import MeasurementDurabilityPolicy
 
 _EXPORTS: dict[str, tuple[str, str]] = {
     "BackendConflict": ("scopecat_server.errors", "BackendConflict"),
     "BackendNotFound": ("scopecat_server.errors", "BackendNotFound"),
     "DaemonHealth": ("scopecat.daemon.health", "DaemonHealth"),
     "LocalDaemonRuntime": ("scopecat_server.runtime", "LocalDaemonRuntime"),
+    "MeasurementDurabilityPolicy": (
+        "scopecat_server.services.active_measurements",
+        "MeasurementDurabilityPolicy",
+    ),
     "create_app": ("scopecat_server.http.transport", "create_app"),
 }
 
@@ -40,5 +45,6 @@ __all__ = [
     "BackendNotFound",
     "DaemonHealth",
     "LocalDaemonRuntime",
+    "MeasurementDurabilityPolicy",
     "create_app",
 ]

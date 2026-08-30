@@ -194,6 +194,13 @@ pending/live measurement state as soon as the lease supervisor fences it. Any
 already durable measurement prefix, coverage watermark, execution segment, and
 domain-job transition ledger remain inspectable, but none alone authorizes
 replaying those external effects.
+
+The daemon groups transport envelopes into durable Arrow chunks according to a
+local measurement durability policy. Its record and array-byte limits plus an
+age trigger evaluated during active ingest control object size and file/fsync
+frequency. Explicit checkpoint and terminal operations force the remaining
+prefix. These are operational storage settings and do not alter the accepted
+run contract or create a background flush timer.
 The high-level `lab.resume(...)` path reconstructs and validates the accepted
 run contract before it submits the `continue` attention disposition. Calling it
 therefore serves as the operator's explicit confirmation that external hardware

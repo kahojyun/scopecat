@@ -17,6 +17,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
 )
 
+from scopecat_server import MeasurementDurabilityPolicy
 from scopecat_server.services.active_measurements import (
     ActiveMeasurementConflict,
     ActiveMeasurementStore,
@@ -24,7 +25,7 @@ from scopecat_server.services.active_measurements import (
 
 
 def test_active_measurements_expose_latest_before_bounded_flush() -> None:
-    store = ActiveMeasurementStore(record_limit=3)
+    store = ActiveMeasurementStore(policy=MeasurementDurabilityPolicy(record_limit=3))
     header = _header(point_count=7)
     store.initialize(header, segment_id="segment-1", start_index=0)
 
@@ -46,7 +47,12 @@ def test_active_measurements_expose_latest_before_bounded_flush() -> None:
 
 
 def test_active_measurements_bound_large_waveforms_by_array_bytes() -> None:
-    store = ActiveMeasurementStore(record_limit=100, value_byte_limit=24)
+    store = ActiveMeasurementStore(
+        policy=MeasurementDurabilityPolicy(
+            record_limit=100,
+            value_byte_limit=24,
+        )
+    )
     header = _header(point_count=3)
     store.initialize(header, segment_id="segment-1", start_index=0)
     records = tuple(_record(index, waveform=True) for index in range(3))
@@ -56,6 +62,36 @@ def test_active_measurements_bound_large_waveforms_by_array_bytes() -> None:
     assert chunk == (records[0],)
     store.commit_chunk("run-1", chunk)
     assert store.next_chunk("run-1", force=False) == (records[1],)
+
+
+def test_active_measurements_flush_small_records_at_durability_age() -> None:
+    now = 10.0
+    store = ActiveMeasurementStore(
+        policy=MeasurementDurabilityPolicy(
+            record_limit=100,
+            max_buffer_age_seconds=2.0,
+        ),
+        clock=lambda: now,
+    )
+    header = _header(point_count=2)
+    store.initialize(header, segment_id="segment-1", start_index=0)
+    records = (_record(0), _record(1))
+    store.ingest(_append(header, records))
+
+    assert store.next_chunk("run-1", force=False) == ()
+    now = 11.999
+    assert store.next_chunk("run-1", force=False) == ()
+    now = 12.0
+    assert store.next_chunk("run-1", force=False) == records
+
+
+def test_measurement_durability_policy_requires_positive_bounds() -> None:
+    with pytest.raises(ValueError, match="record limit"):
+        MeasurementDurabilityPolicy(record_limit=0)
+    with pytest.raises(ValueError, match="byte limit"):
+        MeasurementDurabilityPolicy(value_byte_limit=0)
+    with pytest.raises(ValueError, match="buffer age"):
+        MeasurementDurabilityPolicy(max_buffer_age_seconds=0)
 
 
 def test_active_measurements_reject_noncontiguous_ingest() -> None:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from threading import Lock
+from time import monotonic
 
 from scopecat.daemon.views import MeasurementLivePreview
 from scopecat.records.measurement import (
@@ -16,8 +18,36 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
 )
 
-MEASUREMENT_CHUNK_RECORD_LIMIT = 256
+MEASUREMENT_CHUNK_RECORD_LIMIT = 4096
 MEASUREMENT_CHUNK_VALUE_BYTE_LIMIT = 8 * 1024 * 1024
+MEASUREMENT_CHUNK_MAX_AGE_SECONDS = 1.0
+
+
+@dataclass(frozen=True, slots=True)
+class MeasurementDurabilityPolicy:
+    """Daemon-local bounds for one durable Arrow measurement chunk.
+
+    This is a storage/recovery policy, not part of an experiment plan. A chunk
+    is ready when any bound is reached. The age trigger is evaluated on ingest
+    and explicit flush boundaries; it does not create a background timer.
+    Small scalar records are grouped by count or age while large arrays remain
+    bounded by value bytes.
+    """
+
+    record_limit: int = MEASUREMENT_CHUNK_RECORD_LIMIT
+    value_byte_limit: int = MEASUREMENT_CHUNK_VALUE_BYTE_LIMIT
+    max_buffer_age_seconds: float = MEASUREMENT_CHUNK_MAX_AGE_SECONDS
+
+    def __post_init__(self) -> None:
+        if self.record_limit < 1:
+            raise ValueError("measurement durability record limit must be positive")
+        if self.value_byte_limit < 1:
+            raise ValueError("measurement durability byte limit must be positive")
+        if self.max_buffer_age_seconds <= 0:
+            raise ValueError("measurement durability buffer age must be positive")
+
+
+DEFAULT_MEASUREMENT_DURABILITY_POLICY = MeasurementDurabilityPolicy()
 
 
 class ActiveMeasurementConflict(ValueError):
@@ -32,6 +62,7 @@ class _ActiveMeasurementDataset:
     durable_record_count: int = 0
     pending: list[MeasurementRecord] = field(default_factory=list)
     pending_value_bytes: int = 0
+    pending_since: float | None = None
     latest: MeasurementRecord | None = None
 
 
@@ -41,11 +72,11 @@ class ActiveMeasurementStore:
     def __init__(
         self,
         *,
-        record_limit: int = MEASUREMENT_CHUNK_RECORD_LIMIT,
-        value_byte_limit: int = MEASUREMENT_CHUNK_VALUE_BYTE_LIMIT,
+        policy: MeasurementDurabilityPolicy = DEFAULT_MEASUREMENT_DURABILITY_POLICY,
+        clock: Callable[[], float] = monotonic,
     ) -> None:
-        self._record_limit = record_limit
-        self._value_byte_limit = value_byte_limit
+        self._policy = policy
+        self._clock = clock
         self._datasets: dict[str, _ActiveMeasurementDataset] = {}
         self._lock = Lock()
 
@@ -82,6 +113,8 @@ class ActiveMeasurementStore:
                 raise ActiveMeasurementConflict(
                     "measurement ingest is not the next contiguous live range"
                 )
+            if not active.pending:
+                active.pending_since = self._clock()
             active.pending.extend(batch.records)
             active.pending_value_bytes += sum(
                 _measurement_record_value_bytes(record) for record in batch.records
@@ -99,22 +132,29 @@ class ActiveMeasurementStore:
             active = self._require(run_id)
             if not active.pending:
                 return ()
+            pending_since = active.pending_since
+            if pending_since is None:
+                raise AssertionError("pending measurements lost their arrival time")
             if not force and (
-                len(active.pending) < self._record_limit
-                and active.pending_value_bytes < self._value_byte_limit
+                len(active.pending) < self._policy.record_limit
+                and active.pending_value_bytes < self._policy.value_byte_limit
+                and self._clock() - pending_since < self._policy.max_buffer_age_seconds
             ):
                 return ()
             selected: list[MeasurementRecord] = []
             selected_bytes = 0
             for record in active.pending:
                 record_bytes = _measurement_record_value_bytes(record)
-                if selected and selected_bytes + record_bytes > self._value_byte_limit:
+                if (
+                    selected
+                    and selected_bytes + record_bytes > self._policy.value_byte_limit
+                ):
                     break
                 selected.append(record)
                 selected_bytes += record_bytes
                 if (
-                    len(selected) >= self._record_limit
-                    or selected_bytes >= self._value_byte_limit
+                    len(selected) >= self._policy.record_limit
+                    or selected_bytes >= self._policy.value_byte_limit
                 ):
                     break
             return tuple(selected)
@@ -131,6 +171,7 @@ class ActiveMeasurementStore:
                 _measurement_record_value_bytes(record) for record in records
             )
             active.durable_record_count += len(records)
+            active.pending_since = self._clock() if active.pending else None
 
     def preview(
         self,
@@ -221,8 +262,11 @@ def _measurement_record_value_bytes(record: MeasurementRecord) -> int:
 
 
 __all__ = [
+    "DEFAULT_MEASUREMENT_DURABILITY_POLICY",
+    "MEASUREMENT_CHUNK_MAX_AGE_SECONDS",
     "MEASUREMENT_CHUNK_RECORD_LIMIT",
     "MEASUREMENT_CHUNK_VALUE_BYTE_LIMIT",
     "ActiveMeasurementConflict",
     "ActiveMeasurementStore",
+    "MeasurementDurabilityPolicy",
 ]

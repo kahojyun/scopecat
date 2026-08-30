@@ -27,7 +27,10 @@ from scopecat_testkit.workflow_fixtures import load_config, load_invocation
 
 from scopecat_server import LocalDaemonRuntime
 from scopecat_server.instruments.backend import LocalInstrumentBackendEndpoint
-from scopecat_server.services.active_measurements import ActiveMeasurementStore
+from scopecat_server.services.active_measurements import (
+    ActiveMeasurementStore,
+    MeasurementDurabilityPolicy,
+)
 from scopecat_server.storage.sqlite.execution import (
     SQLiteMeasurementDatasetRepository,
 )
@@ -73,7 +76,7 @@ def test_static_run_resumes_end_to_end_after_daemon_restart(
         TestClient(first_runtime.app()) as transport,
     ):
         first_runtime.application.executor._active_measurements = (
-            ActiveMeasurementStore(record_limit=1)
+            ActiveMeasurementStore(policy=MeasurementDurabilityPolicy(record_limit=1))
         )
 
         def send(request: httpx2.Request) -> httpx2.Response:

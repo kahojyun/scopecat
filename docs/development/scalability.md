@@ -729,7 +729,14 @@ The present architecture provides a direct end-to-end baseline:
   large content. The executor-to-daemon ingest path, durable chunks, and live
   GUI latest-point path all use the same schema-driven Arrow IPC columns, so
   numeric arrays never expand into JSON lists. Measurement chunks remain
-  bounded by both record count and value bytes, while dataset identity hashes
+  bounded by record count and value bytes and gain a daemon-buffer age trigger
+  evaluated as active ingest advances. Any of those three storage-policy bounds
+  can make a chunk ready; explicit checkpoint, seal, and shutdown paths still
+  force a flush. The default count limit is deliberately much larger than the
+  transport envelope, so fast scalar scans do not turn every network batch into
+  a file and fsync. Projects can tune the daemon-local
+  `MeasurementDurabilityPolicy` for their storage without changing experiment
+  identity, grouping, traversal, or hardware batches. Dataset identity hashes
   the ordered record identities and is therefore independent of those chunk
   boundaries;
 - recovery groups have stable unique ids and a schedule-level membership

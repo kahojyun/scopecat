@@ -341,6 +341,14 @@ measurement records gain no segment field and no extra per-point transaction.
 Run-level paging and dataset identity still concatenate all chunks by global
 point index, independent of fragment boundaries.
 
+Chunk durability is a daemon storage policy rather than an experiment-plan
+property. Record count and array-value bytes bound memory and object size; an
+age trigger checked as ingest advances prevents a continuously active scalar
+scan from waiting only for its count limit. Explicit checkpoint and terminal
+paths force the remaining prefix. Transport batches, recovery groups, physical
+hardware batches, and durable Arrow chunks may therefore all have different
+boundaries.
+
 Before acquiring instruments, the interpreter reads the durable global coverage
 watermark. A continued static local run materializes only the remaining point
 suffix and initializes its point ledger, ordering buffer, and recording counters
