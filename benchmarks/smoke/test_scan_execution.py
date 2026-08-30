@@ -172,7 +172,9 @@ def test_fixed_program_lo_sweep_avoids_per_point_durable_job_writes(
         <= 2 * cast("int", result["max_waveform_batch_bytes"])
     )
     assert domain_transition_count == 0
-    assert measurement_append_count == 1
+    # The daemon-local age bound may split a run on slower hosts. The storage
+    # policy must still avoid coupling durable frames to individual points.
+    assert 1 <= measurement_append_count < point_count
     assert durable_event_count < point_count
     assert cast("int", result["durable_file_count"]) < point_count
     assert not any("program" in ref or "waveform" in ref for ref in durable_refs)
