@@ -15,6 +15,7 @@ from scopecat.kernel.content_identity import (
     model_wire_content_hash,
     stable_content_hash,
 )
+from scopecat.records.execution import RecoveryGroupCompletion
 from scopecat.records.measurement import (
     MeasurementArray,
     MeasurementDatasetSchema,
@@ -183,6 +184,87 @@ class MeasurementDatasetAppend(MeasurementDatasetBatch):
         """Return chunk-neutral identities without serializing array values."""
 
         return tuple(measurement_record_content_hash(record) for record in self.records)
+
+
+class MeasurementRecoveryGroupStage(_FrozenRecordingModel):
+    """One exact recovery group's non-contiguous measurement records."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    run_id: str
+    header_content_hash: str
+    schedule_fingerprint: str
+    group_id: str
+    records: tuple[MeasurementRecord, ...] = Field(min_length=1)
+
+    @field_validator(
+        "run_id",
+        "header_content_hash",
+        "schedule_fingerprint",
+        "group_id",
+    )
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        if not value:
+            raise ValueError("measurement recovery stage identity must be non-empty")
+        return value
+
+    @model_validator(mode="after")
+    def validate_records(self) -> MeasurementRecoveryGroupStage:
+        if any(record.run_id != self.run_id for record in self.records):
+            raise ValueError("measurement recovery stage and record run ids must match")
+        if len(self.point_indices) != len(set(self.point_indices)):
+            raise ValueError("measurement recovery stage point indices must be unique")
+        logical_ids = tuple(record.logical_point_id for record in self.records)
+        if len(logical_ids) != len(set(logical_ids)):
+            raise ValueError(
+                "measurement recovery stage logical point ids must be unique"
+            )
+        return self
+
+    @property
+    def point_indices(self) -> tuple[int, ...]:
+        return tuple(record.point_index for record in self.records)
+
+    @property
+    def record_content_hashes(self) -> tuple[str, ...]:
+        return tuple(measurement_record_content_hash(record) for record in self.records)
+
+    @property
+    def operation_id(self) -> str:
+        digest = stable_content_hash(
+            {
+                "schema": "scopecat.measurement_recovery_stage_operation.v1",
+                "run_id": self.run_id,
+                "schedule_fingerprint": self.schedule_fingerprint,
+                "group_id": self.group_id,
+            }
+        )
+        return f"measurement-recovery-stage:{digest}"
+
+    @property
+    def content_hash(self) -> str:
+        return stable_content_hash(
+            {
+                "schema": "scopecat.measurement_recovery_stage_content.v1",
+                "run_id": self.run_id,
+                "header_content_hash": self.header_content_hash,
+                "schedule_fingerprint": self.schedule_fingerprint,
+                "group_id": self.group_id,
+                "point_indices": self.point_indices,
+                "record_content_hashes": self.record_content_hashes,
+            }
+        )
+
+    @property
+    def completion(self) -> RecoveryGroupCompletion:
+        return RecoveryGroupCompletion(
+            schedule_fingerprint=self.schedule_fingerprint,
+            group_id=self.group_id,
+            point_indices=self.point_indices,
+            output_kind="staged_measurement",
+            record_content_hashes=self.record_content_hashes,
+        )
 
 
 class MeasurementDatasetReceipt(_FrozenRecordingModel):
@@ -402,6 +484,7 @@ __all__ = [
     "MeasurementDatasetHeader",
     "MeasurementDatasetReceipt",
     "MeasurementDatasetSeal",
+    "MeasurementRecoveryGroupStage",
     "measurement_dataset_content_hash",
     "measurement_fragment_content_hash",
     "measurement_record_content_hash",

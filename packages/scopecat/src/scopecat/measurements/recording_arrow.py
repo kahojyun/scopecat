@@ -35,10 +35,14 @@ from scopecat.records.measurement import (
     MeasurementValue,
     MeasurementVariable,
 )
-from scopecat.records.measurement_recording import MeasurementDatasetAppend
+from scopecat.records.measurement_recording import (
+    MeasurementDatasetAppend,
+    MeasurementRecoveryGroupStage,
+)
 from scopecat.records.metadata import JsonMetadata, validate_json_metadata
 
 MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v10"
+MEASUREMENT_RECOVERY_STAGE_ARROW_FORMAT = "scopecat.measurement_recovery_stage.arrow.v1"
 
 _FORMAT_KEY = b"scopecat.format"
 _RUN_ID_KEY = b"scopecat.run_id"
@@ -48,6 +52,8 @@ _START_INDEX_KEY = b"scopecat.start_index"
 _OPERATION_ID_KEY = b"scopecat.operation_id"
 _CONTENT_HASH_KEY = b"scopecat.content_hash"
 _RECORD_COUNT_KEY = b"scopecat.record_count"
+_SCHEDULE_FINGERPRINT_KEY = b"scopecat.schedule_fingerprint"
+_GROUP_ID_KEY = b"scopecat.group_id"
 _VARIABLE_ROLE_KEY = b"scopecat.variable_role"
 _VARIABLE_DTYPE_KEY = b"scopecat.variable_dtype"
 _VARIABLE_KIND_KEY = b"scopecat.variable_kind"
@@ -71,6 +77,17 @@ class _AppendIdentity:
     run_id: str
     header_content_hash: str
     start_index: int
+    operation_id: str
+    content_hash: str
+    record_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class _RecoveryStageIdentity:
+    run_id: str
+    header_content_hash: str
+    schedule_fingerprint: str
+    group_id: str
     operation_id: str
     content_hash: str
     record_count: int
@@ -118,6 +135,49 @@ def encode_measurement_append(
         ) from error
 
 
+def encode_measurement_recovery_stage(
+    stage: MeasurementRecoveryGroupStage,
+    dataset_schema: MeasurementDatasetSchema,
+    *,
+    dataset_schema_hash: str | None = None,
+) -> bytes:
+    """Encode one exact, potentially non-contiguous recovery group."""
+
+    try:
+        metadata = {
+            _FORMAT_KEY: MEASUREMENT_RECOVERY_STAGE_ARROW_FORMAT.encode(),
+            _RUN_ID_KEY: stage.run_id.encode(),
+            _HEADER_CONTENT_HASH_KEY: stage.header_content_hash.encode(),
+            _DATASET_SCHEMA_HASH_KEY: (
+                dataset_schema_hash or measurement_dataset_schema_hash(dataset_schema)
+            ).encode(),
+            _SCHEDULE_FINGERPRINT_KEY: stage.schedule_fingerprint.encode(),
+            _GROUP_ID_KEY: stage.group_id.encode(),
+            _OPERATION_ID_KEY: stage.operation_id.encode(),
+            _CONTENT_HASH_KEY: stage.content_hash.encode(),
+            _RECORD_COUNT_KEY: str(len(stage.records)).encode(),
+        }
+        record_schema = _record_schema(dataset_schema).with_metadata(metadata)
+        columns = _encode_columns(stage.records, dataset_schema=dataset_schema)
+        batch = pa.RecordBatch.from_arrays(columns, schema=record_schema)
+        sink = pa.BufferOutputStream()
+        with pa.ipc.new_file(sink, batch.schema) as writer:
+            writer.write_batch(batch)
+        return sink.getvalue().to_pybytes()
+    except MeasurementArrowCodecError:
+        raise
+    except (
+        pa.ArrowException,
+        OverflowError,
+        TypeError,
+        UnicodeError,
+        ValueError,
+    ) as error:
+        raise MeasurementArrowCodecError(
+            "measurement recovery stage cannot be encoded as Arrow IPC"
+        ) from error
+
+
 def decode_measurement_append(
     content: bytes,
     dataset_schema: MeasurementDatasetSchema,
@@ -156,6 +216,47 @@ def decode_measurement_append(
             "measurement Arrow content hash does not match its records"
         )
     return append
+
+
+def decode_measurement_recovery_stage(
+    content: bytes,
+    dataset_schema: MeasurementDatasetSchema,
+    *,
+    dataset_schema_hash: str | None = None,
+) -> MeasurementRecoveryGroupStage:
+    """Decode and verify one exact recovery-group measurement stage."""
+
+    batch, identity = _read_recovery_stage_batch(
+        content,
+        dataset_schema=dataset_schema,
+        dataset_schema_hash=dataset_schema_hash,
+    )
+    records = _decode_records(
+        batch,
+        run_id=identity.run_id,
+        dataset_schema=dataset_schema,
+    )
+    try:
+        stage = MeasurementRecoveryGroupStage(
+            run_id=identity.run_id,
+            header_content_hash=identity.header_content_hash,
+            schedule_fingerprint=identity.schedule_fingerprint,
+            group_id=identity.group_id,
+            records=records,
+        )
+    except ValueError as error:
+        raise MeasurementArrowCodecError(
+            "measurement recovery stage identity is invalid"
+        ) from error
+    if stage.operation_id != identity.operation_id:
+        raise MeasurementArrowCodecError(
+            "measurement recovery stage operation identity does not match its records"
+        )
+    if stage.content_hash != identity.content_hash:
+        raise MeasurementArrowCodecError(
+            "measurement recovery stage content hash does not match its records"
+        )
+    return stage
 
 
 def decode_measurement_record_slice(
@@ -562,6 +663,37 @@ def _read_batch(
     dataset_schema: MeasurementDatasetSchema,
     dataset_schema_hash: str | None,
 ) -> tuple[pa.RecordBatch, _AppendIdentity]:
+    batch, metadata = _open_record_batch(content, dataset_schema=dataset_schema)
+    identity = _decode_identity(
+        metadata,
+        dataset_schema=dataset_schema,
+        dataset_schema_hash=dataset_schema_hash,
+    )
+    _validate_batch_record_count(batch, identity.record_count)
+    return batch, identity
+
+
+def _read_recovery_stage_batch(
+    content: bytes,
+    *,
+    dataset_schema: MeasurementDatasetSchema,
+    dataset_schema_hash: str | None,
+) -> tuple[pa.RecordBatch, _RecoveryStageIdentity]:
+    batch, metadata = _open_record_batch(content, dataset_schema=dataset_schema)
+    identity = _decode_recovery_stage_identity(
+        metadata,
+        dataset_schema=dataset_schema,
+        dataset_schema_hash=dataset_schema_hash,
+    )
+    _validate_batch_record_count(batch, identity.record_count)
+    return batch, identity
+
+
+def _open_record_batch(
+    content: bytes,
+    *,
+    dataset_schema: MeasurementDatasetSchema,
+) -> tuple[pa.RecordBatch, Mapping[bytes, bytes] | None]:
     try:
         reader = pa.ipc.open_file(pa.BufferReader(content))
         if reader.num_record_batches != 1:
@@ -573,25 +705,23 @@ def _read_batch(
             raise MeasurementArrowCodecError(
                 "measurement Arrow chunk has an unexpected record schema"
             )
-        identity = _decode_identity(
-            schema.metadata,
-            dataset_schema=dataset_schema,
-            dataset_schema_hash=dataset_schema_hash,
-        )
         batch = reader.get_batch(0)
     except MeasurementArrowCodecError:
         raise
     except (pa.ArrowException, UnicodeError, ValueError) as error:
         raise MeasurementArrowCodecError("invalid measurement Arrow chunk") from error
-    if batch.num_rows != identity.record_count:
+    return batch, schema.metadata
+
+
+def _validate_batch_record_count(batch: pa.RecordBatch, record_count: int) -> None:
+    if batch.num_rows != record_count:
         raise MeasurementArrowCodecError(
             "measurement Arrow record count does not match its metadata"
         )
-    if identity.record_count < 1:
+    if record_count < 1:
         raise MeasurementArrowCodecError(
             "measurement Arrow chunk must contain at least one record"
         )
-    return batch, identity
 
 
 def _decode_identity(
@@ -631,6 +761,48 @@ def _decode_identity(
     if identity.start_index < 0 or identity.record_count < 0:
         raise MeasurementArrowCodecError(
             "measurement Arrow identity metadata cannot be negative"
+        )
+    return identity
+
+
+def _decode_recovery_stage_identity(
+    metadata: Mapping[bytes, bytes] | None,
+    *,
+    dataset_schema: MeasurementDatasetSchema,
+    dataset_schema_hash: str | None,
+) -> _RecoveryStageIdentity:
+    if metadata is None:
+        raise MeasurementArrowCodecError("measurement Arrow metadata is missing")
+    try:
+        format_version = metadata[_FORMAT_KEY].decode()
+        schema_hash = metadata[_DATASET_SCHEMA_HASH_KEY].decode()
+        identity = _RecoveryStageIdentity(
+            run_id=metadata[_RUN_ID_KEY].decode(),
+            header_content_hash=metadata[_HEADER_CONTENT_HASH_KEY].decode(),
+            schedule_fingerprint=metadata[_SCHEDULE_FINGERPRINT_KEY].decode(),
+            group_id=metadata[_GROUP_ID_KEY].decode(),
+            operation_id=metadata[_OPERATION_ID_KEY].decode(),
+            content_hash=metadata[_CONTENT_HASH_KEY].decode(),
+            record_count=int(metadata[_RECORD_COUNT_KEY]),
+        )
+    except (KeyError, UnicodeError, ValueError) as error:
+        raise MeasurementArrowCodecError(
+            "measurement recovery stage identity metadata is invalid"
+        ) from error
+    if format_version != MEASUREMENT_RECOVERY_STAGE_ARROW_FORMAT:
+        raise MeasurementArrowCodecError(
+            f"unsupported measurement recovery stage Arrow format: {format_version}"
+        )
+    expected_schema_hash = dataset_schema_hash or measurement_dataset_schema_hash(
+        dataset_schema
+    )
+    if schema_hash != expected_schema_hash:
+        raise MeasurementArrowCodecError(
+            "measurement recovery stage does not match its registered dataset schema"
+        )
+    if identity.record_count < 0:
+        raise MeasurementArrowCodecError(
+            "measurement recovery stage record count cannot be negative"
         )
     return identity
 
@@ -1295,10 +1467,13 @@ def _decode_json(value: object) -> JsonMetadata:
 
 __all__ = [
     "MEASUREMENT_APPEND_ARROW_FORMAT",
+    "MEASUREMENT_RECOVERY_STAGE_ARROW_FORMAT",
     "MeasurementArrowCodecError",
     "decode_measurement_append",
     "decode_measurement_record_indices",
     "decode_measurement_record_slice",
+    "decode_measurement_recovery_stage",
     "encode_measurement_append",
+    "encode_measurement_recovery_stage",
     "measurement_dataset_schema_hash",
 ]

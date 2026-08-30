@@ -16,7 +16,11 @@ CREATE TABLE IF NOT EXISTS execution_recovery_groups (
     group_id TEXT NOT NULL,
     completion_fingerprint TEXT NOT NULL,
     output_kind TEXT NOT NULL CHECK (
-        output_kind IN ('unrecorded', 'canonical_measurement')
+        output_kind IN (
+            'unrecorded',
+            'canonical_measurement',
+            'staged_measurement'
+        )
     ),
     UNIQUE (run_id, group_id),
     UNIQUE (run_id, operation_id)
@@ -33,6 +37,30 @@ CREATE TABLE IF NOT EXISTS execution_recovery_group_points (
     record_content_hash TEXT,
     PRIMARY KEY (run_id, point_index),
     UNIQUE (run_id, group_id, member_index),
+    FOREIGN KEY (run_id, group_id)
+        REFERENCES execution_recovery_groups(run_id, group_id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS execution_recovery_group_measurements (
+    run_id TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    segment_id TEXT NOT NULL
+        REFERENCES run_execution_segments(segment_id) ON DELETE CASCADE,
+    operation_id TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    header_content_hash TEXT NOT NULL,
+    point_indices_json TEXT NOT NULL,
+    record_content_hashes_json TEXT NOT NULL,
+    record_count INTEGER NOT NULL CHECK (record_count > 0),
+    ref TEXT NOT NULL,
+    pack_id TEXT NOT NULL,
+    pack_offset INTEGER NOT NULL CHECK (pack_offset >= 0),
+    pack_length INTEGER NOT NULL CHECK (pack_length > 0),
+    payload_digest TEXT NOT NULL,
+    PRIMARY KEY (run_id, group_id),
+    UNIQUE (run_id, operation_id),
+    UNIQUE (run_id, ref),
     FOREIGN KEY (run_id, group_id)
         REFERENCES execution_recovery_groups(run_id, group_id)
         ON DELETE CASCADE

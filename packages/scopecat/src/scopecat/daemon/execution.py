@@ -66,6 +66,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
+    MeasurementRecoveryGroupStage,
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
@@ -199,6 +200,14 @@ def _daemon_execution_session(
             client,
             authority.run_id,
         ),
+        durable_recovery_measurements=lambda groups, dataset_schema: (
+            _read_recovery_measurements(
+                client,
+                authority.run_id,
+                groups,
+                dataset_schema=dataset_schema,
+            )
+        ),
         has_prior_execution_segment=has_prior_execution_segment,
     )
 
@@ -221,6 +230,30 @@ def _read_recovery_groups(
         if page.next_cursor is None:
             return tuple(completed)
         before = page.next_cursor
+
+
+def _read_recovery_measurements(
+    client: DaemonClient,
+    run_id: str,
+    groups: tuple[RecoveryGroupCompletion, ...],
+    *,
+    dataset_schema: MeasurementDatasetSchema,
+) -> tuple[MeasurementRecord, ...]:
+    records: list[MeasurementRecord] = []
+    for completion in groups:
+        if completion.output_kind != "staged_measurement":
+            continue
+        stage = client.run_recovery_group_measurements(
+            run_id,
+            completion.group_id,
+            dataset_schema=dataset_schema,
+        )
+        if stage.run_id != run_id or stage.completion != completion:
+            raise ValueError(
+                "staged recovery measurements do not match their completion proof"
+            )
+        records.extend(stage.records)
+    return tuple(records)
 
 
 class LeaseSupervisor(Protocol):
@@ -389,6 +422,38 @@ class _DaemonRunRecoveryGroups:
                 or tuple(item.completion for item in receipt.items) != selected
             ):
                 raise ValueError("recovery group receipt does not match its request")
+
+    def stage_measurements(
+        self,
+        completion: RecoveryGroupCompletion,
+        records: tuple[MeasurementRecord, ...],
+        dataset_schema: MeasurementDatasetSchema,
+        *,
+        header_content_hash: str,
+    ) -> None:
+        if completion.output_kind != "staged_measurement":
+            raise ValueError("measurement staging requires a staged group completion")
+        stage = MeasurementRecoveryGroupStage(
+            run_id=self._authority.run_id,
+            header_content_hash=header_content_hash,
+            schedule_fingerprint=completion.schedule_fingerprint,
+            group_id=completion.group_id,
+            records=records,
+        )
+        if stage.completion != completion:
+            raise ValueError(
+                "staged recovery measurements do not match their completion proof"
+            )
+        receipt = self._authority.client.commit_run_recovery_group_measurements(
+            self._authority.run_id,
+            lease_id=self._authority.fence(),
+            stage=stage,
+            dataset_schema=dataset_schema,
+        )
+        if receipt.run_id != self._authority.run_id or tuple(
+            item.completion for item in receipt.items
+        ) != (completion,):
+            raise ValueError("recovery group stage receipt does not match its request")
 
 
 class _DaemonRunDomainJobTransitions:

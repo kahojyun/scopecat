@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from bisect import bisect_left
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal, cast
@@ -49,6 +49,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
+    MeasurementRecoveryGroupStage,
     measurement_dataset_content_hash,
     measurement_fragment_content_hash,
 )
@@ -84,6 +85,15 @@ class PreparedMeasurementAppend:
     """Arrow frame made durable before publishing its relational coordinates."""
 
     durable: MeasurementDatasetAppend
+    ref: str
+    packed: PackedMeasurementPayload
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedMeasurementRecoveryStage:
+    """Recovery-group Arrow frame fsynced before relational publication."""
+
+    durable: MeasurementRecoveryGroupStage
     ref: str
     packed: PackedMeasurementPayload
 
@@ -191,6 +201,7 @@ class SQLiteRecoveryGroups:
         groups: Sequence[RecoveryGroupCompletion],
         *,
         segment_id: str,
+        _staged: Mapping[str, PreparedMeasurementRecoveryStage] | None = None,
     ) -> tuple[RunRecoveryGroupView, ...]:
         """Commit one bounded idempotent batch under an existing lease fence."""
 
@@ -221,6 +232,9 @@ class SQLiteRecoveryGroups:
                 "recovery groups disagree with the run's durable schedule"
             )
 
+        staged: Mapping[str, PreparedMeasurementRecoveryStage] = (
+            {} if _staged is None else _staged
+        )
         accepted: list[RunRecoveryGroupView] = []
         for group in groups:
             existing = _one(
@@ -241,10 +255,21 @@ class SQLiteRecoveryGroups:
                     raise ExecutionStateConflict(
                         "recovery group already has different completion evidence"
                     )
+                if group.output_kind == "staged_measurement":
+                    self._validate_existing_stage_in_transaction(
+                        connection,
+                        group,
+                        prepared=staged.get(group.group_id),
+                    )
                 accepted.append(view)
                 continue
 
-            self._validate_output_in_transaction(connection, group)
+            prepared_stage = staged.get(group.group_id)
+            self._validate_output_in_transaction(
+                connection,
+                group,
+                prepared_stage=prepared_stage,
+            )
             try:
                 cursor = connection.execute(
                     """
@@ -288,6 +313,12 @@ class SQLiteRecoveryGroups:
                         for member_index, point_index in enumerate(group.point_indices)
                     ),
                 )
+                if prepared_stage is not None:
+                    self._insert_stage_in_transaction(
+                        connection,
+                        prepared_stage,
+                        segment_id=segment_id,
+                    )
             except sqlite3.IntegrityError as error:
                 raise ExecutionStateConflict(
                     "recovery group conflicts with durable group identity or points"
@@ -308,10 +339,29 @@ class SQLiteRecoveryGroups:
             accepted.append(self._view_in_transaction(connection, row))
         return tuple(accepted)
 
+    def append_staged_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        prepared: PreparedMeasurementRecoveryStage,
+        *,
+        segment_id: str,
+    ) -> RunRecoveryGroupView:
+        """Atomically publish one staged measurement frame and its group proof."""
+
+        completion = prepared.durable.completion
+        return self.append_in_transaction(
+            connection,
+            (completion,),
+            segment_id=segment_id,
+            _staged={completion.group_id: prepared},
+        )[0]
+
     def _validate_output_in_transaction(
         self,
         connection: sqlite3.Connection,
         group: RecoveryGroupCompletion,
+        *,
+        prepared_stage: PreparedMeasurementRecoveryStage | None = None,
     ) -> None:
         header = _measurement_header_row(connection, self._run_id)
         if group.output_kind == "unrecorded":
@@ -324,6 +374,18 @@ class SQLiteRecoveryGroups:
             raise ExecutionStateConflict(
                 "measurement recovery group requires a dataset header"
             )
+        if group.output_kind == "staged_measurement":
+            if prepared_stage is None or prepared_stage.durable.completion != group:
+                raise ExecutionStateConflict(
+                    "staged measurement recovery group requires its exact records"
+                )
+            if prepared_stage.durable.header_content_hash != _text(
+                header, "content_hash"
+            ):
+                raise ExecutionStateConflict(
+                    "staged recovery measurements reference a different header"
+                )
+            return
         record_hashes: dict[int, str] = {}
         rows = _all(
             connection.execute(
@@ -360,6 +422,87 @@ class SQLiteRecoveryGroups:
                 "recovery group measurement hashes disagree with durable records"
             )
 
+    def _validate_existing_stage_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        group: RecoveryGroupCompletion,
+        *,
+        prepared: PreparedMeasurementRecoveryStage | None,
+    ) -> None:
+        row = _one(
+            connection.execute(
+                """
+                SELECT operation_id, content_hash, point_indices_json,
+                       record_content_hashes_json
+                FROM execution_recovery_group_measurements
+                WHERE run_id = ? AND group_id = ?
+                """,
+                (self._run_id, group.group_id),
+            )
+        )
+        if row is None:
+            raise ExecutionStateError(
+                "staged recovery group is missing its measurement frame"
+            )
+        if (
+            _integer_tuple(row, "point_indices_json") != group.point_indices
+            or _string_tuple(row, "record_content_hashes_json")
+            != group.record_content_hashes
+        ):
+            raise ExecutionStateError(
+                "staged recovery group measurement index is corrupt"
+            )
+        if prepared is not None and (
+            _text(row, "operation_id") != prepared.durable.operation_id
+            or _text(row, "content_hash") != prepared.durable.content_hash
+        ):
+            raise ExecutionStateConflict(
+                "recovery group already has different staged measurements"
+            )
+
+    def _insert_stage_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        prepared: PreparedMeasurementRecoveryStage,
+        *,
+        segment_id: str,
+    ) -> None:
+        durable = prepared.durable
+        if prepared.packed.pack_id != measurement_segment_pack_id(
+            run_id=self._run_id,
+            segment_id=segment_id,
+        ):
+            raise ExecutionStateConflict(
+                "recovery measurement stage belongs to a different segment pack"
+            )
+        connection.execute(
+            """
+            INSERT INTO execution_recovery_group_measurements(
+                run_id, group_id, segment_id, operation_id, content_hash,
+                header_content_hash, point_indices_json,
+                record_content_hashes_json, record_count, ref,
+                pack_id, pack_offset, pack_length, payload_digest
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                self._run_id,
+                durable.group_id,
+                segment_id,
+                durable.operation_id,
+                durable.content_hash,
+                durable.header_content_hash,
+                json.dumps(durable.point_indices),
+                json.dumps(durable.record_content_hashes),
+                len(durable.records),
+                prepared.ref,
+                prepared.packed.pack_id,
+                prepared.packed.offset,
+                prepared.packed.length,
+                prepared.packed.digest,
+            ),
+        )
+
     def _view_in_transaction(
         self,
         connection: sqlite3.Connection,
@@ -377,7 +520,7 @@ class SQLiteRecoveryGroups:
             )
         )
         output_kind = cast(
-            "Literal['unrecorded', 'canonical_measurement']",
+            "Literal['unrecorded', 'canonical_measurement', 'staged_measurement']",
             _text(row, "output_kind"),
         )
         completion = RecoveryGroupCompletion(
@@ -407,6 +550,7 @@ _DOMAIN_JOB_TRANSITION: TypeAdapter[DomainJobTransitionRecord] = TypeAdapter(
     DomainJobTransitionRecord
 )
 _STRING_LIST = TypeAdapter(list[str])
+_INTEGER_LIST = TypeAdapter(list[int])
 
 
 class SQLiteDomainJobTransitions:
@@ -1418,6 +1562,125 @@ class SQLiteMeasurementDatasetRepository:
             ),
         )
 
+    def prepare_recovery_stage(
+        self,
+        stage: MeasurementRecoveryGroupStage,
+        *,
+        segment_id: str,
+        dataset_schema: MeasurementDatasetSchema | None = None,
+    ) -> PreparedMeasurementRecoveryStage:
+        """Fsync a non-contiguous recovery group into its segment pack."""
+
+        if stage.run_id != self._run_id:
+            raise ExecutionStateConflict(
+                "measurement run_id does not match its execution repository"
+            )
+        stage_key = stage.operation_id.removeprefix("measurement-recovery-stage:")
+        ref = f"{CANONICAL_MEASUREMENT_DATASET_REF}/recovery/{stage_key}.arrow"
+        schema_assets = (
+            self._remember_measurement_schema(dataset_schema)
+            if dataset_schema is not None
+            else self._measurement_schema_assets()
+        )
+        if schema_assets is None:
+            raise ExecutionStateConflict(
+                "measurement recovery stage requires a registered schema"
+            )
+        existing = self._existing_prepared_recovery_stage(
+            stage,
+            ref=ref,
+            segment_id=segment_id,
+        )
+        if existing is not None:
+            return existing
+        selected_schema, selected_schema_hash = schema_assets
+        return PreparedMeasurementRecoveryStage(
+            durable=stage,
+            ref=ref,
+            packed=_store_measurement_recovery_stage(
+                self._runs,
+                stage,
+                segment_id=segment_id,
+                dataset_schema=selected_schema,
+                dataset_schema_hash=selected_schema_hash,
+            ),
+        )
+
+    def _existing_prepared_recovery_stage(
+        self,
+        stage: MeasurementRecoveryGroupStage,
+        *,
+        ref: str,
+        segment_id: str,
+    ) -> PreparedMeasurementRecoveryStage | None:
+        try:
+            with self._runs.sqlite.read_connection() as connection:
+                row = _one(
+                    connection.execute(
+                        """
+                        SELECT segment_id, operation_id, content_hash, ref,
+                               pack_id, pack_offset, pack_length, payload_digest
+                        FROM execution_recovery_group_measurements
+                        WHERE run_id = ? AND group_id = ?
+                        """,
+                        (self._run_id, stage.group_id),
+                    )
+                )
+            if row is None:
+                return None
+            if (
+                _text(row, "segment_id") != segment_id
+                or _text(row, "operation_id") != stage.operation_id
+                or _text(row, "content_hash") != stage.content_hash
+                or _text(row, "ref") != ref
+            ):
+                raise ExecutionStateConflict(
+                    "measurement recovery group already has different content"
+                )
+            return PreparedMeasurementRecoveryStage(
+                durable=stage,
+                ref=ref,
+                packed=PackedMeasurementPayload(
+                    pack_id=_text(row, "pack_id"),
+                    offset=_integer(row, "pack_offset"),
+                    length=_integer(row, "pack_length"),
+                    digest=_text(row, "payload_digest"),
+                ),
+            )
+        except ExecutionStateError:
+            raise
+        except Exception as error:
+            raise ExecutionStateError(
+                f"failed to inspect a measurement recovery retry: {error}"
+            ) from error
+
+    def recovery_stage_content(self, group_id: str) -> bytes:
+        """Read the exact Arrow frame retained for one staged group."""
+
+        try:
+            with self._runs.sqlite.read_connection() as connection:
+                row = _one(
+                    connection.execute(
+                        """
+                        SELECT ref
+                        FROM execution_recovery_group_measurements
+                        WHERE run_id = ? AND group_id = ?
+                        """,
+                        (self._run_id, group_id),
+                    )
+                )
+            if row is None:
+                raise ExecutionStateConflict(
+                    "recovery group has no staged measurement frame"
+                )
+            return self._runs.read_bytes(self._run_id, _text(row, "ref"))
+        except ExecutionStateError:
+            raise
+        except Exception as error:
+            raise ExecutionStateError(
+                f"failed to read recovery group measurements: {error}"
+            ) from error
+
     def _existing_prepared_append(
         self,
         append: MeasurementDatasetAppend,
@@ -2233,6 +2496,38 @@ def _store_measurement_append(
         ) from error
 
 
+def _store_measurement_recovery_stage(
+    runs: SQLiteRunRepository,
+    stage: MeasurementRecoveryGroupStage,
+    *,
+    segment_id: str,
+    dataset_schema: MeasurementDatasetSchema,
+    dataset_schema_hash: str,
+) -> PackedMeasurementPayload:
+    from scopecat.measurements.recording_arrow import (
+        MeasurementArrowCodecError,
+        encode_measurement_recovery_stage,
+    )
+
+    try:
+        content = encode_measurement_recovery_stage(
+            stage,
+            dataset_schema,
+            dataset_schema_hash=dataset_schema_hash,
+        )
+        return runs.measurement_packs.append(
+            measurement_segment_pack_id(
+                run_id=stage.run_id,
+                segment_id=segment_id,
+            ),
+            content,
+        )
+    except (MeasurementArrowCodecError, MeasurementPackError) as error:
+        raise ExecutionStateError(
+            f"measurement recovery stage is not durably serializable: {error}"
+        ) from error
+
+
 def _publish_ref(
     connection: sqlite3.Connection,
     run_id: str,
@@ -2277,6 +2572,14 @@ def _string_tuple(row: sqlite3.Row, column: str) -> tuple[str, ...]:
         value = _STRING_LIST.validate_json(_text(row, column))
     except ValueError as error:
         raise ExecutionStateError(f"invalid string tuple in {column}") from error
+    return tuple(value)
+
+
+def _integer_tuple(row: sqlite3.Row, column: str) -> tuple[int, ...]:
+    try:
+        value = _INTEGER_LIST.validate_json(_text(row, column))
+    except ValueError as error:
+        raise ExecutionStateError(f"invalid integer tuple in {column}") from error
     return tuple(value)
 
 

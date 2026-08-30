@@ -896,8 +896,13 @@ class SQLiteRunRepository:
                         SELECT pack_id, pack_offset, pack_length, payload_digest
                         FROM execution_measurement_appends
                         WHERE run_id = ? AND ref = ?
+                        UNION ALL
+                        SELECT pack_id, pack_offset, pack_length, payload_digest
+                        FROM execution_recovery_group_measurements
+                        WHERE run_id = ? AND ref = ?
+                        LIMIT 1
                         """,
-                        (run_id, ref),
+                        (run_id, ref, run_id, ref),
                     )
                 )
         except sqlite3.Error as error:

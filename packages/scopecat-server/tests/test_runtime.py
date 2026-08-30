@@ -107,7 +107,9 @@ from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
 from scopecat.measurements.recording_arrow import (
     decode_measurement_append,
+    decode_measurement_recovery_stage,
     encode_measurement_append,
+    encode_measurement_recovery_stage,
 )
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import (
@@ -150,6 +152,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetBatch,
     MeasurementDatasetHeader,
     MeasurementDatasetSeal,
+    MeasurementRecoveryGroupStage,
     measurement_dataset_content_hash,
     measurement_fragment_content_hash,
     measurement_record_content_hash,
@@ -2959,7 +2962,155 @@ def test_measurement_recovery_group_requires_published_matching_records(
             ),
         )
 
-        assert tuple(item.completion for item in committed.items) == (completion,)
+    assert tuple(item.completion for item in committed.items) == (completion,)
+
+
+def test_sparse_measurement_recovery_group_is_staged_and_survives_restart(
+    tmp_path: Path,
+) -> None:
+    run_id: str
+    group_id = "comparison:alternating"
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        admission = runtime.application.submit_run(
+            _submission("staged-measurement-recovery", point_count=3)
+        )
+        run_id = admission.run_id
+        lease = runtime.application.executor.start_executor(
+            run_id,
+            ExecutorStartRequest(executor_id="notebook-1"),
+        )
+        header = MeasurementDatasetHeader(
+            run_id=run_id,
+            recording_contract_fingerprint="test.recording.v1",
+            dataset_schema=MeasurementDatasetSchema(
+                dataset_id="raw-measurements",
+                point_domain=MeasurementProductGridPointDomain(
+                    axes=[
+                        MeasurementPointDomainAxis(
+                            id="point",
+                            size=3,
+                            source=MeasurementPointDomainValuesSource(
+                                values=[
+                                    MeasurementScalar.create(
+                                        dtype="int64",
+                                        value=point_index,
+                                    )
+                                    for point_index in range(3)
+                                ]
+                            ),
+                        )
+                    ]
+                ),
+                dimensions=[MeasurementDimension(id="point", kind="point", size=3)],
+                variables=[
+                    MeasurementVariable(
+                        id="signal",
+                        role="observable",
+                        dtype="float64",
+                        dims=["point"],
+                    )
+                ],
+            ),
+            expected_record_count=3,
+            record_count_limit=3,
+        )
+        stage = MeasurementRecoveryGroupStage(
+            run_id=run_id,
+            header_content_hash=header.content_hash,
+            schedule_fingerprint="schedule-v1",
+            group_id=group_id,
+            records=tuple(
+                MeasurementRecord(
+                    run_id=run_id,
+                    logical_point_id=f"point-{point_index}",
+                    point_index=point_index,
+                    coordinates={},
+                    observables={
+                        "signal": MeasurementScalar.create(
+                            dtype="float64",
+                            value=float(point_index),
+                        )
+                    },
+                )
+                for point_index in (0, 2)
+            ),
+        )
+        runtime.application.executor.initialize_measurements(
+            run_id,
+            MeasurementHeaderCommand(lease_id=lease.lease_id, header=header),
+        )
+        committed = runtime.application.executor.commit_recovery_group_measurements(
+            run_id,
+            lease_id=lease.lease_id,
+            content=encode_measurement_recovery_stage(
+                stage,
+                header.dataset_schema,
+            ),
+        )
+        restored = decode_measurement_recovery_stage(
+            runtime.application.executor.recovery_group_measurements(run_id, group_id),
+            header.dataset_schema,
+        )
+        client = TestClient(runtime.app())
+        http_retry = client.post(
+            f"/api/v1/runs/{quote(run_id, safe='')}/recovery-groups/measurements",
+            content=encode_measurement_recovery_stage(
+                stage,
+                header.dataset_schema,
+            ),
+            headers={
+                "Content-Type": "application/vnd.apache.arrow.file",
+                "X-Scopecat-Lease-ID": lease.lease_id,
+            },
+        )
+        http_read = client.get(
+            f"/api/v1/runs/{quote(run_id, safe='')}/recovery-groups/"
+            f"{quote(group_id, safe='')}/measurements"
+        )
+
+        assert tuple(item.completion for item in committed.items) == (stage.completion,)
+        assert restored == stage
+        assert http_retry.status_code == 200
+        assert http_retry.json()["items"][0][
+            "completion"
+        ] == stage.completion.model_dump(mode="json")
+        assert http_read.status_code == 200
+        assert (
+            decode_measurement_recovery_stage(
+                http_read.content,
+                header.dataset_schema,
+            )
+            == stage
+        )
+        assert (
+            runtime.application.executor.run_coverage(run_id).completed_point_count == 0
+        )
+        [pack_path] = tuple(tmp_path.rglob("*.pack"))
+        pack_size = pack_path.stat().st_size
+        retry = runtime.application.executor.commit_recovery_group_measurements(
+            run_id,
+            lease_id=lease.lease_id,
+            content=encode_measurement_recovery_stage(
+                stage,
+                header.dataset_schema,
+            ),
+        )
+        assert retry == committed
+        assert pack_path.stat().st_size == pack_size
+
+    with LocalDaemonRuntime(tmp_path) as restarted:
+        [completion] = restarted.application.executor.recovery_groups(run_id).items
+        assert completion.completion == stage.completion
+        assert (
+            decode_measurement_recovery_stage(
+                restarted.application.executor.recovery_group_measurements(
+                    run_id,
+                    group_id,
+                ),
+                header.dataset_schema,
+            )
+            == stage
+        )
 
 
 def test_domain_job_transitions_are_fenced_retryable_and_survive_restart(

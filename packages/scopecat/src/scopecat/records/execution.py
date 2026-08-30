@@ -316,9 +316,10 @@ class RecoveryGroupCompletion(BaseModel):
     """Durable proof that one exact recovery group has publishable outputs.
 
     ``canonical_measurement`` means every correlated record is already present
-    in the canonical dataset and can be verified by content hash. ``unrecorded``
-    is reserved for runs without a measurement dataset. A future staging
-    backend can add another explicit output kind without weakening this proof.
+    in the canonical dataset and can be verified by content hash.
+    ``staged_measurement`` means the exact records are durably retained outside
+    the current canonical prefix and can hydrate a resumed ordering buffer.
+    ``unrecorded`` is reserved for runs without a measurement dataset.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -326,7 +327,11 @@ class RecoveryGroupCompletion(BaseModel):
     schedule_fingerprint: str
     group_id: str
     point_indices: tuple[int, ...] = Field(min_length=1)
-    output_kind: Literal["unrecorded", "canonical_measurement"]
+    output_kind: Literal[
+        "unrecorded",
+        "canonical_measurement",
+        "staged_measurement",
+    ]
     record_content_hashes: tuple[str, ...] = ()
 
     @field_validator("schedule_fingerprint", "group_id")

@@ -235,10 +235,11 @@ projection includes the complete durable invocation intent, is explicitly
 diagnostic, and exposes no replay operation. Run-terminal domain evidence is a
 compact ledger index rather than a duplicate array of those transitions.
 Measurement control commands remain small JSON documents;
-measurement ingest and the live latest-point response use schema-driven Arrow
-IPC, while direct and run-scoped hardware receipts use typed JSON headers with
-binary measurement-array attachments. Numeric acquisition results therefore do
-not expand into JSON lists between the instrument worker, daemon, and executor.
+canonical measurement ingest, recovery-group staging, staged recovery reads,
+and the live latest-point response use schema-driven Arrow IPC, while direct
+and run-scoped hardware receipts use typed JSON headers with binary
+measurement-array attachments. Numeric acquisition results therefore do not
+expand into JSON lists between the instrument worker, daemon, and executor.
 
 Server-sent events replay the same durable globally ordered event log used by
 the API. On initial connection or reconnection, clients refresh canonical

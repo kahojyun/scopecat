@@ -64,6 +64,7 @@ from scopecat_server.storage.sqlite.control_plane import (
 )
 from scopecat_server.storage.sqlite.execution import (
     ExecutionStateConflict,
+    ExecutionStateError,
     SQLiteDomainJobTransitions,
     SQLiteMeasurementDatasetRepository,
     SQLiteRecoveryGroups,
@@ -234,6 +235,70 @@ class ExecutorService:
                 segment_id=lease.segment_id,
             )
         return RunRecoveryGroupCommitReceipt(run_id=run_id, items=committed)
+
+    def commit_recovery_group_measurements(
+        self,
+        run_id: str,
+        *,
+        lease_id: str,
+        content: bytes,
+    ) -> RunRecoveryGroupCommitReceipt:
+        """Publish one exact sparse measurement group from an Arrow frame."""
+
+        from scopecat.measurements.recording_arrow import (
+            MeasurementArrowCodecError,
+            decode_measurement_recovery_stage,
+        )
+
+        lease = self.fence_executor(run_id, lease_id)
+        repository = self._measurement_repository(run_id)
+        dataset_schema = repository.measurement_schema()
+        if dataset_schema is None:
+            raise BackendConflict(
+                "measurement recovery stage requires a registered dataset schema"
+            )
+        try:
+            stage = decode_measurement_recovery_stage(content, dataset_schema)
+            if stage.run_id != run_id:
+                raise ExecutionStateConflict(
+                    "measurement recovery stage run id does not match its route"
+                )
+            prepared = repository.prepare_recovery_stage(
+                stage,
+                segment_id=lease.segment_id,
+                dataset_schema=dataset_schema,
+            )
+            groups = SQLiteRecoveryGroups(self._runs, run_id=run_id)
+            with self.fenced_write(run_id, token=lease_id) as connection:
+                run = self._control.get_run_in_transaction(connection, run_id)
+                if any(
+                    point_index >= run.admission.plan.point_limit
+                    for point_index in stage.point_indices
+                ):
+                    raise ExecutionStateConflict(
+                        "recovery group references a point outside the admitted run"
+                    )
+                committed = groups.append_staged_in_transaction(
+                    connection,
+                    prepared,
+                    segment_id=lease.segment_id,
+                )
+        except (ExecutionStateConflict, MeasurementArrowCodecError) as error:
+            raise BackendConflict(
+                "measurement recovery stage conflicts with durable run state"
+            ) from error
+        return RunRecoveryGroupCommitReceipt(run_id=run_id, items=(committed,))
+
+    def recovery_group_measurements(self, run_id: str, group_id: str) -> bytes:
+        """Return the durable Arrow frame used to hydrate one staged group."""
+
+        self._control_run(run_id)
+        try:
+            return self._measurement_repository(run_id).recovery_stage_content(group_id)
+        except ExecutionStateError as error:
+            raise BackendConflict(
+                "recovery group measurements are unavailable"
+            ) from error
 
     def domain_job_transitions(
         self,

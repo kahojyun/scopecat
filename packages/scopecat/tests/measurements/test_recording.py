@@ -27,7 +27,9 @@ from scopecat.measurements.projection import (
 )
 from scopecat.measurements.recording_arrow import (
     decode_measurement_append,
+    decode_measurement_recovery_stage,
     encode_measurement_append,
+    encode_measurement_recovery_stage,
 )
 from scopecat.records.measurement import (
     EntityAcquisitionEvidence,
@@ -49,6 +51,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
     MeasurementDatasetSeal,
+    MeasurementRecoveryGroupStage,
     measurement_dataset_content_hash,
     measurement_fragment_content_hash,
     measurement_record_content_hash,
@@ -198,6 +201,38 @@ def test_arrow_recording_round_trips_entity_arrays_with_partial_availability() -
     assert isinstance(iq, MeasurementArray)
     assert iq.availability is not None
     assert iq.availability.valid.tolist() == [[True, True], [False, True]]
+
+
+def test_arrow_recording_round_trips_non_contiguous_recovery_group() -> None:
+    projected = _projected(run_id="recovery-stage-run")
+    header = _header(projected)
+    second = projected.records[1].model_copy(
+        update={
+            "point_index": 2,
+            "logical_point_id": "staged-point-2",
+        }
+    )
+    stage = MeasurementRecoveryGroupStage(
+        run_id=projected.run_id,
+        header_content_hash=header.content_hash,
+        schedule_fingerprint="schedule-v1",
+        group_id="comparison:alternating",
+        records=(projected.records[0], second),
+    )
+
+    encoded = encode_measurement_recovery_stage(
+        stage,
+        header.dataset_schema,
+    )
+    restored = decode_measurement_recovery_stage(
+        encoded,
+        header.dataset_schema,
+    )
+
+    assert restored == stage
+    assert restored.point_indices == (0, 2)
+    assert restored.completion.output_kind == "staged_measurement"
+    assert encode_measurement_recovery_stage(stage, header.dataset_schema) == encoded
 
 
 @pytest.mark.parametrize("shot_size", [5, None])

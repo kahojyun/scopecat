@@ -16,6 +16,7 @@ from scopecat.records.execution import (
     DomainJobCheckpoint,
     RecoveryGroupCompletion,
 )
+from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementRecord
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.sdk.domain.invocation import DomainInvocationIntent
@@ -42,6 +43,13 @@ def _no_completed_recovery_groups() -> tuple[RecoveryGroupCompletion, ...]:
     return ()
 
 
+def _no_recovery_measurements(
+    _groups: tuple[RecoveryGroupCompletion, ...],
+    _dataset_schema: MeasurementDatasetSchema,
+) -> tuple[MeasurementRecord, ...]:
+    return ()
+
+
 class RunCoverageWriter(Protocol):
     """Commit bounded contiguous logical-point progress."""
 
@@ -54,6 +62,15 @@ class RunRecoveryGroupWriter(Protocol):
     """Publish exact groups only after their output proof is durable."""
 
     def commit(self, groups: tuple[RecoveryGroupCompletion, ...]) -> None: ...
+
+    def stage_measurements(
+        self,
+        completion: RecoveryGroupCompletion,
+        records: tuple[MeasurementRecord, ...],
+        dataset_schema: MeasurementDatasetSchema,
+        *,
+        header_content_hash: str,
+    ) -> None: ...
 
 
 class RunDomainJobTransitionWriter(Protocol):
@@ -130,6 +147,10 @@ class ExecutionSession:
     durable_recovery_groups: Callable[[], tuple[RecoveryGroupCompletion, ...]] = (
         _no_completed_recovery_groups
     )
+    durable_recovery_measurements: Callable[
+        [tuple[RecoveryGroupCompletion, ...], MeasurementDatasetSchema],
+        tuple[MeasurementRecord, ...],
+    ] = _no_recovery_measurements
     has_prior_execution_segment: Callable[[], bool] = _no_prior_execution_segment
 
     @property

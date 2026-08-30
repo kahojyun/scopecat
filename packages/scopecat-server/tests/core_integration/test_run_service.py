@@ -38,9 +38,12 @@ from scopecat.records.config import (
     instrument_bindings,
 )
 from scopecat.records.execution import InstrumentStateEvidence, RecoveryGroupCompletion
+from scopecat.records.measurement import MeasurementDatasetSchema, MeasurementRecord
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetHeader,
+    MeasurementDatasetReceipt,
+    MeasurementDatasetSeal,
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
@@ -301,6 +304,17 @@ def test_sparse_unrecorded_recovery_skips_exact_completed_group(
         def commit(self, groups: tuple[RecoveryGroupCompletion, ...]) -> None:
             self.committed.extend(groups)
 
+        def stage_measurements(
+            self,
+            _completion: RecoveryGroupCompletion,
+            _records: tuple[MeasurementRecord, ...],
+            _dataset_schema: MeasurementDatasetSchema,
+            *,
+            header_content_hash: str,
+        ) -> None:
+            del header_content_hash
+            pytest.fail("unrecorded recovery must not stage measurements")
+
     services = sqlite_project_services(tmp_path)
     config = load_config()
     composition = compose_test_instruments(
@@ -524,6 +538,210 @@ def test_execution_publishes_measurements_only_at_logical_block_cuts(
         [record.point_index for record in append.records]
         for append in completed_measurements.appends
     ] == [[0, 1, 2]]
+
+
+def test_sparse_measurement_group_hydrates_canonical_order_after_interruption(
+    tmp_path: Path,
+) -> None:
+    class _InjectedInterruption(BaseException):
+        pass
+
+    class RecoveryWriter:
+        def __init__(self) -> None:
+            self.committed: list[RecoveryGroupCompletion] = []
+            self.staged_records: list[MeasurementRecord] = []
+
+        def commit(self, groups: tuple[RecoveryGroupCompletion, ...]) -> None:
+            self.committed.extend(groups)
+
+        def stage_measurements(
+            self,
+            completion: RecoveryGroupCompletion,
+            records: tuple[MeasurementRecord, ...],
+            _dataset_schema: MeasurementDatasetSchema,
+            *,
+            header_content_hash: str,
+        ) -> None:
+            assert header_content_hash
+            assert completion.output_kind == "staged_measurement"
+            self.committed.append(completion)
+            self.staged_records.extend(records)
+
+    class FragmentMeasurementRepository(FakeMeasurementDatasetRepository):
+        @override
+        def seal(
+            self,
+            seal: MeasurementDatasetSeal,
+        ) -> MeasurementDatasetReceipt:
+            assert (
+                seal.fragment_start_index + len(self.measurements()) == seal.point_count
+            )
+            return MeasurementDatasetReceipt(
+                operation_id=seal.operation_id,
+                dataset_content_hash=seal.content_hash,
+            )
+
+    services = sqlite_project_services(tmp_path)
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
+    planned = plan_experiment(
+        load_invocation(),
+        config=config,
+        services=services,
+        system=composition.system,
+    )
+    default_chunks: dict[str, tuple[RunCoveredOperation, ...]] = {}
+    pending: list[RunCoveredOperation] = []
+    for operation in planned.program.coverage.suffix(0):
+        pending.append(operation)
+        if isinstance(operation, RunCoverageCheckpoint):
+            default_chunks[operation.group_id or ""] = tuple(pending)
+            pending = []
+    assert not pending
+    recovery_groups = (
+        PointExecutionGroup("comparison:alternating", {}, (0, 2)),
+        PointExecutionGroup("comparison:middle", {}, (1,)),
+    )
+    groups = {group.id: group for group in recovery_groups}
+    chunks: dict[str, tuple[RunCoveredOperation, ...]] = {
+        "comparison:alternating": (
+            *default_chunks["point:0"][:-1],
+            *default_chunks["point:2"][:-1],
+            RunCoverageCheckpoint("comparison:alternating", (0, 2)),
+        ),
+        "comparison:middle": (
+            *default_chunks["point:1"][:-1],
+            RunCoverageCheckpoint("comparison:middle", (1,)),
+        ),
+    }
+    traversal = ("comparison:alternating", "comparison:middle")
+    executed: list[str] = []
+
+    def remaining(
+        start_point_count: int,
+        completed_group_ids: frozenset[str],
+    ) -> Iterator[RunCoveredOperation]:
+        for group_id in traversal:
+            group = groups[group_id]
+            if group_id in completed_group_ids or all(
+                ordinal < start_point_count for ordinal in group.ordinals
+            ):
+                continue
+            executed.append(group_id)
+            yield from chunks[group_id]
+
+    def initial(start_point_count: int) -> Iterator[RunCoveredOperation]:
+        return remaining(start_point_count, frozenset())
+
+    def interrupted(start_point_count: int) -> Iterator[RunCoveredOperation]:
+        del start_point_count
+        yield from chunks["comparison:alternating"]
+        raise _InjectedInterruption
+
+    coverage = RunCoverage(
+        initial,
+        resume_factory=remaining,
+    )
+    interrupted_program = replace(
+        planned.program,
+        point_groups=recovery_groups,
+        coverage=RunCoverage(
+            interrupted,
+            resume_factory=remaining,
+        ),
+    )
+    accepted = admit_test_run(
+        config=planned.config,
+        request=planned.request,
+        repository=services.runs,
+    )
+    staged = RecoveryWriter()
+    interrupted_measurements = FakeMeasurementDatasetRepository()
+
+    def retain_nonterminal_snapshot(commit: TerminalRunCommit) -> RunSnapshot:
+        return accepted.model_copy(update={"outcome": commit.outcome})
+
+    with pytest.raises(_InjectedInterruption):
+        execute_admitted_run(
+            program=interrupted_program,
+            session=replace(
+                sqlite_execution_session(
+                    tmp_path,
+                    accepted.run_id,
+                    instruments=provision_test_instrument_host(
+                        composition.backend,
+                        context=InstrumentProviderContext(
+                            bindings=instrument_bindings(config)
+                        ),
+                        instrument_ids=planned.program.resource_order,
+                    ),
+                ),
+                measurements=interrupted_measurements,
+                recovery_groups=staged,
+                durable_completed_point_count=lambda: 0,
+                commit_terminal=retain_nonterminal_snapshot,
+            ),
+        )
+
+    [completion] = staged.committed
+    assert completion.group_id == "comparison:alternating"
+    assert completion.point_indices == (0, 2)
+    assert completion.output_kind == "staged_measurement"
+    assert [record.point_index for record in staged.staged_records] == [0, 2]
+    assert [
+        record.point_index for record in interrupted_measurements.measurements()
+    ] == [0]
+
+    resumed_measurements = FragmentMeasurementRepository()
+    resumed_recovery = RecoveryWriter()
+
+    def staged_measurements(
+        _groups: tuple[RecoveryGroupCompletion, ...],
+        _schema: MeasurementDatasetSchema,
+    ) -> tuple[MeasurementRecord, ...]:
+        return tuple(staged.staged_records)
+
+    snapshot = execute_admitted_run(
+        program=replace(
+            planned.program,
+            point_groups=recovery_groups,
+            coverage=coverage,
+        ),
+        session=replace(
+            sqlite_execution_session(
+                tmp_path,
+                accepted.run_id,
+                instruments=provision_test_instrument_host(
+                    composition.backend,
+                    context=InstrumentProviderContext(
+                        bindings=instrument_bindings(config)
+                    ),
+                    instrument_ids=planned.program.resource_order,
+                ),
+            ),
+            measurements=resumed_measurements,
+            recovery_groups=resumed_recovery,
+            durable_completed_point_count=lambda: (
+                1 + len(resumed_measurements.measurements())
+            ),
+            durable_recovery_groups=lambda: (completion,),
+            durable_recovery_measurements=staged_measurements,
+            has_prior_execution_segment=lambda: True,
+        ),
+    )
+
+    assert snapshot.status == "completed"
+    assert executed == ["comparison:middle"]
+    assert [record.point_index for record in resumed_measurements.measurements()] == [
+        1,
+        2,
+    ]
+    assert "comparison:alternating" not in {
+        group.group_id for group in resumed_recovery.committed
+    }
 
 
 def test_non_static_continuation_fails_before_acquiring_instruments(

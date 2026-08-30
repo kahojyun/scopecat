@@ -748,11 +748,13 @@ The present architecture provides a direct end-to-end baseline:
 - recovery groups have stable unique ids and a schedule-level membership
   fingerprint. Their normalized SQLite ledger records exact sparse point
   coverage separately from the canonical prefix and rejects overlapping points,
-  conflicting retries, or measurement proofs whose record hashes have not yet
-  been published. Unrecorded groups can resume sparsely today. Measurement
-  groups remain prefix-backed until an out-of-order Arrow staging layer is
-  introduced; logical recovery groups must not become one-file or one-hardware-
-  batch boundaries when that layer is added;
+  conflicting retries, or measurement proofs whose record hashes have not been
+  published. Out-of-order measurement groups publish schema-checked Arrow
+  frames into the same segment pack used by canonical appends, with the frame
+  locator and group proof committed atomically. Resume verifies those hashes,
+  ignores staged rows already below the canonical watermark, and hydrates the
+  remaining sparse rows into the ordering buffer. Logical recovery groups do
+  not become one-file or one-hardware-batch boundaries;
 - ordinary command payload uploads use an in-memory spool scoped by run and
   hardware operation, or by direct session and command. A completed, rejected,
   or replayed operation releases its bytes immediately; owner termination and

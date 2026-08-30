@@ -206,13 +206,15 @@ rule.
 
 A recovery group is deliberately not a hardware batch. Domain limits, host-state
 regions, and local coverage windows may split one group at any point boundary.
-Measurements remain buffered until the complete group has executed; only then
-may durable coverage advance. An interruption therefore restarts the unfinished
-group even when earlier physical batches from that group had completed. Durable
-coverage is currently a canonical point prefix, so reordered schedules may also
-conservatively replay completed groups that lie beyond the last publishable
-prefix; a future completed-group ledger can remove that extra replay without
-changing scheduling or dataset identity.
+An incomplete group is rerun in full, even when earlier physical batches from
+that group had completed. Once the complete group finishes, its stable id,
+schedule fingerprint, exact point membership, and output hashes are committed
+to a sparse recovery ledger. Runs without a dataset can publish that proof
+directly. A measurement group already inside the durable prefix cites canonical
+records; an out-of-order group publishes its exact Arrow records as
+`staged_measurement` evidence. The latter shares the current execution
+segment's append-only pack and does not turn the group into a file or hardware
+boundary.
 
 One `ExperimentSystem` owns one domain compiler. The compiler may internally
 route supported dialects or invoke a lower-level target compiler after resolving
@@ -321,10 +323,11 @@ A point recovery group and a durable execution segment are different boundaries.
 Grouping belongs to the accepted run contract and controls scheduling preference
 and result publication, not physical partitioning. Segments are immutable
 evidence for one executor lease and may contain many groups or part of the final
-unfinished group. Because durable coverage is stored as a canonical point
-prefix, a segment watermark is publishable only when completed groups cover
-exactly a canonical prefix; reordered rows may therefore delay durable
-advancement until a later group boundary.
+unfinished group. Durable coverage remains a canonical point prefix, while the
+separate recovery ledger can also prove completed groups beyond that prefix.
+The two watermarks therefore answer different questions: canonical coverage
+locates the next dataset row, while group evidence determines which exact
+comparisons need not be rerun.
 
 Execution segments are immutable evidence rather than transparent process
 resume. After hardware reconciliation, explicit continuation can return an
@@ -347,7 +350,10 @@ length, payload digest, coverage advance, and effect event in SQLite. A failed
 metadata transaction can leave unused bytes but cannot expose a partial record;
 readers never infer content by scanning the file. Logical chunk refs remain
 stable and resolve through the relational pack index, so paging and typed data
-access do not depend on the physical container.
+access do not depend on the physical container. Sparse recovery frames use the
+same pack and publication rule. Their locator is committed in the same SQLite
+transaction as the completed-group proof, so a proof can never refer to absent
+records and an uncommitted frame remains only an invisible pack tail.
 
 Chunk durability is a daemon storage policy rather than an experiment-plan
 property. Record count and array-value bytes bound memory and object size; an
@@ -358,12 +364,16 @@ hardware batches, and durable Arrow chunks may therefore all have different
 boundaries.
 
 Before acquiring instruments, the interpreter reads the durable global coverage
-watermark. A continued static local run materializes only the remaining point
-suffix and initializes its point ledger, ordering buffer, and recording counters
-at that watermark. Its seal identifies only the new segment-owned fragment; the
-daemon verifies that fragment and derives the final run-level dataset identity
-from every durable append across all segments. This avoids replaying completed
-point effects and avoids re-hashing array payloads in the executor.
+watermark and the completed-group ledger. A continued run skips exact completed
+groups. Staged records at or beyond the watermark hydrate the canonical ordering
+buffer; records below it are verified as part of their group but are not inserted
+twice. It is therefore valid for the canonical watermark to cut through a staged
+group. As remaining points close the gaps, recovered and newly acquired rows are
+appended in canonical order. The new seal identifies only the segment-owned
+fragment; the daemon verifies that fragment and derives the final run-level
+dataset identity from every durable append across all segments. This avoids
+replaying completed point effects and avoids re-hashing array payloads in the
+executor.
 
 Automatic suffix continuation is deliberately narrower than control-plane
 continuation. Adaptive runs and domain-target runs are rejected before

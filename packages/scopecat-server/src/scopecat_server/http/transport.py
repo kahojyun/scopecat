@@ -1447,6 +1447,37 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     ) -> RunRecoveryGroupCommitReceipt:
         return application.executor.commit_recovery_groups(run_id, command)
 
+    @app.post(f"{_API_PREFIX}/runs/{{run_id}}/recovery-groups/measurements")
+    async def commit_run_recovery_group_measurements(
+        run_id: str,
+        request: Request,
+        lease_id: Annotated[
+            str,
+            Header(alias="X-Scopecat-Lease-ID", min_length=1),
+        ],
+    ) -> RunRecoveryGroupCommitReceipt:
+        return application.executor.commit_recovery_group_measurements(
+            run_id,
+            lease_id=lease_id,
+            content=await request.body(),
+        )
+
+    @app.get(
+        f"{_API_PREFIX}/runs/{{run_id}}/recovery-groups/{{group_id}}/measurements",
+        response_class=Response,
+    )
+    def get_run_recovery_group_measurements(
+        run_id: str,
+        group_id: str,
+    ) -> Response:
+        return Response(
+            content=application.executor.recovery_group_measurements(
+                run_id,
+                group_id,
+            ),
+            media_type="application/vnd.apache.arrow.file",
+        )
+
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/domain-jobs/transitions")
     def get_run_domain_job_transitions(
         run_id: str,

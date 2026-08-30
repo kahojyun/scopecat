@@ -196,7 +196,11 @@ from scopecat.kernel.content_identity import (
     sha256_content_hash,
     sha256_content_hash_segments,
 )
-from scopecat.measurements.recording_arrow import encode_measurement_append
+from scopecat.measurements.recording_arrow import (
+    decode_measurement_recovery_stage,
+    encode_measurement_append,
+    encode_measurement_recovery_stage,
+)
 from scopecat.planning.catalog import InstrumentContractCatalog
 from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.content import (
@@ -215,6 +219,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetBatch,
     MeasurementDatasetReceipt,
+    MeasurementRecoveryGroupStage,
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.records.sample import SampleRevision
@@ -1707,6 +1712,39 @@ class DaemonClient:
             command,
             RunRecoveryGroupCommitReceipt,
         )
+
+    def commit_run_recovery_group_measurements(
+        self,
+        run_id: str,
+        *,
+        lease_id: str,
+        stage: MeasurementRecoveryGroupStage,
+        dataset_schema: MeasurementDatasetSchema,
+    ) -> RunRecoveryGroupCommitReceipt:
+        response = self._request(
+            "POST",
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/recovery-groups/measurements",
+            content=encode_measurement_recovery_stage(stage, dataset_schema),
+            headers={
+                "Content-Type": "application/vnd.apache.arrow.file",
+                "X-Scopecat-Lease-ID": lease_id,
+            },
+        )
+        return RunRecoveryGroupCommitReceipt.model_validate_json(response.content)
+
+    def run_recovery_group_measurements(
+        self,
+        run_id: str,
+        group_id: str,
+        *,
+        dataset_schema: MeasurementDatasetSchema,
+    ) -> MeasurementRecoveryGroupStage:
+        response = self._request(
+            "GET",
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/recovery-groups/"
+            f"{quote(group_id, safe='')}/measurements",
+        )
+        return decode_measurement_recovery_stage(response.content, dataset_schema)
 
     def get_run_domain_job_transitions(
         self,

@@ -118,11 +118,28 @@ def execute_admitted_run(
         raise ValueError(msg)
     start_point_count = session.durable_completed_point_count()
     completed_recovery_groups = session.durable_recovery_groups()
-    completed_group_ids, recovered_point_indices = _validate_recovery_groups(
+    (
+        completed_group_ids,
+        recovered_point_indices,
+        staged_recovery_groups,
+    ) = _validate_recovery_groups(
         program,
         completed_recovery_groups,
         start_point_count=start_point_count,
     )
+    recovered_measurements: tuple[MeasurementRecord, ...] = ()
+    if staged_recovery_groups:
+        dataset_schema = program.measurements.schema
+        if dataset_schema is None:
+            raise ValueError("staged recovery measurements require a dataset schema")
+        recovered_measurements = _validate_recovery_measurements(
+            session.durable_recovery_measurements(
+                staged_recovery_groups,
+                dataset_schema,
+            ),
+            staged_recovery_groups,
+            start_point_count=start_point_count,
+        )
     requires_segment_history = (
         program.adaptive_domain_plan is not None
         or program.domain_target_requirement is not None
@@ -144,6 +161,7 @@ def execute_admitted_run(
         start_point_count=start_point_count,
         completed_group_ids=completed_group_ids,
         recovered_point_indices=recovered_point_indices,
+        recovered_measurements=recovered_measurements,
     )
 
 
@@ -154,6 +172,7 @@ def _execute_run(
     start_point_count: int,
     completed_group_ids: frozenset[str],
     recovered_point_indices: tuple[int, ...],
+    recovered_measurements: tuple[MeasurementRecord, ...],
 ) -> RunSnapshot:
     host = program.host
     projection = program.measurements
@@ -187,6 +206,19 @@ def _execute_run(
         session,
         coverage_buffer,
         recovered_point_indices,
+        has_dataset=projection.has_dataset,
+    )
+    restored_records = _restore_staged_measurements(
+        program,
+        session,
+        measurement_buffer,
+        recovered_measurements,
+        dataset_header=dataset_header,
+        header_failure=header_failure,
+    )
+    recorded_measurement_count += len(restored_records)
+    record_content_hashes.extend(
+        measurement_record_content_hash(record) for record in restored_records
     )
 
     def commit_coverage(
@@ -259,8 +291,12 @@ def _execute_run(
             recovery_fingerprint=recovery_fingerprint,
             points=points,
             records_by_point=records_by_point,
-            has_dataset=projection.has_dataset,
-            canonical_point_count=coverage_buffer.next_index,
+            dataset_header=dataset_header,
+            canonical_point_count=(
+                measurement_buffer.next_index
+                if projection.has_dataset
+                else coverage_buffer.next_index
+            ),
             session=session,
             pending=pending_recovery_groups,
         )
@@ -458,9 +494,13 @@ def _validate_recovery_groups(
     completed: tuple[RecoveryGroupCompletion, ...],
     *,
     start_point_count: int,
-) -> tuple[frozenset[str], tuple[int, ...]]:
+) -> tuple[
+    frozenset[str],
+    tuple[int, ...],
+    tuple[RecoveryGroupCompletion, ...],
+]:
     if not completed:
-        return frozenset(), ()
+        return frozenset(), (), ()
     expected_fingerprint = recovery_schedule_fingerprint(
         tuple((group.id, group.ordinals) for group in program.point_groups),
         point_count=len(program.points.points),
@@ -468,6 +508,7 @@ def _validate_recovery_groups(
     expected_groups = {group.id: group for group in program.point_groups}
     completed_ids: set[str] = set()
     recovered_indices: list[int] = []
+    staged: list[RecoveryGroupCompletion] = []
     for completion in completed:
         if completion.schedule_fingerprint != expected_fingerprint:
             raise ValueError(
@@ -484,34 +525,81 @@ def _validate_recovery_groups(
         before_prefix = tuple(
             point_index < start_point_count for point_index in completion.point_indices
         )
-        if any(before_prefix) and not all(before_prefix):
-            raise ValueError("durable point coverage splits a recovery group")
         if program.measurements.has_dataset:
-            if completion.output_kind != "canonical_measurement":
+            if completion.output_kind == "canonical_measurement":
+                if not all(before_prefix):
+                    raise ValueError(
+                        "canonical measurement recovery group exceeds durable coverage"
+                    )
+            elif completion.output_kind == "staged_measurement":
+                if not all(before_prefix):
+                    staged.append(completion)
+            else:
                 raise ValueError(
                     "measurement run recovery group lacks measurement output proof"
-                )
-            if not all(before_prefix):
-                raise ValueError(
-                    "sparse measurement recovery requires durable staging hydration"
                 )
         elif completion.output_kind != "unrecorded":
             raise ValueError(
                 "unrecorded run recovery group unexpectedly references measurements"
             )
+        elif any(before_prefix) and not all(before_prefix):
+            raise ValueError("durable point coverage splits a recovery group")
         if not all(before_prefix):
-            recovered_indices.extend(completion.point_indices)
+            recovered_indices.extend(
+                point_index
+                for point_index in completion.point_indices
+                if point_index >= start_point_count
+            )
     if len(recovered_indices) != len(set(recovered_indices)):
         raise ValueError("durable recovery groups overlap logical points")
-    return frozenset(completed_ids), tuple(recovered_indices)
+    return frozenset(completed_ids), tuple(recovered_indices), tuple(staged)
+
+
+def _validate_recovery_measurements(
+    records: tuple[MeasurementRecord, ...],
+    groups: tuple[RecoveryGroupCompletion, ...],
+    *,
+    start_point_count: int,
+) -> tuple[MeasurementRecord, ...]:
+    expected = {
+        point_index: content_hash
+        for group in groups
+        for point_index, content_hash in zip(
+            group.point_indices,
+            group.record_content_hashes,
+            strict=True,
+        )
+        if point_index >= start_point_count
+    }
+    actual: dict[int, MeasurementRecord] = {}
+    for record in records:
+        if record.point_index < start_point_count:
+            continue
+        if record.point_index in actual:
+            raise ValueError("staged recovery measurements contain duplicate points")
+        actual[record.point_index] = record
+    if actual.keys() != expected.keys():
+        raise ValueError(
+            "staged recovery measurements do not cover the expected sparse points"
+        )
+    if any(
+        measurement_record_content_hash(record) != expected[point_index]
+        for point_index, record in actual.items()
+    ):
+        raise ValueError(
+            "staged recovery measurement hashes do not match completion proof"
+        )
+    return tuple(actual[point_index] for point_index in sorted(actual))
 
 
 def _restore_unrecorded_coverage(
     session: ExecutionSession,
     buffer: CanonicalPointBuffer,
     point_indices: tuple[int, ...],
+    *,
+    has_dataset: bool,
 ) -> None:
-    if not point_indices:
+    if has_dataset or not point_indices:
         return
     completed_point_count = buffer.next_index
     ready = buffer.add(point_indices)
@@ -520,6 +608,29 @@ def _restore_unrecorded_coverage(
             start_index=completed_point_count,
             point_count=len(ready),
         )
+
+
+def _restore_staged_measurements(
+    program: RunProgram,
+    session: ExecutionSession,
+    buffer: CanonicalMeasurementBuffer,
+    records: tuple[MeasurementRecord, ...],
+    *,
+    dataset_header: MeasurementDatasetHeader | None,
+    header_failure: MeasurementRecordingError | None,
+) -> tuple[MeasurementRecord, ...]:
+    if not records:
+        return ()
+    if dataset_header is None or header_failure is not None:
+        raise ValueError("staged recovery measurements require an initialized dataset")
+    ready = buffer.add(records)
+    if ready:
+        ingest_measurement_dataset(
+            ProjectedMeasurementDataset(program.measurements, session.run_id, ready),
+            session.measurements,
+            header=dataset_header,
+        )
+    return ready
 
 
 def _advance_unrecorded_coverage(
@@ -587,30 +698,50 @@ def _record_completed_recovery_group(
     recovery_fingerprint: str,
     points: tuple[AcceptedRunPoint, ...],
     records_by_point: dict[int, tuple[MeasurementRecord, ...]],
-    has_dataset: bool,
+    dataset_header: MeasurementDatasetHeader | None,
     canonical_point_count: int,
     session: ExecutionSession,
     pending: list[RecoveryGroupCompletion],
 ) -> None:
     if group_id is None or group_id not in recoverable_group_ids:
         return
+    has_dataset = dataset_header is not None
+    record_hashes = (
+        tuple(
+            measurement_record_content_hash(
+                _single_point_record(records_by_point, point.ordinal)
+            )
+            for point in points
+        )
+        if has_dataset
+        else ()
+    )
     completion = RecoveryGroupCompletion(
         schedule_fingerprint=recovery_fingerprint,
         group_id=group_id,
         point_indices=tuple(point.ordinal for point in points),
         output_kind="canonical_measurement" if has_dataset else "unrecorded",
-        record_content_hashes=(
-            tuple(
-                measurement_record_content_hash(
-                    _single_point_record(records_by_point, point.ordinal)
-                )
-                for point in points
-            )
-            if has_dataset
-            else ()
-        ),
+        record_content_hashes=record_hashes,
     )
     prefix_backed = all(point.ordinal < canonical_point_count for point in points)
+    if has_dataset and not prefix_backed and session.recovery_groups is not None:
+        staged = RecoveryGroupCompletion(
+            schedule_fingerprint=completion.schedule_fingerprint,
+            group_id=completion.group_id,
+            point_indices=completion.point_indices,
+            output_kind="staged_measurement",
+            record_content_hashes=completion.record_content_hashes,
+        )
+        session.recovery_groups.stage_measurements(
+            staged,
+            tuple(
+                _single_point_record(records_by_point, point.ordinal)
+                for point in points
+            ),
+            dataset_header.dataset_schema,
+            header_content_hash=dataset_header.content_hash,
+        )
+        return
     if not has_dataset and not prefix_backed and session.recovery_groups is not None:
         session.recovery_groups.commit((completion,))
         return
