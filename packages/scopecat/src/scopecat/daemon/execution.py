@@ -82,6 +82,8 @@ _PROVISION_OPERATION_ID = "lifecycle.provide-instruments"
 _MEASUREMENT_TRANSPORT_RECORD_LIMIT = 64
 _MEASUREMENT_TRANSPORT_VALUE_BYTE_LIMIT = 8 * 1024 * 1024
 _MEASUREMENT_TRANSPORT_LATENCY_SECONDS = 0.1
+_RECOVERY_MEASUREMENT_FRAME_RECORD_LIMIT = 4096
+_RECOVERY_MEASUREMENT_FRAME_VALUE_BYTE_LIMIT = 8 * 1024 * 1024
 _COVERAGE_TRANSPORT_POINT_LIMIT = 256
 _COVERAGE_TRANSPORT_LATENCY_SECONDS = 0.1
 _DOMAIN_TRANSITION_TRANSPORT_ITEM_LIMIT = 64
@@ -472,7 +474,9 @@ class _DaemonRunRecoveryGroups:
                 chunk_index=chunk_index,
                 records=chunk,
             )
-            for chunk_index, chunk in enumerate(_measurement_record_chunks(records))
+            for chunk_index, chunk in enumerate(
+                _recovery_measurement_frame_chunks(records)
+            )
         )
         if (
             tuple(point for stage in stages for point in stage.point_indices)
@@ -929,7 +933,7 @@ def _measurement_record_value_bytes(record: MeasurementRecord) -> int:
     )
 
 
-def _measurement_record_chunks(
+def _recovery_measurement_frame_chunks(
     records: tuple[MeasurementRecord, ...],
 ) -> tuple[tuple[MeasurementRecord, ...], ...]:
     chunks: list[tuple[MeasurementRecord, ...]] = []
@@ -938,9 +942,9 @@ def _measurement_record_chunks(
     for record in records:
         value_bytes = _measurement_record_value_bytes(record)
         if pending and (
-            len(pending) >= _MEASUREMENT_TRANSPORT_RECORD_LIMIT
+            len(pending) >= _RECOVERY_MEASUREMENT_FRAME_RECORD_LIMIT
             or pending_value_bytes + value_bytes
-            > _MEASUREMENT_TRANSPORT_VALUE_BYTE_LIMIT
+            > _RECOVERY_MEASUREMENT_FRAME_VALUE_BYTE_LIMIT
         ):
             chunks.append(tuple(pending))
             pending = []
