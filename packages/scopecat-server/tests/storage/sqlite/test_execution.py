@@ -846,6 +846,56 @@ def test_measurement_appends_share_one_segment_pack_without_chunk_objects(
     assert runs.read_bytes(run_id, cast("str", rows[0]["ref"]))
 
 
+def test_canonical_recovery_batch_reads_each_intersecting_append_once(
+    tmp_path: Path,
+) -> None:
+    run_id = "run-canonical-recovery-batch"
+    runs = _runs(tmp_path)
+    measurements = SQLiteMeasurementDatasetRepository(runs, run_id=run_id)
+    groups = SQLiteRecoveryGroups(runs, run_id=run_id)
+    header = _header(run_id, point_count=4)
+    records = tuple(
+        _append(header, point_index=point_index, value=float(point_index)).records[0]
+        for point_index in range(4)
+    )
+    append = MeasurementDatasetAppend(
+        run_id=run_id,
+        header_content_hash=header.content_hash,
+        start_index=0,
+        records=records,
+    )
+    _commit_header(runs, measurements, header)
+    _commit_append(runs, measurements, append)
+    completions = tuple(
+        RecoveryGroupCompletion(
+            schedule_fingerprint="schedule-v1",
+            group_id=f"point:{point_index}",
+            point_indices=(point_index,),
+            output_kind="canonical_measurement",
+            record_content_hashes=(append.record_content_hashes[point_index],),
+        )
+        for point_index in range(4)
+    )
+    statements: list[str] = []
+
+    with _sqlite_transaction(runs) as connection:
+        connection.set_trace_callback(statements.append)
+        committed = groups.append_in_transaction(
+            connection,
+            completions,
+            segment_id=_segment_id(run_id),
+        )
+        connection.set_trace_callback(None)
+
+    append_selects = tuple(
+        statement
+        for statement in statements
+        if "FROM execution_measurement_appends" in statement
+    )
+    assert tuple(item.completion for item in committed) == completions
+    assert len(append_selects) == 1
+
+
 def test_sparse_recovery_group_shares_segment_pack_and_replays_bounded_frames(
     tmp_path: Path,
 ) -> None:

@@ -234,6 +234,7 @@ class SQLiteRecoveryGroups:
             )
 
         accepted: list[RunRecoveryGroupView] = []
+        canonical_record_hashes: dict[int, str] | None = None
         for group in groups:
             existing = _one(
                 connection.execute(
@@ -262,10 +263,24 @@ class SQLiteRecoveryGroups:
                 accepted.append(view)
                 continue
 
+            if (
+                group.output_kind == "canonical_measurement"
+                and canonical_record_hashes is None
+            ):
+                canonical_record_hashes = self._canonical_record_hashes_in_transaction(
+                    connection,
+                    tuple(
+                        point_index
+                        for selected_group in groups
+                        if selected_group.output_kind == "canonical_measurement"
+                        for point_index in selected_group.point_indices
+                    ),
+                )
             self._validate_output_in_transaction(
                 connection,
                 group,
                 segment_id=segment_id,
+                canonical_record_hashes=canonical_record_hashes,
             )
             try:
                 cursor = connection.execute(
@@ -344,6 +359,7 @@ class SQLiteRecoveryGroups:
         group: RecoveryGroupCompletion,
         *,
         segment_id: str,
+        canonical_record_hashes: dict[int, str] | None,
     ) -> None:
         header = _measurement_header_row(connection, self._run_id)
         if group.output_kind == "unrecorded":
@@ -363,32 +379,12 @@ class SQLiteRecoveryGroups:
                 segment_id=segment_id,
             )
             return
-        record_hashes: dict[int, str] = {}
-        rows = _all(
-            connection.execute(
-                """
-                SELECT start_index, record_count, record_content_hashes_json
-                FROM execution_measurement_appends
-                WHERE run_id = ?
-                ORDER BY start_index
-                """,
-                (self._run_id,),
-            )
-        )
-        for row in rows:
-            start_index = _integer(row, "start_index")
-            hashes = _string_tuple(row, "record_content_hashes_json")
-            if len(hashes) != _integer(row, "record_count"):
-                raise ExecutionStateError(
-                    "measurement append record hashes are inconsistent"
-                )
-            record_hashes.update(
-                (start_index + offset, content_hash)
-                for offset, content_hash in enumerate(hashes)
-            )
+        if canonical_record_hashes is None:
+            raise AssertionError("canonical recovery hashes were not loaded")
         try:
             durable_hashes = tuple(
-                record_hashes[point_index] for point_index in group.point_indices
+                canonical_record_hashes[point_index]
+                for point_index in group.point_indices
             )
         except KeyError as error:
             raise ExecutionStateConflict(
@@ -398,6 +394,57 @@ class SQLiteRecoveryGroups:
             raise ExecutionStateConflict(
                 "recovery group measurement hashes disagree with durable records"
             )
+
+    def _canonical_record_hashes_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        point_indices: Sequence[int],
+    ) -> dict[int, str]:
+        """Read each canonical append intersecting one bounded group batch once."""
+
+        selected = tuple(sorted(set(point_indices)))
+        hashes_by_point: dict[int, str] = {}
+        selected_offset = 0
+        while selected_offset < len(selected):
+            point_index = selected[selected_offset]
+            row = _one(
+                connection.execute(
+                    """
+                    SELECT start_index, record_count, record_content_hashes_json
+                    FROM execution_measurement_appends
+                    WHERE run_id = ? AND start_index <= ?
+                    ORDER BY start_index DESC
+                    LIMIT 1
+                    """,
+                    (self._run_id, point_index),
+                )
+            )
+            if row is None:
+                raise ExecutionStateConflict(
+                    "recovery group measurements are not durably published"
+                )
+            start_index = _integer(row, "start_index")
+            record_count = _integer(row, "record_count")
+            record_hashes = _string_tuple(row, "record_content_hashes_json")
+            if len(record_hashes) != record_count:
+                raise ExecutionStateError(
+                    "measurement append record hashes are inconsistent"
+                )
+            end_index = start_index + record_count
+            if point_index >= end_index:
+                raise ExecutionStateConflict(
+                    "recovery group measurements are not durably published"
+                )
+            while (
+                selected_offset < len(selected)
+                and selected[selected_offset] < end_index
+            ):
+                selected_point = selected[selected_offset]
+                hashes_by_point[selected_point] = record_hashes[
+                    selected_point - start_index
+                ]
+                selected_offset += 1
+        return hashes_by_point
 
     def _validate_staged_output_in_transaction(
         self,

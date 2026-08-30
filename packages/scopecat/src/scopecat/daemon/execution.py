@@ -218,7 +218,7 @@ def _read_recovery_groups(
     client: DaemonClient,
     run_id: str,
 ) -> tuple[RecoveryGroupCompletion, ...]:
-    completed: list[RecoveryGroupCompletion] = []
+    pages: list[tuple[RecoveryGroupCompletion, ...]] = []
     before: int | None = None
     while True:
         page = client.get_run_recovery_groups(
@@ -228,9 +228,13 @@ def _read_recovery_groups(
         )
         if page.run_id != run_id:
             raise ValueError("recovery group page does not match its request")
-        completed[0:0] = [item.completion for item in page.items]
+        pages.append(tuple(item.completion for item in page.items))
         if page.next_cursor is None:
-            return tuple(completed)
+            return tuple(
+                completion
+                for completed_page in reversed(pages)
+                for completion in completed_page
+            )
         before = page.next_cursor
 
 

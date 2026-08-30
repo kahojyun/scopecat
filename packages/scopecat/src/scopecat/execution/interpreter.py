@@ -277,13 +277,14 @@ def _execute_run(
                 record_content_hashes.extend(
                     measurement_record_content_hash(record) for record in ready_records
                 )
+        mutable_records_by_point: dict[int, list[MeasurementRecord]] = {
+            point.ordinal: [] for point in points
+        }
+        for record in projected.records:
+            mutable_records_by_point[record.point_index].append(record)
         records_by_point = {
-            point.ordinal: tuple(
-                record
-                for record in projected.records
-                if record.point_index == point.ordinal
-            )
-            for point in points
+            point_index: tuple(records)
+            for point_index, records in mutable_records_by_point.items()
         }
         _record_completed_recovery_group(
             group_id=group_id,

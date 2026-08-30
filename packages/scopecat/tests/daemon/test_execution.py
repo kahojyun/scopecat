@@ -46,6 +46,8 @@ from scopecat.daemon.wire import (
     RunHardwareFinishCommand,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
+    RunRecoveryGroupPage,
+    RunRecoveryGroupView,
     RunSubmission,
     TerminalRunCommitCommand,
 )
@@ -63,6 +65,7 @@ from scopecat.records.execution import (
     DomainJobCheckpoint,
     DomainJobCheckpointTransition,
     DomainJobInvocationTransition,
+    RecoveryGroupCompletion,
 )
 from scopecat.records.instrument import InstrumentStateSnapshot, state_member_target
 from scopecat.records.measurement import (
@@ -94,6 +97,46 @@ from scopecat.sdk.instruments.execution import (
 from scopecat.sdk.instruments.members import PropertyRef
 
 _NOW = datetime(2026, 7, 23, 9, tzinfo=UTC)
+
+
+def test_recovery_group_pages_are_reassembled_in_commit_order() -> None:
+    completions = tuple(
+        RecoveryGroupCompletion(
+            schedule_fingerprint="schedule-v1",
+            group_id=f"point:{point_index}",
+            point_indices=(point_index,),
+            output_kind="unrecorded",
+        )
+        for point_index in range(205)
+    )
+    views = tuple(
+        RunRecoveryGroupView(
+            sequence=point_index + 1,
+            run_id="run-1",
+            segment_id="segment-1",
+            completion=completion,
+        )
+        for point_index, completion in enumerate(completions)
+    )
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        limit = int(request.url.params["limit"])
+        before = request.url.params.get("before")
+        eligible = tuple(
+            view for view in views if before is None or view.sequence < int(before)
+        )
+        selected = eligible[-limit:]
+        return _model(
+            RunRecoveryGroupPage(
+                run_id="run-1",
+                items=selected,
+                next_cursor=(selected[0].sequence if len(eligible) > limit else None),
+            )
+        )
+
+    restored = daemon_execution._read_recovery_groups(_client(handler), "run-1")
+
+    assert restored == completions
 
 
 def test_recovery_measurement_frames_use_bounded_storage_chunks(
