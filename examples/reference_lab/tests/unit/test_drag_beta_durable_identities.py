@@ -35,24 +35,24 @@ def test_drag_beta_durable_capability_manifest_changes_explicitly() -> None:
             "id": "reference-lab.drag-beta-calibration",
             "version": "6",
             "fingerprint": (
-                "sha256:e60f75e173c92634f3dde9e271e40c00"
-                "bebf57f512d439b70e0d4ec197c3b3f2"
+                "sha256:b8a8cf06d8397ea006675403886b97a3"
+                "ba8978812ff44433b6acb7f46d5aa24c"
             ),
         },
         "verification_procedure": {
             "id": "reference-lab.drag-beta-verification",
             "version": "5",
             "fingerprint": (
-                "sha256:38e0a7091688d9390db528144e256406"
-                "556823b6c7faed19cb7e3c0a0d90e183"
+                "sha256:d4d14993afca32099046fef9a792289f"
+                "6396e5a0d418208d1b9da6b93e8e5188"
             ),
         },
         "calibration": {
             "id": "reference-lab.drag-beta-freshness",
             "version": "6",
             "fingerprint": (
-                "sha256:3b719dfb79df8a3fd20146ad4dd61ed3"
-                "88874d1d3fa46e229dd3248d5d2edd1e"
+                "sha256:d3b15208fe03492324d3a5bb97648879"
+                "5a78ddf1942786946efb5d9f753f30cd"
             ),
             "success_policy": "published_result",
         },
@@ -60,23 +60,23 @@ def test_drag_beta_durable_capability_manifest_changes_explicitly() -> None:
             "id": "reference-lab.drag-beta-cohort-composition",
             "version": "6",
             "fingerprint": (
-                "sha256:38a51475ddb301e66ace3fa1d1dabdbd"
-                "824dc863ba1032c7bd8fa8d1e96a78b2"
+                "sha256:79c3ff8f9c916cd0e1b63c1accb73ef7"
+                "730e4715b851f9ac4b8c59698ace719d"
             ),
         },
         "automatic_publication": {
             "id": "reference-lab.drag-beta-automatic-publication",
             "version": "6",
             "fingerprint": (
-                "sha256:4ba4edbd70e5a64e706b24b1b206b8e"
-                "a29b3e6b1af25aab1edcbec8d1ab548ac"
+                "sha256:c0dfe65dca9814942443b42495defd19"
+                "23f3b22fef486d581bc5b1c7d345f12f"
             ),
             "calibration": {
                 "id": "reference-lab.drag-beta-freshness",
                 "version": "6",
                 "fingerprint": (
-                    "sha256:3b719dfb79df8a3fd20146ad4dd61ed3"
-                    "88874d1d3fa46e229dd3248d5d2edd1e"
+                    "sha256:d3b15208fe03492324d3a5bb97648879"
+                    "5a78ddf1942786946efb5d9f753f30cd"
                 ),
                 "success_policy": "published_result",
             },
@@ -84,8 +84,8 @@ def test_drag_beta_durable_capability_manifest_changes_explicitly() -> None:
                 "id": "reference-lab.drag-beta-cohort-composition",
                 "version": "6",
                 "fingerprint": (
-                    "sha256:38a51475ddb301e66ace3fa1d1dabdbd"
-                    "824dc863ba1032c7bd8fa8d1e96a78b2"
+                    "sha256:79c3ff8f9c916cd0e1b63c1accb73ef7"
+                    "730e4715b851f9ac4b8c59698ace719d"
                 ),
             },
         },
