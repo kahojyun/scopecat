@@ -159,9 +159,7 @@ def test_adaptive_point_domain_rejects_recovery_grouping_until_supported() -> No
     )
 
     with pytest.raises(CheckFailed) as error:
-        compile_invocation(
-            invocation.adaptive(_Optimizer(), max_points=8, axes=(x,))
-        )
+        compile_invocation(invocation.adaptive(_Optimizer(), max_points=8, axes=(x,)))
 
     assert [problem.code for problem in error.value.problems] == [
         "adaptive_point_grouping_unsupported"

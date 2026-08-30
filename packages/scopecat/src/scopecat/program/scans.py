@@ -121,9 +121,7 @@ class PointGrouping:
             raise ValueError("point grouping id must be non-empty")
         if any(not coordinate_id for coordinate_id in self.varying_coordinate_ids):
             raise ValueError("point grouping coordinate ids must be non-empty")
-        if len(self.varying_coordinate_ids) != len(
-            set(self.varying_coordinate_ids)
-        ):
+        if len(self.varying_coordinate_ids) != len(set(self.varying_coordinate_ids)):
             raise ValueError("point grouping coordinate ids must be unique")
         if self.scheduling != "prefer_together":
             raise ValueError("point grouping scheduling must be 'prefer_together'")

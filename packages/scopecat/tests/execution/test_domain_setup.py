@@ -33,6 +33,7 @@ from scopecat.sdk.domain.execution import (
     ErasedDomainInvocation,
     ErasedDomainJobRuntime,
     ErasedDomainRealizer,
+    ErasedDomainResultSink,
     ErasedDomainSetup,
     PreparedDomainExecution,
 )
@@ -1381,6 +1382,13 @@ def test_interruption_between_domain_batches_restarts_the_unpublished_group() ->
         payload=object(),
     )
     runtime = Runtime()
+
+    def discard_result(
+        _result: DomainExecutionResult[object],
+        _accept: ErasedDomainResultSink,
+    ) -> None:
+        return None
+
     prepared = PreparedDomainExecution(
         instrument_ids=(),
         setup_write_footprint=(),
@@ -1392,12 +1400,11 @@ def test_interruption_between_domain_batches_restarts_the_unpublished_group() ->
         invocation=cast("ErasedDomainInvocation", invocation),
         setup=None,
         job_runtime=cast("ErasedDomainJobRuntime", runtime),
-        realize_into=cast("ErasedDomainRealizer", lambda _result, _accept: None),
+        realize_into=cast("ErasedDomainRealizer", discard_result),
     )
     domain_id = PointDomainId("group-recovery", "root")
     points = tuple(
-        AcceptedRunPoint(LogicalPointId(domain_id, ordinal), {})
-        for ordinal in range(2)
+        AcceptedRunPoint(LogicalPointId(domain_id, ordinal), {}) for ordinal in range(2)
     )
     operations = (
         RunDomainJob("group-batch-0", (0,), prepared),

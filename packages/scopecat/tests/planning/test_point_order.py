@@ -10,6 +10,7 @@ from scopecat.kernel.point_identity import (
     PointDomainId,
     PointDomainLayout,
 )
+from scopecat.kernel.value_data import CellValue
 from scopecat.kernel.value_types import Int, Scalar
 from scopecat.planning.point_order import (
     PointExecutionGroup,
@@ -197,18 +198,17 @@ def test_point_groups_allow_variable_and_singleton_sizes() -> None:
 
 def test_coordinate_grouping_stably_co_locates_related_rows() -> None:
     domain_id = PointDomainId("test.point-groups", "root")
+    rows: tuple[dict[str, CellValue], ...] = (
+        {"delay": 0, "state": 0},
+        {"delay": 1, "state": 0},
+        {"delay": 0, "state": 1},
+        {"delay": 1, "state": 1},
+    )
     domain = MaterializedPointDomain(
         domain_id,
         tuple(
             MaterializedPoint(LogicalPointId(domain_id, ordinal), row)
-            for ordinal, row in enumerate(
-                (
-                    {"delay": 0, "state": 0},
-                    {"delay": 1, "state": 0},
-                    {"delay": 0, "state": 1},
-                    {"delay": 1, "state": 1},
-                )
-            )
+            for ordinal, row in enumerate(rows)
         ),
         axes=(
             point_axis_values("delay", Scalar(Int()), (0, 1, 0, 1)),

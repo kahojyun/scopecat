@@ -655,8 +655,7 @@ class ExperimentContext:
                 grouping=PointGrouping(
                     id=id,
                     varying_coordinate_ids=tuple(
-                        internal_coordinate_ref_id(coordinate)
-                        for coordinate in varying
+                        internal_coordinate_ref_id(coordinate) for coordinate in varying
                     ),
                 ),
             ),

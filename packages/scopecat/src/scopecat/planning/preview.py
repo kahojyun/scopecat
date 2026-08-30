@@ -253,9 +253,13 @@ def _preview_point_grouping(
     if grouping is None:
         return None
     groups = program.point_groups
-    sampled = groups if len(groups) <= _PREVIEW_POINT_LIMIT else (
-        *groups[: _PREVIEW_POINT_LIMIT // 2],
-        *groups[-(_PREVIEW_POINT_LIMIT // 2) :],
+    sampled = (
+        groups
+        if len(groups) <= _PREVIEW_POINT_LIMIT
+        else (
+            *groups[: _PREVIEW_POINT_LIMIT // 2],
+            *groups[-(_PREVIEW_POINT_LIMIT // 2) :],
+        )
     )
     return ExperimentPreviewPointGrouping(
         id=grouping.id,

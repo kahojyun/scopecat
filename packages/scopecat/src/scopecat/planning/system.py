@@ -267,10 +267,7 @@ def _compile_system_program(
         schedule=logical.point_schedule,
     )
     execution_ordinals = execution_plan.ordinals
-    if (
-        adaptive_domain_plan is not None
-        and logical.point_schedule.grouping is not None
-    ):
+    if adaptive_domain_plan is not None and logical.point_schedule.grouping is not None:
         grouping = logical.point_schedule.grouping
         raise CheckFailed(
             [
@@ -1174,10 +1171,7 @@ def _coverage_operations(
             initial_probe=(
                 initial_local_probe
                 if initial_local_probe is not None
-                and (
-                    covered_point_count == 0
-                    or initial_local_probe.point_invariant
-                )
+                and (covered_point_count == 0 or initial_local_probe.point_invariant)
                 else None
             ),
         )
