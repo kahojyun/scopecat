@@ -773,7 +773,7 @@ def _validate_static_continuation(
     if start_point_count > point_count:
         raise ValueError("durable coverage exceeds the compiled static point domain")
     if not program.coverage.is_durable_cut(start_point_count):
-        raise ValueError("durable coverage ends inside a logical point block")
+        raise ValueError("durable coverage ends inside a point group")
     if not has_prior_execution_segment:
         return
     if program.adaptive_domain_plan is not None:

@@ -518,7 +518,7 @@ class RunEffectInterpreter:
     def _execute_covered_operation(self, operation: RunCoveredOperation) -> None:
         match operation:
             case RunCoverageCheckpoint():
-                raise AssertionError("coverage checkpoint bypassed block sequencing")
+                raise AssertionError("coverage checkpoint bypassed coverage sequencing")
             case RunDomainJob():
                 self._execute_domain_job(operation)
             case RunCoverageEffect():

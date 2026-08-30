@@ -2,96 +2,176 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 from scopecat.compiler.point_domain import MaterializedPointDomain
-from scopecat.program.scans import PointTraversal, RepeatMode
+from scopecat.kernel.content_identity import content_fingerprint, stable_content_hash
+from scopecat.kernel.value_data import CellValue
+from scopecat.program.scans import (
+    PointSchedule,
+    PointTraversal,
+    RepeatMode,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PointExecutionGroup:
+    """One named recovery group in preferred physical traversal order."""
+
+    id: str
+    key: Mapping[str, CellValue] = field(repr=False)
+    ordinals: tuple[int, ...]
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("point execution group id must be non-empty")
+        if not self.ordinals or len(self.ordinals) != len(set(self.ordinals)):
+            raise ValueError(
+                "point execution group ordinals must be non-empty and unique"
+            )
+        object.__setattr__(self, "key", MappingProxyType(dict(self.key)))
 
 
 @dataclass(frozen=True, slots=True)
 class PointExecutionPlan:
-    """Physical row order grouped by author-declared logical block boundaries.
+    """Preferred row order with author-declared recovery group boundaries.
 
-    Every block is indivisible for physical batching. ``is_durable_cut`` is
-    deliberately stricter: durable coverage is a canonical point prefix, so a
-    resume cut is legal only when a physical block prefix covers exactly that
-    canonical prefix.
+    Groups guide traversal but remain splittable by physical batching. Durable
+    coverage is deliberately stricter: a resume cut is legal only when a group
+    prefix covers exactly one canonical point prefix.
     """
 
-    ordinals: Sequence[int] = field(repr=False)
-    block_size: int
-    _durable_cuts: frozenset[int] | None = field(
+    groups: tuple[PointExecutionGroup, ...]
+    point_count: int
+    _durable_group_offsets: Mapping[int, int] = field(
         init=False,
         repr=False,
         compare=False,
     )
 
     def __post_init__(self) -> None:
-        point_count = len(self.ordinals)
-        if type(self.block_size) is not int or self.block_size <= 0:
-            raise ValueError("point execution block size must be positive")
-        if point_count % self.block_size:
-            raise ValueError(
-                "point count must be divisible by the execution block size"
-            )
-        if isinstance(self.ordinals, range) and self.ordinals == range(point_count):
-            object.__setattr__(self, "_durable_cuts", None)
-            return
-        selected = tuple(self.ordinals)
-        if len(set(selected)) != point_count or set(selected) != set(
-            range(point_count)
+        if type(self.point_count) is not int or self.point_count < 0:
+            raise ValueError("point execution count must be a non-negative integer")
+        selected = self.ordinals
+        if len(selected) != self.point_count or set(selected) != set(
+            range(self.point_count)
         ):
-            raise ValueError("point execution order must be a complete permutation")
-        cuts = {0}
+            raise ValueError("point execution groups must partition every point once")
+        cuts = {0: 0}
+        completed = 0
         maximum = -1
-        for offset in range(0, point_count, self.block_size):
-            block = selected[offset : offset + self.block_size]
-            maximum = max(maximum, *block)
-            prefix_count = offset + self.block_size
-            if maximum == prefix_count - 1:
-                cuts.add(prefix_count)
-        object.__setattr__(self, "_durable_cuts", frozenset(cuts))
+        for group_offset, group in enumerate(self.groups, start=1):
+            completed += len(group.ordinals)
+            maximum = max(maximum, *group.ordinals)
+            if maximum == completed - 1:
+                cuts[completed] = group_offset
+        object.__setattr__(
+            self,
+            "_durable_group_offsets",
+            MappingProxyType(cuts),
+        )
 
     @property
-    def point_count(self) -> int:
-        return len(self.ordinals)
+    def ordinals(self) -> tuple[int, ...]:
+        return tuple(ordinal for group in self.groups for ordinal in group.ordinals)
 
     @property
-    def block_count(self) -> int:
-        return self.point_count // self.block_size
+    def group_count(self) -> int:
+        return len(self.groups)
 
-    def block(self, index: int) -> tuple[int, ...]:
-        if not 0 <= index < self.block_count:
+    def group(self, index: int) -> PointExecutionGroup:
+        if not 0 <= index < self.group_count:
             raise IndexError(index)
-        start = index * self.block_size
-        return tuple(self.ordinals[start : start + self.block_size])
+        return self.groups[index]
 
-    def block_containing(self, point_ordinal: int) -> tuple[int, ...]:
+    def group_containing(self, point_ordinal: int) -> PointExecutionGroup:
         if not 0 <= point_ordinal < self.point_count:
             raise IndexError(point_ordinal)
-        for index in range(self.block_count):
-            block = self.block(index)
-            if point_ordinal in block:
-                return block
+        for group in self.groups:
+            if point_ordinal in group.ordinals:
+                return group
         raise AssertionError("point execution plan lost a canonical point")
 
-    def blocks(self, *, durable_start: int = 0) -> Iterator[tuple[int, ...]]:
-        """Yield whole remaining blocks after one canonical durable watermark."""
+    def remaining_groups(
+        self,
+        *,
+        durable_start: int = 0,
+    ) -> Iterator[PointExecutionGroup]:
+        """Yield groups after one canonical durable coverage watermark."""
 
-        if not self.is_durable_cut(durable_start):
-            raise ValueError("durable point coverage ends inside an execution block")
-        first_block = durable_start // self.block_size
-        for index in range(first_block, self.block_count):
-            yield self.block(index)
+        try:
+            first_group = self._durable_group_offsets[durable_start]
+        except KeyError as error:
+            raise ValueError(
+                "durable point coverage ends inside a point group"
+            ) from error
+        yield from self.groups[first_group:]
 
     def is_durable_cut(self, canonical_point_count: int) -> bool:
-        if not 0 <= canonical_point_count <= self.point_count:
-            return False
-        cuts = self._durable_cuts
-        if cuts is None:
-            return canonical_point_count % self.block_size == 0
-        return canonical_point_count in cuts
+        return canonical_point_count in self._durable_group_offsets
+
+
+def resolve_point_schedule(
+    domain: MaterializedPointDomain,
+    *,
+    repeat: int,
+    repeat_mode: RepeatMode,
+    schedule: PointSchedule,
+) -> PointExecutionPlan:
+    """Compose base traversal with stable grouped traversal.
+
+    Groups follow the first appearance of their key on the base path. Members
+    retain their relative order on that path. This makes grouping and traversal
+    one deterministic scheduling policy without turning groups into batches.
+    """
+
+    ordinals = point_execution_ordinals(
+        domain,
+        repeat=repeat,
+        repeat_mode=repeat_mode,
+        traversal=schedule.traversal,
+    )
+    grouping = schedule.grouping
+    if grouping is None:
+        return PointExecutionPlan(
+            tuple(
+                PointExecutionGroup(
+                    id="point",
+                    key={},
+                    ordinals=(ordinal,),
+                )
+                for ordinal in ordinals
+            ),
+            point_count=len(domain.points),
+        )
+    varying = frozenset(grouping.varying_coordinate_ids)
+    key_ids = tuple(axis.id for axis in domain.axes if axis.id not in varying)
+    grouped: dict[str, tuple[dict[str, CellValue], list[int]]] = {}
+    for ordinal in ordinals:
+        row = domain.points[ordinal].row
+        key = {coordinate_id: row[coordinate_id] for coordinate_id in key_ids}
+        fingerprint = stable_content_hash(content_fingerprint(key))
+        selected = grouped.get(fingerprint)
+        if selected is None:
+            selected_ordinals: list[int] = []
+            selected = (key, selected_ordinals)
+            grouped[fingerprint] = selected
+        elif selected[0] != key:
+            raise AssertionError("point grouping coordinate fingerprint collided")
+        selected[1].append(ordinal)
+    return PointExecutionPlan(
+        tuple(
+            PointExecutionGroup(
+                id=f"{grouping.id}:{fingerprint}",
+                key=key,
+                ordinals=tuple(selected),
+            )
+            for fingerprint, (key, selected) in grouped.items()
+        ),
+        point_count=len(domain.points),
+    )
 
 
 def point_execution_ordinals(

@@ -40,6 +40,14 @@ point watermark. Completed point effects are not replayed, and new measurements
 belong to a new segment-owned fragment. The final dataset identity covers both
 the old prefix and the new suffix.
 
+If the point schedule declares a recovery group, measurements from that group
+remain unpublished until every member completes. Interruption therefore makes
+resume repeat the whole unfinished group, even when one or more hardware
+batches from it had already completed. Hardware batch boundaries do not weaken
+this policy. With a reordered traversal, the current contiguous watermark may
+also conservatively replay a completed group that lies beyond an unfinished
+canonical prefix.
+
 Adaptive runs and domain-target runs cannot yet use this API after an execution
 segment has started, even when zero points are durable. Their safe position also
 depends on proposal or external-job state that point coverage alone cannot

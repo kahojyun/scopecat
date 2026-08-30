@@ -30,6 +30,7 @@ from scopecat.program.recording import ExperimentResultField, ProgramRecordSelec
 from scopecat.program.scans import (
     AxisSpec,
     GridSpec,
+    PointGrouping,
     PointPlan,
     PointRow,
     PointsSpec,
@@ -40,6 +41,7 @@ from scopecat.program.scans import (
 from scopecat.program.value_refs import (
     CoordinateRef,
     ValueRef,
+    internal_coordinate_ref_id,
     internal_value_ref_point_id,
 )
 from scopecat.program.values import (
@@ -253,7 +255,7 @@ class ExperimentInvocation(Generic[_ExperimentResultT_co]):
             point_plan_override=replace(
                 self.point_plan,
                 domain=points_spec(rows, coordinates=coordinates),
-                traversal="forward",
+                schedule=replace(self.point_plan.schedule, traversal="forward"),
             ),
         )
 
@@ -289,18 +291,43 @@ class ExperimentInvocation(Generic[_ExperimentResultT_co]):
             self,
             point_plan_override=replace(
                 self.point_plan,
-                traversal=traversal,
+                schedule=replace(self.point_plan.schedule, traversal=traversal),
             ),
         )
 
-    def with_execution_blocks(self, size: int) -> Self:
-        """Keep fixed-size adjacent execution rows in indivisible blocks."""
+    def with_point_grouping(
+        self,
+        id: str,
+        *,
+        varying: Sequence[CoordinateRef],
+    ) -> Self:
+        """Prefer related points together and restart an interrupted group."""
 
         return replace(
             self,
             point_plan_override=replace(
                 self.point_plan,
-                execution_block_size=size,
+                schedule=replace(
+                    self.point_plan.schedule,
+                    grouping=PointGrouping(
+                        id=id,
+                        varying_coordinate_ids=tuple(
+                            internal_coordinate_ref_id(coordinate)
+                            for coordinate in varying
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+    def without_point_grouping(self) -> Self:
+        """Remove the scheduling and interruption grouping policy."""
+
+        return replace(
+            self,
+            point_plan_override=replace(
+                self.point_plan,
+                schedule=replace(self.point_plan.schedule, grouping=None),
             ),
         )
 

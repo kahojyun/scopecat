@@ -36,10 +36,10 @@ class DomainBatchPreparationCost:
 class DomainBatchCandidate:
     """Reusable analysis of one candidate point prefix.
 
-    Core may shorten or split the compatible prefix only at the logical block
-    cuts declared by ``DomainBatchRequest.legal_cut_offsets``. The
-    compiler-owned closure retains any lowering or packing work shared by those
-    final subranges.
+    Core may shorten or split the compatible prefix at the point cuts declared
+    by ``DomainBatchRequest.legal_cut_offsets``. Point recovery groups are a
+    scheduling preference, not a target batch constraint. The compiler-owned
+    closure retains lowering or packing work shared by final subranges.
     """
 
     compatible_point_count: int
@@ -50,7 +50,7 @@ class DomainBatchCandidate:
     )
 
     def compile(self, request: DomainBatchRequest) -> PreparedDomainExecution:
-        """Close one exact block-aligned subrange of the compatible prefix."""
+        """Close one exact subrange of the compatible prefix."""
 
         return self._compile(request)
 
@@ -81,7 +81,7 @@ class DomainCompiler(Protocol):
 
         The compiler may inspect or lower every candidate point, but must not
         perform external effects. ``compatible_point_count`` must identify a
-        legal request cut. Every non-empty subrange aligned to request block
+        legal request cut. Every non-empty subrange aligned to the declared
         cuts must be independently compilable. Core may shorten or split that
         prefix at those cuts to align host-state regions or another domain call
         before asking the returned candidate to compile each exact final batch.

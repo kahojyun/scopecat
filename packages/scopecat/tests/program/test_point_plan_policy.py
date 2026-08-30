@@ -12,7 +12,9 @@ from scopecat.program.module import ModuleBody, ModuleInterface
 from scopecat.program.scans import (
     AxisSpec,
     GridSpec,
+    PointGrouping,
     PointPlan,
+    PointSchedule,
     PointsSpec,
     RepeatMode,
     ScanValue,
@@ -58,7 +60,7 @@ def test_point_cloud_rejects_snake_traversal() -> None:
     points = PointsSpec((_axis("x", 1, 2),))
 
     with pytest.raises(ValueError, match="only support forward"):
-        PointPlan(points, traversal="snake")
+        PointPlan(points, schedule=PointSchedule(traversal="snake"))
 
 
 @pytest.mark.parametrize(
@@ -157,28 +159,33 @@ def test_invocation_point_policy_edits_are_immutable_and_resettable() -> None:
         GridSpec((original_axis,)),
         repeat=2,
         repeat_mode="sweep",
-        traversal="snake",
+        schedule=PointSchedule(traversal="snake"),
     )
     invocation = ExperimentInvocation(_definition(default), output=None)
 
     repeated = invocation.with_repeat(4)
     traversed = repeated.with_traversal("forward")
-    blocked = traversed.with_execution_blocks(2)
-    replaced = blocked.grid(_axis("y", 3, 4))
+    x = sc.coordinate("x", sc.ScalarType(sc.IntType()))
+    grouped = traversed.with_point_grouping("comparison", varying=(x,))
+    replaced = grouped.grid(_axis("y", 3, 4))
 
     assert invocation.point_plan == default
     assert repeated.point_plan == PointPlan(
         GridSpec((original_axis,)),
         repeat=4,
         repeat_mode="point",
-        traversal="snake",
+        schedule=PointSchedule(traversal="snake"),
     )
-    assert traversed.point_plan.traversal == "forward"
-    assert blocked.point_plan.execution_block_size == 2
+    assert traversed.point_plan.schedule.traversal == "forward"
+    assert grouped.point_plan.schedule.grouping == PointGrouping(
+        id="comparison",
+        varying_coordinate_ids=("x",),
+    )
     assert replaced.point_plan.repeat == 4
     assert replaced.point_plan.repeat_mode == "point"
-    assert replaced.point_plan.traversal == "forward"
-    assert replaced.point_plan.execution_block_size == 2
+    assert replaced.point_plan.schedule.traversal == "forward"
+    assert replaced.point_plan.schedule.grouping == grouped.point_plan.schedule.grouping
+    assert grouped.without_point_grouping().point_plan.schedule.grouping is None
     assert replaced.reset_points().point_plan == default
 
 
@@ -189,7 +196,7 @@ def test_replacing_a_snake_grid_with_points_uses_explicit_row_order() -> None:
             PointPlan(
                 GridSpec((_axis("grid-x", 1, 2),)),
                 repeat=2,
-                traversal="snake",
+                schedule=PointSchedule(traversal="snake"),
             )
         ),
         output=None,
@@ -199,4 +206,4 @@ def test_replacing_a_snake_grid_with_points_uses_explicit_row_order() -> None:
 
     assert isinstance(replaced.point_plan.domain, PointsSpec)
     assert replaced.point_plan.repeat == 2
-    assert replaced.point_plan.traversal == "forward"
+    assert replaced.point_plan.schedule.traversal == "forward"

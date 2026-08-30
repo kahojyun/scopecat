@@ -36,6 +36,7 @@ from scopecat.records.run_request import (
     GridDomainRecord,
     PointCloudDomainRecord,
     PointPlanRecord,
+    PointScheduleRecord,
     RunRequest,
     RunRequestEntityRef,
     RunRequestParameterLookupValue,
@@ -107,8 +108,10 @@ def test_run_request_records_canonical_grid_axes_only() -> None:
         },
         "repeat": 1,
         "repeat_mode": "point",
-        "traversal": "forward",
-        "execution_block_size": 1,
+        "schedule": {
+            "traversal": "forward",
+            "grouping": None,
+        },
     }
     with pytest.raises(ValidationError):
         RunRequest.model_validate(
@@ -282,7 +285,7 @@ def test_point_cloud_plan_rejects_snake_traversal() -> None:
                 columns=["frequency"],
                 rows=[{"frequency": 5.0}],
             ),
-            traversal="snake",
+            schedule=PointScheduleRecord(traversal="snake"),
         )
 
 
