@@ -9,6 +9,8 @@ from scopecat_testkit.instrument_host import TestRunInstrumentHost
 from scopecat.execution.effect_interpreter import (
     RunEffectInterpreter,
     _CancellationAwareDomainInstruments,
+    _StateActionCapturingInstrumentHost,
+    _StateActionEvidenceBuilder,
 )
 from scopecat.execution.effects.domain import (
     DomainResidencyCache,
@@ -22,6 +24,7 @@ from scopecat.kernel.points import AcceptedRunPoint
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.state import StateValue
+from scopecat.records.instrument import state_member_target
 from scopecat.sdk.domain.execution import (
     DomainResidencyAddress,
     DomainResidencyRequirement,
@@ -45,12 +48,16 @@ from scopecat.sdk.domain.runtime import (
     DomainExecutionResult,
     DomainJobCheckpoint,
 )
+from scopecat.sdk.instruments.commands import InstrumentStateAssignment
 from scopecat.sdk.instruments.execution import (
+    RunHardwareApply,
     RunHardwareBatch,
     RunHardwareBatchReceipt,
     RunHardwareInvoke,
+    RunHardwareStateActionReceipt,
     RunInstrumentHost,
 )
+from scopecat.sdk.instruments.members import PropertyRef
 
 
 def _failure():
@@ -1291,6 +1298,77 @@ def test_domain_instrument_batches_stop_at_the_next_cancellation_boundary() -> N
 
     assert first.operation_id == "first"
     assert [batch.operation_id for batch in inner.batches] == ["first"]
+
+
+def test_domain_batches_contribute_bounded_state_action_evidence() -> None:
+    inner = _Executor(
+        RunHardwareBatchReceipt(
+            operation_id="domain-state",
+            state_actions=(
+                RunHardwareStateActionReceipt(
+                    operation_id="domain-state.apply",
+                    instrument_id="awg",
+                    status="unchanged",
+                ),
+            ),
+        )
+    )
+    evidence = _StateActionEvidenceBuilder(retention_limit=1)
+    capturing = _StateActionCapturingInstrumentHost(
+        cast("RunInstrumentHost", cast("object", inner)),
+        evidence,
+    )
+    instruments = _CancellationAwareDomainInstruments(
+        capturing,
+        cancellation_requested=lambda: False,
+    )
+    batch = RunHardwareBatch(
+        operation_id="domain-state",
+        actions=(
+            RunHardwareApply(
+                effect_id="domain-state.apply",
+                instrument_id="awg",
+                assignments=(
+                    InstrumentStateAssignment(
+                        resource_id="awg",
+                        target=state_member_target(
+                            PropertyRef("test.output/v1", (), "offset")
+                        ),
+                        value=StateValue(0.0),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    instruments.execute(batch)
+    instruments.execute(batch)
+
+    retained = evidence.build()
+    assert retained is not None
+    assert retained.total_count == 2
+    assert not retained.detail_complete
+    assert [action.operation_id for action in retained.retained_prefix] == [
+        "domain-state.apply"
+    ]
+
+    omitted = _StateActionEvidenceBuilder()
+    omitting = _CancellationAwareDomainInstruments(
+        _StateActionCapturingInstrumentHost(
+            cast(
+                "RunInstrumentHost",
+                cast(
+                    "object",
+                    _Executor(RunHardwareBatchReceipt(operation_id="domain-state")),
+                ),
+            ),
+            omitted,
+        ),
+        cancellation_requested=lambda: False,
+    )
+    with pytest.raises(ValueError, match="omitted state action evidence"):
+        omitting.execute(batch)
+    assert omitted.build() is None
 
 
 def test_setup_success_then_requirement_rejection_skips_realtime() -> None:

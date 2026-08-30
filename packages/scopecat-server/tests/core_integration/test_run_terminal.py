@@ -13,10 +13,17 @@ from scopecat.kernel.state import StateValue
 from scopecat.records.content import ContentEntry
 from scopecat.records.execution import (
     InstrumentFinalizationActionEvidence,
+    InstrumentStateActionEvidence,
+    InstrumentStateActionEvidenceLog,
     InstrumentStateEvidence,
     summarize_instrument_state_evidence,
 )
-from scopecat.records.instrument import InstrumentStateSnapshot, state_observation
+from scopecat.records.instrument import (
+    InstrumentStateSetting,
+    InstrumentStateSnapshot,
+    state_member_target,
+    state_observation,
+)
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
     MeasurementDimension,
@@ -171,6 +178,27 @@ def test_terminal_contents_index_supplied_instrument_state() -> None:
         observed_state=[observed],
         baseline_state=[baseline],
         final_state=[final],
+        state_actions=InstrumentStateActionEvidenceLog(
+            total_count=2,
+            retained_prefix=(
+                InstrumentStateActionEvidence(
+                    operation_id="point-0.enable-output",
+                    instrument_id="scope",
+                    point_index=0,
+                    status="applied",
+                    assignments=(
+                        InstrumentStateSetting(
+                            target=state_member_target(
+                                PropertyRef("test.output/v1", (), "enabled")
+                            ),
+                            value=StateValue(True),
+                        ),
+                    ),
+                    metadata={"device_command": "output on"},
+                ),
+            ),
+            detail_complete=False,
+        ),
         finalization_actions=[
             InstrumentFinalizationActionEvidence(
                 operation_id="hardware.finish.safe_operation.scope.0",
@@ -202,6 +230,9 @@ def test_terminal_contents_index_supplied_instrument_state() -> None:
             "final_changed_instrument_ids": ["scope"],
             "missing_final_instrument_ids": [],
             "finalization_action_count": 1,
+            "state_action_count": 2,
+            "retained_state_action_count": 1,
+            "state_action_detail_complete": False,
         }
     }
 
@@ -219,7 +250,11 @@ def test_state_evidence_summary_keeps_missing_final_readback_neutral() -> None:
     assert summary.final_change_count == 0
     assert summary.final_changed_instrument_ids == ()
     assert summary.missing_final_instrument_ids == ("scope",)
+    assert "state_actions" not in evidence.model_dump(mode="json")
     assert "finalization_actions" not in evidence.model_dump(mode="json")
+    assert "state_action_count" not in summary.model_dump(mode="json")
+    assert "retained_state_action_count" not in summary.model_dump(mode="json")
+    assert "state_action_detail_complete" not in summary.model_dump(mode="json")
     assert "finalization_action_count" not in summary.model_dump(mode="json")
     assert "rejected_finalization_action_count" not in summary.model_dump(mode="json")
 

@@ -165,6 +165,20 @@ def test_plan_admit_and_execute_are_separate_run_phases(tmp_path: Path) -> None:
     assert completed.run_id == accepted.run_id
     assert completed.status == "completed"
     assert completed.config_content_hash == config_content_hash(planned.config)
+    evidence = services.runs.read_model(
+        accepted.run_id,
+        instrument_state_evidence_ref(),
+        InstrumentStateEvidence,
+    )
+    assert evidence.state_actions is not None
+    assert evidence.state_actions.total_count == len(
+        evidence.state_actions.retained_prefix
+    )
+    assert evidence.state_actions.detail_complete
+    assert all(
+        action.status in {"applied", "unchanged"}
+        for action in evidence.state_actions.retained_prefix
+    )
 
 
 def test_static_execution_continues_only_the_durable_point_suffix(

@@ -11,6 +11,7 @@ from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.json_types import JsonValue
 from scopecat.kernel.problems import Problem
 from scopecat.records.instrument import (
+    InstrumentStateSetting,
     InstrumentStateSnapshot,
     StateMemberIdentity,
     state_member_identity,
@@ -20,6 +21,10 @@ from scopecat.records.metadata import JsonMetadata
 
 def _exclude_empty(value: object) -> bool:
     return not value
+
+
+def _exclude_none(value: object) -> bool:
+    return value is None
 
 
 class DomainExecutionId(BaseModel):
@@ -306,6 +311,67 @@ class InstrumentStateEvidenceSummary(BaseModel):
         ge=0,
         exclude_if=_exclude_empty,
     )
+    state_action_count: int = Field(default=0, ge=0, exclude_if=_exclude_empty)
+    retained_state_action_count: int = Field(
+        default=0,
+        ge=0,
+        exclude_if=_exclude_empty,
+    )
+    state_action_detail_complete: bool | None = Field(
+        default=None,
+        exclude_if=_exclude_none,
+    )
+
+
+class InstrumentStateActionEvidence(BaseModel):
+    """One confirmed state action executed while a run was active.
+
+    ``assignments`` contains only members actually sent to the driver. Driver
+    metadata is command evidence and must not be interpreted as analog readback.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    operation_id: str = Field(min_length=1)
+    instrument_id: str = Field(min_length=1)
+    point_index: int | None = Field(default=None, ge=0)
+    status: Literal["applied", "unchanged"]
+    assignments: tuple[InstrumentStateSetting, ...] = ()
+    metadata: JsonMetadata = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> InstrumentStateActionEvidence:
+        identities = [
+            state_member_identity(assignment.target) for assignment in self.assignments
+        ]
+        if len(identities) != len(set(identities)):
+            raise ValueError("state action assignment targets must be unique")
+        if self.status == "applied" and not self.assignments:
+            raise ValueError("an applied state action requires assignments")
+        if self.status == "unchanged" and self.assignments:
+            raise ValueError("an unchanged state action cannot contain assignments")
+        return self
+
+
+class InstrumentStateActionEvidenceLog(BaseModel):
+    """A bounded ordered prefix of state actions and its complete total."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    total_count: int = Field(ge=1)
+    retained_prefix: tuple[InstrumentStateActionEvidence, ...]
+    detail_complete: bool
+
+    @model_validator(mode="after")
+    def validate_retention(self) -> InstrumentStateActionEvidenceLog:
+        retained_count = len(self.retained_prefix)
+        if retained_count > self.total_count:
+            raise ValueError("retained state actions cannot exceed the total count")
+        if self.detail_complete != (retained_count == self.total_count):
+            raise ValueError(
+                "state action detail completeness must match the retained count"
+            )
+        return self
 
 
 class InstrumentFinalizationActionEvidence(BaseModel):
@@ -336,6 +402,8 @@ class InstrumentStateEvidence(BaseModel):
     ``baseline_state`` is the execution baseline after the run policy.
     ``final_state`` is best-effort terminal readback gathered during hardware
     release. It may be incomplete and does not imply a successful run.
+    ``state_actions`` retains a bounded prefix of confirmed in-run state
+    commands without treating driver command metadata as physical readback.
     ``finalization_actions`` retains the ordered command evidence returned by
     that release without treating command confirmation as physical readback.
     """
@@ -346,6 +414,10 @@ class InstrumentStateEvidence(BaseModel):
     observed_state: list[InstrumentStateSnapshot] = Field(default_factory=list)
     baseline_state: list[InstrumentStateSnapshot] = Field(default_factory=list)
     final_state: list[InstrumentStateSnapshot] = Field(default_factory=list)
+    state_actions: InstrumentStateActionEvidenceLog | None = Field(
+        default=None,
+        exclude_if=_exclude_none,
+    )
     finalization_actions: list[InstrumentFinalizationActionEvidence] = Field(
         default_factory=list,
         exclude_if=_exclude_empty,
@@ -419,6 +491,19 @@ def summarize_instrument_state_evidence(
         finalization_action_count=len(evidence.finalization_actions),
         rejected_finalization_action_count=sum(
             action.status == "rejected" for action in evidence.finalization_actions
+        ),
+        state_action_count=(
+            0 if evidence.state_actions is None else evidence.state_actions.total_count
+        ),
+        retained_state_action_count=(
+            0
+            if evidence.state_actions is None
+            else len(evidence.state_actions.retained_prefix)
+        ),
+        state_action_detail_complete=(
+            None
+            if evidence.state_actions is None
+            else evidence.state_actions.detail_complete
         ),
     )
 

@@ -49,6 +49,7 @@ from scopecat.records.config import (
 from scopecat.records.instrument import (
     InstrumentStateCacheReadback,
     InstrumentStateReadback,
+    InstrumentStateSetting,
     InstrumentStateSnapshot,
     state_member_ref,
 )
@@ -95,6 +96,7 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareFinalizationActionReceipt,
     RunHardwareFinalizationReceipt,
     RunHardwareInvoke,
+    RunHardwareStateActionReceipt,
     RunHardwareValue,
 )
 from scopecat.sdk.instruments.projection import ProjectedInstrumentState
@@ -956,6 +958,7 @@ class InstrumentRuntime:
                 )
             )
             values: list[RunHardwareValue] = []
+            state_actions: list[RunHardwareStateActionReceipt] = []
             problems: list[Problem] = []
             completed_effect_ids: list[str] = []
             effect_receipts: list[JsonValue] = []
@@ -978,6 +981,7 @@ class InstrumentRuntime:
                         action_problems,
                         action_effect_ids,
                         action_receipts,
+                        action_state_actions,
                         indeterminate_reason,
                     ) = self._execute_hardware_actions(
                         run_id,
@@ -991,9 +995,11 @@ class InstrumentRuntime:
                     problems.extend(action_problems)
                     completed_effect_ids.extend(action_effect_ids)
                     effect_receipts.extend(action_receipts)
+                    state_actions.extend(action_state_actions)
             receipt = RunHardwareBatchReceipt(
                 operation_id=canonical_request.batch.operation_id,
                 values=tuple(values),
+                state_actions=tuple(state_actions),
                 problems=tuple(problems),
                 indeterminate=indeterminate_reason is not None,
             )
@@ -1217,21 +1223,29 @@ class InstrumentRuntime:
         tuple[Problem, ...],
         tuple[str, ...],
         tuple[JsonValue, ...],
+        tuple[RunHardwareStateActionReceipt, ...],
         str | None,
     ]:
         values: list[RunHardwareValue] = []
         completed_effect_ids: list[str] = []
         effect_receipts: list[JsonValue] = []
+        state_actions: list[RunHardwareStateActionReceipt] = []
         for action, backend_request in zip(actions, backend_requests, strict=True):
             try:
                 if isinstance(action, RunHardwareApply):
-                    evidence = self._execute_hardware_apply(
+                    state_action = self._execute_hardware_apply(
                         run_id,
                         token,
                         runtime,
                         action,
                         cast("BackendApplyRequest", backend_request),
                     )
+                    state_actions.append(state_action)
+                    evidence: JsonValue = {
+                        "effect_id": state_action.operation_id,
+                        "status": state_action.status,
+                        "metadata": dict(state_action.metadata),
+                    }
                 elif isinstance(action, RunHardwareInvoke):
                     evidence = self._execute_hardware_invoke(
                         run_id,
@@ -1268,6 +1282,7 @@ class InstrumentRuntime:
                     ),
                     tuple(completed_effect_ids),
                     tuple(effect_receipts),
+                    tuple(state_actions),
                     None,
                 )
             except HardwareActionRejected as rejection:
@@ -1282,6 +1297,7 @@ class InstrumentRuntime:
                     ),
                     tuple(completed_effect_ids),
                     tuple(effect_receipts),
+                    tuple(state_actions),
                     None,
                 )
             except HardwareActionIndeterminate as indeterminate:
@@ -1296,6 +1312,7 @@ class InstrumentRuntime:
                     ),
                     tuple(completed_effect_ids),
                     tuple(effect_receipts),
+                    tuple(state_actions),
                     indeterminate.reason,
                 )
         return (
@@ -1303,6 +1320,7 @@ class InstrumentRuntime:
             (),
             tuple(completed_effect_ids),
             tuple(effect_receipts),
+            tuple(state_actions),
             None,
         )
 
@@ -1410,7 +1428,7 @@ class InstrumentRuntime:
         runtime: OwnershipRuntime,
         action: RunHardwareApply,
         driver_request: BackendApplyRequest,
-    ) -> dict[str, JsonValue]:
+    ) -> RunHardwareStateActionReceipt:
         instrument = runtime.instruments[action.instrument_id]
         current = instrument.assumed_state
         if current is None:
@@ -1425,11 +1443,12 @@ class InstrumentRuntime:
             if not state_assignment_satisfied(current, assignment)
         )
         if not assignments:
-            return {
-                "effect_id": action.effect_id,
-                "status": "unchanged",
-                "metadata": {},
-            }
+            return RunHardwareStateActionReceipt(
+                operation_id=action.effect_id,
+                instrument_id=action.instrument_id,
+                point_index=action.point_index,
+                status="unchanged",
+            )
         command = InstrumentStateCommand(
             command_id=action.effect_id,
             instrument_id=action.instrument_id,
@@ -1467,11 +1486,20 @@ class InstrumentRuntime:
             )
         if receipt.status != "applied":
             raise HardwareActionRejected(receipt.problems)
-        return {
-            "effect_id": action.effect_id,
-            "status": receipt.status,
-            "metadata": dict(receipt.metadata),
-        }
+        return RunHardwareStateActionReceipt(
+            operation_id=action.effect_id,
+            instrument_id=action.instrument_id,
+            point_index=action.point_index,
+            status="applied",
+            assignments=tuple(
+                InstrumentStateSetting(
+                    target=assignment.target,
+                    value=assignment.value,
+                )
+                for assignment, _physical in assignments
+            ),
+            metadata=dict(receipt.metadata),
+        )
 
     def _execute_hardware_invoke(
         self,

@@ -29,8 +29,13 @@ from scopecat.execution.services import RunDomainJobTransitionWriter
 from scopecat.kernel.errors import CheckFailed
 from scopecat.kernel.graph_identity import ValueId
 from scopecat.kernel.points import AcceptedRunPoint
+from scopecat.kernel.problems import Problem
 from scopecat.measurements.records import ValueRecordCandidate
-from scopecat.records.execution import InstrumentFinalizationActionEvidence
+from scopecat.records.execution import (
+    InstrumentFinalizationActionEvidence,
+    InstrumentStateActionEvidence,
+    InstrumentStateActionEvidenceLog,
+)
 from scopecat.records.instrument import InstrumentStateSnapshot
 from scopecat.sdk.domain.evidence import DomainExecutionEvidence
 from scopecat.sdk.domain.execution import DomainTransitionPolicy
@@ -41,8 +46,10 @@ from scopecat.sdk.domain.runtime import (
     DomainJobCheckpoint,
 )
 from scopecat.sdk.instruments.execution import (
+    RunHardwareApply,
     RunHardwareBatch,
     RunHardwareBatchReceipt,
+    RunHardwareFinalizationReceipt,
     RunInstrumentHost,
 )
 from scopecat.sdk.payloads import EMPTY_PAYLOAD_CODECS, PayloadCodecRegistry
@@ -58,6 +65,119 @@ class _CapturedCoverageFailure(Exception):
 
 class _CancellationRequested(Exception):
     """Stop at an interpreter checkpoint after recording the durable reason."""
+
+
+_STATE_ACTION_EVIDENCE_RETENTION_LIMIT = 4096
+
+
+@dataclass(slots=True)
+class _StateActionEvidenceBuilder:
+    """Count every confirmed state action while retaining a bounded prefix."""
+
+    retention_limit: int = _STATE_ACTION_EVIDENCE_RETENTION_LIMIT
+    total_count: int = 0
+    retained_prefix: list[InstrumentStateActionEvidence] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.retention_limit < 1:
+            raise ValueError("state action evidence retention limit must be positive")
+
+    def observe(self, actions: Sequence[InstrumentStateActionEvidence]) -> None:
+        self.total_count += len(actions)
+        remaining = self.retention_limit - len(self.retained_prefix)
+        if remaining > 0:
+            self.retained_prefix.extend(actions[:remaining])
+
+    def build(self) -> InstrumentStateActionEvidenceLog | None:
+        if self.total_count == 0:
+            return None
+        return InstrumentStateActionEvidenceLog(
+            total_count=self.total_count,
+            retained_prefix=tuple(self.retained_prefix),
+            detail_complete=self.total_count == len(self.retained_prefix),
+        )
+
+
+class _StateActionCapturingInstrumentHost:
+    """Observe state receipts from ordinary and nested domain hardware batches."""
+
+    def __init__(
+        self,
+        instruments: RunInstrumentHost,
+        evidence: _StateActionEvidenceBuilder,
+    ) -> None:
+        self._instruments = instruments
+        self._evidence = evidence
+
+    @property
+    def ready(self) -> bool:
+        return self._instruments.ready
+
+    @property
+    def setup_problems(self) -> tuple[Problem, ...]:
+        return self._instruments.setup_problems
+
+    @property
+    def observed_state(self) -> tuple[InstrumentStateSnapshot, ...]:
+        return self._instruments.observed_state
+
+    @property
+    def baseline_state(self) -> tuple[InstrumentStateSnapshot, ...]:
+        return self._instruments.baseline_state
+
+    def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt:
+        receipt = self._instruments.execute(batch)
+        if receipt.operation_id == batch.operation_id:
+            self._evidence.observe(_validated_state_actions(batch, receipt))
+        return receipt
+
+    def finish(
+        self,
+        *,
+        operation_id: str,
+        failed: bool,
+    ) -> RunHardwareFinalizationReceipt:
+        return self._instruments.finish(operation_id=operation_id, failed=failed)
+
+
+def _validated_state_actions(
+    batch: RunHardwareBatch,
+    receipt: RunHardwareBatchReceipt,
+) -> tuple[InstrumentStateActionEvidence, ...]:
+    """Correlate daemon state evidence with the submitted apply prefix."""
+
+    expected = tuple(
+        action for action in batch.actions if isinstance(action, RunHardwareApply)
+    )
+    actual = receipt.state_actions
+    if len(actual) > len(expected):
+        raise ValueError("hardware batch returned unexpected state action evidence")
+    if (
+        not receipt.problems
+        and not receipt.indeterminate
+        and len(actual) != len(expected)
+    ):
+        raise ValueError("successful hardware batch omitted state action evidence")
+    for action, evidence in zip(expected, actual, strict=False):
+        if (
+            evidence.operation_id != action.effect_id
+            or evidence.instrument_id != action.instrument_id
+            or evidence.point_index != action.point_index
+        ):
+            raise ValueError(
+                "hardware state action evidence does not match its request"
+            )
+        requested = tuple(
+            (assignment.target, assignment.value) for assignment in action.assignments
+        )
+        if any(
+            (assignment.target, assignment.value) not in requested
+            for assignment in evidence.assignments
+        ):
+            raise ValueError(
+                "hardware state action evidence changed its requested value"
+            )
+    return actual
 
 
 class _CancellationAwareDomainInstruments:
@@ -161,6 +281,11 @@ class RunEffectInterpreter:
         self.baseline_state = list(instruments.baseline_state)
         self.final_state: list[InstrumentStateSnapshot] = []
         self.finalization_actions: list[InstrumentFinalizationActionEvidence] = []
+        self._state_actions = _StateActionEvidenceBuilder()
+        instrument_host = _StateActionCapturingInstrumentHost(
+            instruments,
+            self._state_actions,
+        )
         self._domain_execution = _DomainExecutionEvidenceBuilder()
         self.domain_failure: tuple[RunDomainJob, BaseException] | None = None
         self.coverage_failure: BaseException | None = None
@@ -176,12 +301,12 @@ class RunEffectInterpreter:
             payload_codecs=payload_codecs,
         )
         self._hardware = HardwareEffectExecutor(
-            instruments=instruments,
+            instruments=instrument_host,
             problems=self._boundary,
         )
         self._coverage_observer = coverage_observer
         self._recorded_value_ids = tuple(recorded_value_ids)
-        self._instruments = instruments
+        self._instruments = instrument_host
         self._cancellation_requested = cancellation_requested
         self._domain_job_transitions = domain_job_transitions
         self._recorded_domain_invocations: set[str] = set()
@@ -191,7 +316,7 @@ class RunEffectInterpreter:
         ] = {}
         self._domain_residency = DomainResidencyCache()
         self._domain_instruments = _CancellationAwareDomainInstruments(
-            instruments,
+            instrument_host,
             cancellation_requested,
         )
 
@@ -700,6 +825,7 @@ class RunEffectInterpreter:
             observed_state=tuple(self.observed_state),
             baseline_state=tuple(self.baseline_state),
             final_state=tuple(self.final_state),
+            state_actions=self._state_actions.build(),
             finalization_actions=tuple(self.finalization_actions),
             domain_execution=self._domain_execution.build(run_id=self.run_id),
             indeterminate=self._boundary.indeterminate,

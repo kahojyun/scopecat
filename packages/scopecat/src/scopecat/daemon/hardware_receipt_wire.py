@@ -34,6 +34,7 @@ from scopecat.sdk.attachments import (
 from scopecat.sdk.instruments.commands import CollectReceipt
 from scopecat.sdk.instruments.execution import (
     RunHardwareBatchReceipt,
+    RunHardwareStateActionReceipt,
     RunHardwareValue,
 )
 
@@ -95,6 +96,7 @@ class _RunHardwareReceiptWire(_WireModel):
     )
     operation_id: str = Field(min_length=1)
     values: tuple[_RunHardwareValueWire, ...] = ()
+    state_actions: tuple[RunHardwareStateActionReceipt, ...] = ()
     problems: tuple[Problem, ...] = ()
     indeterminate: bool = False
 
@@ -172,6 +174,7 @@ def encode_run_hardware_receipt(receipt: RunHardwareBatchReceipt) -> bytes:
             )
             for value in receipt.values
         ),
+        state_actions=receipt.state_actions,
         problems=receipt.problems,
         indeterminate=receipt.indeterminate,
     )
@@ -200,6 +203,7 @@ def decode_run_hardware_receipt(content: bytes) -> RunHardwareBatchReceipt:
                 )
                 for value in header.values
             ),
+            state_actions=header.state_actions,
             problems=header.problems,
             indeterminate=header.indeterminate,
         )

@@ -13,6 +13,7 @@ from scopecat.records.config import ConfigProfileSnapshot
 from scopecat.records.content import CommandPayload
 from scopecat.records.instrument import (
     InstrumentStateReadback,
+    InstrumentStateSetting,
     InstrumentStateSnapshot,
     state_member_identity,
     state_member_ref,
@@ -57,6 +58,7 @@ from scopecat.sdk.instruments.execution import (
     RunHardwareCollect,
     RunHardwareFinalizationReceipt,
     RunHardwareInvoke,
+    RunHardwareStateActionReceipt,
     RunHardwareValue,
 )
 from scopecat.sdk.instruments.provider import (
@@ -156,6 +158,7 @@ class TestRunInstrumentHost:
 
     def execute(self, batch: RunHardwareBatch) -> RunHardwareBatchReceipt:
         values: list[RunHardwareValue] = []
+        state_actions: list[RunHardwareStateActionReceipt] = []
         problems: list[Problem] = []
         indeterminate = False
         for action in batch.actions:
@@ -168,6 +171,14 @@ class TestRunInstrumentHost:
                     if not state_assignment_satisfied(current, assignment)
                 ]
                 if not assignments:
+                    state_actions.append(
+                        RunHardwareStateActionReceipt(
+                            operation_id=action.effect_id,
+                            instrument_id=action.instrument_id,
+                            point_index=action.point_index,
+                            status="unchanged",
+                        )
+                    )
                     continue
                 command = InstrumentStateCommand(
                     command_id=action.effect_id,
@@ -205,6 +216,22 @@ class TestRunInstrumentHost:
                     indeterminate = True
                     break
                 self._assumed_states[action.instrument_id] = observed
+                state_actions.append(
+                    RunHardwareStateActionReceipt(
+                        operation_id=action.effect_id,
+                        instrument_id=action.instrument_id,
+                        point_index=action.point_index,
+                        status="applied",
+                        assignments=tuple(
+                            InstrumentStateSetting(
+                                target=assignment.target,
+                                value=assignment.value,
+                            )
+                            for assignment in assignments
+                        ),
+                        metadata=dict(receipt.metadata),
+                    )
+                )
                 continue
             if isinstance(action, RunHardwareInvoke):
                 command = InvokeCommand(
@@ -295,6 +322,7 @@ class TestRunInstrumentHost:
         return RunHardwareBatchReceipt(
             operation_id=batch.operation_id,
             values=tuple(values),
+            state_actions=tuple(state_actions),
             problems=tuple(problems),
             indeterminate=indeterminate,
         )
