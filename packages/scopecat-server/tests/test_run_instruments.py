@@ -277,6 +277,41 @@ class _PreparingDriver(_Driver):
         return super().collect(request)
 
 
+class _StateEvidenceDriver(_Driver):
+    @override
+    def apply_state(
+        self,
+        request: DriverStatePatch,
+    ) -> DriverOutcome[DriverStateReadback | None]:
+        outcome = super().apply_state(request)
+        assert isinstance(outcome, DriverSuccess)
+        return DriverSuccess(
+            outcome.value,
+            metadata={
+                "hold_mode": "end_with_keep",
+                "analog_readback": False,
+            },
+        )
+
+
+class _RejectingCollectEvidenceDriver(_StateEvidenceDriver):
+    @override
+    def collect(
+        self,
+        request: DriverAcquisition,
+    ) -> DriverOutcome[DriverReadback]:
+        self.collect_requests.append(request)
+        return DriverRejected(
+            problems=(
+                problem(
+                    "test_collect_rejected_after_apply",
+                    "test driver rejected collection after applying state",
+                    phase=ProblemPhase.EXECUTION,
+                ),
+            )
+        )
+
+
 class _SafeOperationDriver(_Driver):
     @override
     def describe(self) -> InstrumentDescription:
@@ -670,9 +705,13 @@ class _SecondRejectingProvider(_Provider):
 def test_batch_reconciles_state_collects_values_and_replays_once(
     tmp_path: Path,
 ) -> None:
-    provider = _Provider()
+    provider = _Provider(driver_type=_StateEvidenceDriver)
     with _runtime(tmp_path, provider) as runtime:
-        run_id, lease_id = _start_run(runtime, load_config())
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_StateEvidenceDriver,
+        )
         instruments = runtime.application.instruments
         provision = instruments.provision_run(run_id, _provision(lease_id))
         assert provision.observed_state[0].instrument_id == "source-0"
@@ -712,6 +751,20 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
         assert len(driver.applied) == 1
         assert driver.read_count == 2
         assert len(driver.collect_requests) == 1
+        [state_action] = receipt.state_actions
+        assert state_action.operation_id == "apply-1"
+        assert state_action.instrument_id == "source-0"
+        assert state_action.point_index == 0
+        assert state_action.status == "applied"
+        [assignment] = state_action.assignments
+        applied_action = command.batch.actions[0]
+        assert isinstance(applied_action, RunHardwareApply)
+        assert assignment.target == applied_action.assignments[0].target
+        assert assignment.value == StateValue(Quantity(value=5.0, unit="GHz"))
+        assert state_action.metadata == {
+            "hold_mode": "end_with_keep",
+            "analog_readback": False,
+        }
 
         unchanged = _batch_command(
             lease_id,
@@ -719,7 +772,13 @@ def test_batch_reconciles_state_collects_values_and_replays_once(
             _apply_action("source-0", effect_id="apply-2"),
             sequence=1,
         )
-        assert not instruments.execute_run_hardware(run_id, unchanged).problems
+        unchanged_receipt = instruments.execute_run_hardware(run_id, unchanged)
+        assert not unchanged_receipt.problems
+        [unchanged_action] = unchanged_receipt.state_actions
+        assert unchanged_action.operation_id == "apply-2"
+        assert unchanged_action.status == "unchanged"
+        assert unchanged_action.assignments == ()
+        assert unchanged_action.metadata == {}
         assert len(driver.applied) == 1
         batch_events = [
             event
@@ -778,6 +837,41 @@ def test_batch_prepares_selected_acquisitions_before_trigger_invoke(
             "sample"
         )
         assert {result.result_id for result in planned.results} == {"signal"}
+
+
+def test_failed_batch_returns_state_actions_confirmed_before_rejection(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider(driver_type=_RejectingCollectEvidenceDriver)
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(
+            runtime,
+            load_config(),
+            driver_type=_RejectingCollectEvidenceDriver,
+        )
+        instruments = runtime.application.instruments
+        instruments.provision_run(run_id, _provision(lease_id))
+        command = _batch_command(
+            lease_id,
+            "apply-before-rejected-collect",
+            _apply_action("source-0", effect_id="apply-confirmed"),
+            _collect_action("source-0", effect_id="collect-rejected"),
+        )
+
+        receipt = instruments.execute_run_hardware(run_id, command)
+        replay = instruments.execute_run_hardware(run_id, command)
+
+        assert replay == receipt
+        assert [item.code for item in receipt.problems] == [
+            "test_collect_rejected_after_apply"
+        ]
+        [state_action] = receipt.state_actions
+        assert state_action.operation_id == "apply-confirmed"
+        assert state_action.status == "applied"
+        assert state_action.metadata["hold_mode"] == "end_with_keep"
+        [driver] = provider.drivers
+        assert len(driver.applied) == 1
+        assert len(driver.collect_requests) == 1
 
 
 def test_run_start_applies_default_state_after_fresh_observation(

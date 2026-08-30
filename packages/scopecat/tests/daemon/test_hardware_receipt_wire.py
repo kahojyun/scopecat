@@ -12,7 +12,13 @@ from scopecat.daemon.hardware_receipt_wire import (
     encode_collect_receipt,
     encode_run_hardware_receipt,
 )
-from scopecat.records.instrument import InstrumentReadback
+from scopecat.kernel.quantity import Quantity
+from scopecat.kernel.state import StateValue
+from scopecat.records.instrument import (
+    InstrumentReadback,
+    InstrumentStateSetting,
+    state_member_target,
+)
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementArray,
@@ -22,8 +28,10 @@ from scopecat.records.measurement import (
 from scopecat.sdk.instruments.commands import CollectReceipt
 from scopecat.sdk.instruments.execution import (
     RunHardwareBatchReceipt,
+    RunHardwareStateActionReceipt,
     RunHardwareValue,
 )
+from scopecat.sdk.instruments.members import InterfaceRef
 
 _NOW = datetime(2026, 8, 14, tzinfo=UTC)
 
@@ -67,6 +75,23 @@ def test_collect_receipt_keeps_numeric_arrays_out_of_json_header() -> None:
 def test_run_hardware_receipt_round_trips_arrays_and_unavailable_values() -> None:
     receipt = RunHardwareBatchReceipt(
         operation_id="batch-1",
+        state_actions=(
+            RunHardwareStateActionReceipt(
+                operation_id="static-z.apply",
+                instrument_id="awg-0",
+                point_index=3,
+                status="applied",
+                assignments=(
+                    InstrumentStateSetting(
+                        target=state_member_target(
+                            InterfaceRef("test.static_z/v1").property("bias")
+                        ),
+                        value=StateValue(Quantity(0.15, "V")),
+                    ),
+                ),
+                metadata={"hold_mode": "end_with_keep"},
+            ),
+        ),
         values=(
             RunHardwareValue(
                 point_index=3,
@@ -96,6 +121,7 @@ def test_run_hardware_receipt_round_trips_arrays_and_unavailable_values() -> Non
     restored = decode_run_hardware_receipt(encode_run_hardware_receipt(receipt))
 
     assert restored.operation_id == receipt.operation_id
+    assert restored.state_actions == receipt.state_actions
     assert restored.values[0].point_index == 3
     assert restored.values[0].evidence == receipt.values[0].evidence
     original_array = receipt.values[0].value

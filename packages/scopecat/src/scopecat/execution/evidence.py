@@ -128,5 +128,6 @@ def build_instrument_state_evidence(
         observed_state=list(result.observed_state),
         baseline_state=list(result.baseline_state),
         final_state=list(result.final_state),
+        state_actions=result.state_actions,
         finalization_actions=list(result.finalization_actions),
     )

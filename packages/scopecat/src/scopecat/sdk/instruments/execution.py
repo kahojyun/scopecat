@@ -9,7 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from scopecat.kernel.interface_identity import InterfaceId
 from scopecat.kernel.problems import Problem
 from scopecat.records.content import CommandPayload
-from scopecat.records.execution import InstrumentFinalizationActionEvidence
+from scopecat.records.execution import (
+    InstrumentFinalizationActionEvidence,
+    InstrumentStateActionEvidence,
+)
 from scopecat.records.instrument import CommandChannelBinding, InstrumentStateSnapshot
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
@@ -136,9 +139,17 @@ class RunHardwareValue(_HardwareModel):
     evidence: InstrumentAcquisitionEvidence
 
 
+class RunHardwareStateActionReceipt(InstrumentStateActionEvidence):
+    """One state action confirmed by the daemon during a hardware batch."""
+
+
 class RunHardwareBatchReceipt(_HardwareModel):
     operation_id: str = Field(min_length=1)
     values: tuple[RunHardwareValue, ...] = ()
+    state_actions: tuple[RunHardwareStateActionReceipt, ...] = Field(
+        default=(),
+        exclude_if=_exclude_empty,
+    )
     problems: tuple[Problem, ...] = ()
     indeterminate: bool = False
 
@@ -201,6 +212,7 @@ __all__ = [
     "RunHardwareFinalizationActionReceipt",
     "RunHardwareFinalizationReceipt",
     "RunHardwareInvoke",
+    "RunHardwareStateActionReceipt",
     "RunHardwareValue",
     "RunInstrumentHost",
 ]

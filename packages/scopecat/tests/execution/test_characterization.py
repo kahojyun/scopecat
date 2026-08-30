@@ -145,6 +145,16 @@ def test_normal_completion_applies_success_state_after_point_coverage() -> None:
 
     assert not result.problems and not result.indeterminate
     assert len(driver.applied) == 2
+    assert result.state_actions is not None
+    assert result.state_actions.total_count == 2
+    assert result.state_actions.detail_complete
+    assert [
+        (action.status, action.point_index, action.metadata)
+        for action in result.state_actions.retained_prefix
+    ] == [
+        ("applied", 0, {}),
+        ("applied", None, {}),
+    ]
     [final] = result.final_state
     assert next(
         item.value
