@@ -6,6 +6,38 @@ CREATE TABLE IF NOT EXISTS execution_coverage (
     completed_point_count INTEGER NOT NULL CHECK (completed_point_count >= 0)
 );
 
+CREATE TABLE IF NOT EXISTS execution_recovery_groups (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
+    segment_id TEXT NOT NULL
+        REFERENCES run_execution_segments(segment_id) ON DELETE CASCADE,
+    operation_id TEXT NOT NULL,
+    schedule_fingerprint TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    completion_fingerprint TEXT NOT NULL,
+    output_kind TEXT NOT NULL CHECK (
+        output_kind IN ('unrecorded', 'measurement')
+    ),
+    UNIQUE (run_id, group_id),
+    UNIQUE (run_id, operation_id)
+);
+
+CREATE INDEX IF NOT EXISTS execution_recovery_groups_run_sequence
+ON execution_recovery_groups(run_id, sequence);
+
+CREATE TABLE IF NOT EXISTS execution_recovery_group_points (
+    run_id TEXT NOT NULL,
+    group_id TEXT NOT NULL,
+    member_index INTEGER NOT NULL CHECK (member_index >= 0),
+    point_index INTEGER NOT NULL CHECK (point_index >= 0),
+    record_content_hash TEXT,
+    PRIMARY KEY (run_id, point_index),
+    UNIQUE (run_id, group_id, member_index),
+    FOREIGN KEY (run_id, group_id)
+        REFERENCES execution_recovery_groups(run_id, group_id)
+        ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS execution_domain_job_transitions (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id TEXT NOT NULL REFERENCES scheduler_runs(run_id) ON DELETE CASCADE,
@@ -115,18 +147,18 @@ CREATE TABLE IF NOT EXISTS execution_measurement_fragments (
         REFERENCES run_execution_segments(segment_id) ON DELETE CASCADE,
     run_id TEXT NOT NULL,
     header_content_hash TEXT NOT NULL,
-    start_index INTEGER NOT NULL CHECK (start_index >= 0),
+    acquisition_start INTEGER NOT NULL CHECK (acquisition_start >= 0),
     FOREIGN KEY (run_id) REFERENCES execution_measurement_headers(run_id)
 );
 
 CREATE INDEX IF NOT EXISTS execution_measurement_fragments_run_start
-ON execution_measurement_fragments(run_id, start_index);
+ON execution_measurement_fragments(run_id, acquisition_start);
 
 CREATE TABLE IF NOT EXISTS execution_measurement_appends (
     run_id TEXT NOT NULL,
     segment_id TEXT NOT NULL
         REFERENCES execution_measurement_fragments(segment_id),
-    start_index INTEGER NOT NULL CHECK (start_index >= 0),
+    acquisition_start INTEGER NOT NULL CHECK (acquisition_start >= 0),
     operation_id TEXT NOT NULL,
     content_hash TEXT NOT NULL,
     header_content_hash TEXT NOT NULL,
@@ -134,8 +166,41 @@ CREATE TABLE IF NOT EXISTS execution_measurement_appends (
     record_count INTEGER NOT NULL CHECK (record_count > 0),
     ref TEXT NOT NULL,
     FOREIGN KEY (run_id) REFERENCES execution_measurement_headers(run_id),
-    PRIMARY KEY (run_id, start_index),
+    PRIMARY KEY (run_id, acquisition_start),
     UNIQUE (run_id, operation_id)
+);
+
+CREATE TABLE IF NOT EXISTS execution_measurement_records (
+    run_id TEXT NOT NULL,
+    acquisition_index INTEGER NOT NULL CHECK (acquisition_index >= 0),
+    acquisition_start INTEGER NOT NULL CHECK (acquisition_start >= 0),
+    row_offset INTEGER NOT NULL CHECK (row_offset >= 0),
+    point_index INTEGER NOT NULL CHECK (point_index >= 0),
+    record_content_hash TEXT NOT NULL,
+    PRIMARY KEY (run_id, acquisition_index),
+    UNIQUE (run_id, acquisition_start, row_offset),
+    FOREIGN KEY (run_id, acquisition_start)
+        REFERENCES execution_measurement_appends(run_id, acquisition_start)
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS execution_measurement_records_run_point
+ON execution_measurement_records(run_id, point_index, acquisition_index);
+
+CREATE TABLE IF NOT EXISTS execution_measurement_projection (
+    run_id TEXT NOT NULL,
+    point_index INTEGER NOT NULL CHECK (point_index >= 0),
+    projection_index INTEGER NOT NULL CHECK (projection_index >= 0),
+    acquisition_index INTEGER NOT NULL CHECK (acquisition_index >= 0),
+    group_id TEXT,
+    PRIMARY KEY (run_id, point_index),
+    UNIQUE (run_id, projection_index),
+    UNIQUE (run_id, acquisition_index),
+    FOREIGN KEY (run_id, acquisition_index)
+        REFERENCES execution_measurement_records(run_id, acquisition_index),
+    FOREIGN KEY (run_id, group_id)
+        REFERENCES execution_recovery_groups(run_id, group_id)
+        ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS execution_measurement_seals (

@@ -7,9 +7,9 @@ so measured bottlenecks can guide each internal change.
 
 Scopecat preserves scalable semantics before optimizing every mechanism.
 Logical point, product, and lineage identities remain independent of physical
-batching; completed measurement prefixes are durable; and large data has a
-bounded read path. Planning, storage, and orchestration may evolve behind those
-contracts.
+batching; acquired rows form an append-only physical log; completed groups pin
+a logical projection; and large data has a bounded read path. Planning,
+storage, and orchestration may evolve behind those contracts.
 
 Benchmark results use three labels:
 
@@ -118,7 +118,8 @@ Every applicable profile should verify that:
 - logical point and product identities remain identical across physical batch
   sizes;
 - compiler requests respect backend-declared capacity;
-- completed measurement prefixes are readable before terminal completion;
+- completed measurement groups are readable before terminal completion even
+  when physical acquisition order is noncanonical;
 - SQLite events and control records grow at batch or domain-job transition
   granularity;
 - binary objects carry large values while control responses remain bounded
@@ -729,9 +730,19 @@ The present architecture provides a direct end-to-end baseline:
   large content. The executor-to-daemon ingest path, durable chunks, and live
   GUI latest-point path all use the same schema-driven Arrow IPC columns, so
   numeric arrays never expand into JSON lists. Measurement chunks remain
-  bounded by both record count and value bytes, while dataset identity hashes
-  the ordered record identities and is therefore independent of those chunk
-  boundaries;
+  bounded by both record count and value bytes. Immutable chunks retain
+  acquisition order, while dataset identity hashes the selected records in
+  logical point order and is therefore independent of chunk boundaries and
+  retries;
+- recovery groups have stable unique ids and a schedule-level membership
+  fingerprint. Their normalized SQLite ledger records exact sparse point
+  coverage separately from the physical acquisition log and rejects
+  overlapping points, conflicting retries, or measurement proofs whose record
+  hashes have not yet been acquired. Each proof pins the corresponding
+  acquisition rows in the logical projection. Orphan and retried rows remain in
+  the append-only log, successful seal completes any non-static projection from
+  the latest acquisition per point, and logical reads sort by point identity;
+  recovery groups do not become file or hardware-batch boundaries;
 - ordinary command payload uploads use an in-memory spool scoped by run and
   hardware operation, or by direct session and command. A completed, rejected,
   or replayed operation releases its bytes immediately; owner termination and
@@ -782,9 +793,10 @@ fixed windows, `retained_array_observables` and `retained_fragment_payloads`
 must remain zero, and retained
 tracemalloc/RSS measurements must not include the reported discarded waveform
 payload.
-The daemon retains the latest received measurement for the live Arrow view plus the
-bounded not-yet-durable prefix. That state exists only while its executor lease is
-active and is released on seal, terminal commit, lease loss, or daemon shutdown.
+The daemon retains the latest received measurement for the live Arrow view plus
+the bounded not-yet-durable acquisition tail. That state exists only while its
+executor lease is active and is released on seal, terminal commit, lease loss,
+or daemon shutdown.
 Inline command payloads retain raw bytes in memory and convert to base64 only
 for an actual JSON wire representation; the daemon client uploads those bytes
 to an operation-scoped content-addressed spool before posting a control command

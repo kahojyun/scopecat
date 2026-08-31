@@ -75,9 +75,12 @@ class RunCoverageEffect:
 class RunCoverageCheckpoint:
     """Commit one completed point recovery group."""
 
+    group_id: str
     point_indices: tuple[int, ...]
 
     def __post_init__(self) -> None:
+        if not self.group_id:
+            raise ValueError("coverage checkpoint group id must be non-empty")
         if not self.point_indices or len(self.point_indices) != len(
             set(self.point_indices)
         ):
@@ -113,6 +116,7 @@ class RunCoverage:
         "_inspect",
         "_inspection_snapshots",
         "_is_durable_cut",
+        "_resume_factory",
     )
 
     def __init__(
@@ -130,11 +134,17 @@ class RunCoverage:
         ]
         | None = None,
         is_durable_cut: Callable[[int], bool] | None = None,
+        resume_factory: Callable[
+            [int, frozenset[str]],
+            Iterator[RunCoveredOperation],
+        ]
+        | None = None,
     ) -> None:
         self._factory = factory
         self._inspect = inspect
         self._accept_all = accept_all
         self._is_durable_cut = is_durable_cut or _every_point_count_is_durable
+        self._resume_factory = resume_factory
         self._inspection_snapshots: OrderedDict[
             tuple[str, int | str],
             RunPointInspection,
@@ -151,6 +161,24 @@ class RunCoverage:
         if not self.is_durable_cut(start_point_index):
             raise ValueError("coverage suffix starts inside a point group")
         return self._factory(start_point_index)
+
+    def resume(
+        self,
+        start_point_index: int,
+        *,
+        completed_group_ids: frozenset[str],
+    ) -> Iterator[RunCoveredOperation]:
+        """Materialize a suffix while omitting exact durable recovery groups."""
+
+        if not completed_group_ids:
+            return self.suffix(start_point_index)
+        if start_point_index < 0:
+            raise ValueError("coverage resume start must be non-negative")
+        if not self.is_durable_cut(start_point_index):
+            raise ValueError("coverage resume starts inside a point group")
+        if self._resume_factory is None:
+            raise ValueError("run coverage does not support sparse group recovery")
+        return self._resume_factory(start_point_index, completed_group_ids)
 
     def is_durable_cut(self, completed_point_count: int) -> bool:
         """Return whether a canonical coverage prefix is safe to resume from."""

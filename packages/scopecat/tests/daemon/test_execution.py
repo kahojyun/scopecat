@@ -308,12 +308,14 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
                 header.dataset_schema,
             )
             measurement_ingest_ranges.append(
-                (decoded.start_index, len(decoded.records))
+                (decoded.acquisition_start, len(decoded.records))
             )
             return _model(
                 MeasurementIngestReceipt(
                     run_id="run-1",
-                    received_record_count=1,
+                    received_record_count=(
+                        decoded.acquisition_start + len(decoded.records)
+                    ),
                     durable_record_count=0,
                 )
             )
@@ -504,7 +506,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     assert measurements.ingest(append) == ()
     second = append.model_copy(
         update={
-            "start_index": 1,
+            "acquisition_start": 1,
             "records": (
                 record.model_copy(
                     update={"logical_point_id": "point-1", "point_index": 1}
@@ -514,7 +516,7 @@ def test_daemon_execution_ports_round_trip_through_fenced_http_commands(
     )
     third = append.model_copy(
         update={
-            "start_index": 2,
+            "acquisition_start": 2,
             "records": (
                 record.model_copy(
                     update={"logical_point_id": "point-2", "point_index": 2}
@@ -784,7 +786,7 @@ def _measurement_append(
     return MeasurementDatasetAppend(
         run_id="run-1",
         header_content_hash=header.content_hash,
-        start_index=0,
+        acquisition_start=0,
         records=(record,),
     )
 
@@ -795,6 +797,7 @@ def _header_receipt(
     return MeasurementDatasetReceipt(
         operation_id=header.operation_id,
         dataset_content_hash=header.content_hash,
+        acquisition_record_count=0,
     )
 
 
@@ -804,6 +807,7 @@ def _measurement_receipt(
     return MeasurementDatasetReceipt(
         operation_id=append.operation_id,
         dataset_content_hash=append.content_hash,
+        acquisition_record_count=len(append.records),
     )
 
 
@@ -814,11 +818,10 @@ def _measurement_seal(
     return MeasurementDatasetSeal(
         run_id=append.run_id,
         header_content_hash=header.content_hash,
-        fragment_start_index=0,
-        point_count=1,
+        record_count=1,
+        fragment_record_count=1,
         fragment_content_hash=measurement_fragment_content_hash(
             header_content_hash=header.content_hash,
-            start_index=0,
             record_content_hashes=append.record_content_hashes,
         ),
     )
@@ -830,6 +833,7 @@ def _seal_receipt(
     return MeasurementDatasetReceipt(
         operation_id=seal.operation_id,
         dataset_content_hash="sealed-dataset-content",
+        acquisition_record_count=1,
     )
 
 

@@ -545,7 +545,7 @@ class SQLiteRunRepository:
     ) -> list[MeasurementRecord]:
         from scopecat.measurements.recording_arrow import (
             MeasurementArrowCodecError,
-            decode_measurement_append,
+            decode_measurement_record_indices,
             measurement_dataset_schema_hash,
         )
 
@@ -556,34 +556,53 @@ class SQLiteRunRepository:
             MeasurementDatasetHeader,
         )
         dataset_schema_hash = measurement_dataset_schema_hash(header.dataset_schema)
-        prefix = f"{ref}/chunks/"
         try:
             with self.sqlite.read_connection() as connection:
                 rows = _all(
                     connection.execute(
                         """
-                        SELECT ref FROM run_repository_refs
-                        WHERE run_id = ? AND substr(ref, 1, ?) = ?
-                        ORDER BY ref
+                        SELECT projection.acquisition_index,
+                               record.row_offset,
+                               append.ref
+                        FROM execution_measurement_projection AS projection
+                        JOIN execution_measurement_records AS record
+                          ON record.run_id = projection.run_id
+                         AND record.acquisition_index = projection.acquisition_index
+                        JOIN execution_measurement_appends AS append
+                          ON append.run_id = record.run_id
+                         AND append.acquisition_start = record.acquisition_start
+                        WHERE projection.run_id = ?
+                        ORDER BY projection.point_index
                         """,
-                        (run_id, len(prefix), prefix),
+                        (run_id,),
                     )
                 )
         except sqlite3.Error as error:
             raise _storage_failure(run_id=run_id, ref=ref) from error
-        records: list[MeasurementRecord] = []
+        grouped: dict[str, list[sqlite3.Row]] = {}
         for row in rows:
-            chunk_ref = _text(row, "ref")
+            grouped.setdefault(_text(row, "ref"), []).append(row)
+        records_by_acquisition: dict[int, MeasurementRecord] = {}
+        for chunk_ref, selected in grouped.items():
             try:
-                append = decode_measurement_append(
+                decoded = decode_measurement_record_indices(
                     self.read_bytes(run_id, chunk_ref),
                     header.dataset_schema,
+                    tuple(_integer(row, "row_offset") for row in selected),
                     dataset_schema_hash=dataset_schema_hash,
                 )
             except MeasurementArrowCodecError as error:
                 raise _invalid_ref(run_id, chunk_ref) from error
-            records.extend(append.records)
-        return records
+            records_by_acquisition.update(
+                zip(
+                    (_integer(row, "acquisition_index") for row in selected),
+                    decoded,
+                    strict=True,
+                )
+            )
+        return [
+            records_by_acquisition[_integer(row, "acquisition_index")] for row in rows
+        ]
 
     def read_text(self, run_id: str, ref: str) -> str:
         content = self._read_ref(run_id, ref)
@@ -1047,3 +1066,7 @@ def _all(cursor: sqlite3.Cursor) -> list[sqlite3.Row]:
 
 def _text(row: sqlite3.Row, column: str) -> str:
     return cast("str", row[column])
+
+
+def _integer(row: sqlite3.Row, column: str) -> int:
+    return cast("int", row[column])

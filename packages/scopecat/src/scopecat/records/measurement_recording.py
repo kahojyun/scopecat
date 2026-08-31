@@ -114,13 +114,12 @@ class MeasurementDatasetHeader(_FrozenRecordingModel):
 
 
 class MeasurementDatasetBatch(_FrozenRecordingModel):
-    """One contiguous record batch offered to a dataset writer."""
+    """Records offered to a dataset writer in physical acquisition order."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     run_id: str
     header_content_hash: str
-    start_index: int = Field(ge=0)
     records: tuple[MeasurementRecord, ...] = Field(min_length=1)
 
     @field_validator("run_id", "header_content_hash")
@@ -137,12 +136,8 @@ class MeasurementDatasetBatch(_FrozenRecordingModel):
         if any(record.run_id != self.run_id for record in self.records):
             raise ValueError("measurement dataset batch and record run ids must match")
         indices = tuple(record.point_index for record in self.records)
-        if indices != tuple(
-            range(self.start_index, self.start_index + len(self.records))
-        ):
-            raise ValueError(
-                "measurement dataset batch records must be contiguous from start_index"
-            )
+        if len(indices) != len(set(indices)):
+            raise ValueError("measurement dataset batch point indices must be unique")
         logical_ids = tuple(record.logical_point_id for record in self.records)
         if len(logical_ids) != len(set(logical_ids)):
             raise ValueError(
@@ -152,16 +147,18 @@ class MeasurementDatasetBatch(_FrozenRecordingModel):
 
 
 class MeasurementDatasetAppend(MeasurementDatasetBatch):
-    """One idempotent durable append to a canonical run dataset."""
+    """One idempotent append to the physical acquisition log."""
+
+    acquisition_start: int = Field(ge=0)
 
     @property
     def operation_id(self) -> str:
         digest = stable_content_hash(
             {
-                "schema": "scopecat.measurement_dataset_append_operation.v3",
+                "schema": "scopecat.measurement_dataset_append_operation.v4",
                 "run_id": self.run_id,
                 "header_content_hash": self.header_content_hash,
-                "start_index": self.start_index,
+                "acquisition_start": self.acquisition_start,
             }
         )
         return f"measurement-dataset-append:{digest}"
@@ -170,10 +167,10 @@ class MeasurementDatasetAppend(MeasurementDatasetBatch):
     def content_hash(self) -> str:
         return stable_content_hash(
             {
-                "schema": "scopecat.measurement_dataset_append_content.v8",
+                "schema": "scopecat.measurement_dataset_append_content.v9",
                 "run_id": self.run_id,
                 "header_content_hash": self.header_content_hash,
-                "start_index": self.start_index,
+                "acquisition_start": self.acquisition_start,
                 "record_content_hashes": self.record_content_hashes,
             }
         )
@@ -192,6 +189,7 @@ class MeasurementDatasetReceipt(_FrozenRecordingModel):
 
     operation_id: str
     dataset_content_hash: str
+    acquisition_record_count: int = Field(ge=0)
     dataset_ref: _MeasurementDatasetRef = CANONICAL_MEASUREMENT_DATASET_REF
 
     @field_validator("operation_id", "dataset_content_hash")
@@ -203,12 +201,12 @@ class MeasurementDatasetReceipt(_FrozenRecordingModel):
 
 
 class MeasurementDatasetFragment(_FrozenRecordingModel):
-    """Durable measurement prefix owned by one execution segment."""
+    """Physical acquisition-log range owned by one execution segment."""
 
     segment_id: str
     run_id: str
     header_content_hash: str
-    start_index: int = Field(ge=0)
+    acquisition_start: int = Field(ge=0)
     record_count: int = Field(ge=0)
     fragment_content_hash: str
     dataset_content_hash: str | None = None
@@ -226,8 +224,8 @@ class MeasurementDatasetFragment(_FrozenRecordingModel):
         return value
 
     @property
-    def end_index(self) -> int:
-        return self.start_index + self.record_count
+    def acquisition_end(self) -> int:
+        return self.acquisition_start + self.record_count
 
 
 class MeasurementDatasetSeal(_FrozenRecordingModel):
@@ -237,8 +235,8 @@ class MeasurementDatasetSeal(_FrozenRecordingModel):
 
     run_id: str
     header_content_hash: str
-    fragment_start_index: int = Field(ge=0)
-    point_count: int = Field(ge=0)
+    record_count: int = Field(ge=0)
+    fragment_record_count: int = Field(ge=0)
     fragment_content_hash: str
 
     @field_validator(
@@ -254,20 +252,13 @@ class MeasurementDatasetSeal(_FrozenRecordingModel):
             )
         return value
 
-    @model_validator(mode="after")
-    def validate_fragment_range(self) -> MeasurementDatasetSeal:
-        if self.fragment_start_index > self.point_count:
-            raise ValueError("measurement fragment starts after the sealed prefix")
-        return self
-
     @property
     def operation_id(self) -> str:
         digest = stable_content_hash(
             {
-                "schema": "scopecat.measurement_dataset_seal_operation.v4",
+                "schema": "scopecat.measurement_dataset_seal_operation.v5",
                 "run_id": self.run_id,
                 "header_content_hash": self.header_content_hash,
-                "fragment_start_index": self.fragment_start_index,
             }
         )
         return f"measurement-dataset-seal:{digest}"
@@ -296,16 +287,14 @@ def measurement_dataset_content_hash(
 def measurement_fragment_content_hash(
     *,
     header_content_hash: str,
-    start_index: int,
     record_content_hashes: tuple[str, ...],
 ) -> str:
-    """Identify one segment-owned range independently of Arrow chunking."""
+    """Identify one segment's acquisition sequence independently of chunking."""
 
     return stable_content_hash(
         {
-            "schema": "scopecat.measurement_dataset_fragment_content.v1",
+            "schema": "scopecat.measurement_dataset_fragment_content.v2",
             "header_content_hash": header_content_hash,
-            "start_index": start_index,
             "record_content_hashes": record_content_hashes,
         }
     )

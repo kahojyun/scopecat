@@ -35,18 +35,20 @@ changes are accepted. This is a deliberate recovery policy: the new execution
 segment records the boundary, while the operator decides whether the current
 code is appropriate.
 
-For a supported static local run, execution starts at the durable contiguous
-point watermark. Completed point effects are not replayed, and new measurements
-belong to a new segment-owned fragment. The final dataset identity covers both
-the old prefix and the new suffix.
+For a supported static local run, execution reconstructs progress from both the
+durable contiguous point watermark and exact completed recovery groups.
+Completed effects are not replayed, and new measurements belong to a new
+segment-owned acquisition fragment. The final dataset identity covers the
+selected records from every segment in logical point order.
 
-If the point schedule declares a recovery group, measurements from that group
-remain unpublished until every member completes. Interruption therefore makes
-resume repeat the whole unfinished group, even when one or more hardware
-batches from it had already completed. Hardware batch boundaries do not weaken
-this policy. With a reordered traversal, the current contiguous watermark may
-also conservatively replay a completed group that lies beyond an unfinished
-canonical prefix.
+If the point schedule declares a recovery group, acquired rows enter the
+physical log immediately but do not make the group resumably complete until
+every member succeeds. Interruption therefore makes resume repeat the whole
+unfinished group, even when one or more hardware batches from it had already
+completed. Those orphan acquisitions remain available for diagnostics and are
+not selected by the logical dataset. Hardware batch boundaries do not weaken
+this policy. A completed reordered group can be skipped from its exact durable
+proof even when it lies beyond the contiguous watermark.
 
 Adaptive runs and domain-target runs cannot yet use this API after an execution
 segment has started, even when zero points are durable. Their safe position also

@@ -14,6 +14,7 @@ from scopecat.records.execution import (
     DomainExecutionId,
     DomainExecutionReceipt,
     DomainJobCheckpoint,
+    RecoveryGroupCompletion,
 )
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
@@ -37,12 +38,22 @@ def _no_prior_execution_segment() -> bool:
     return False
 
 
+def _no_completed_recovery_groups() -> tuple[RecoveryGroupCompletion, ...]:
+    return ()
+
+
 class RunCoverageWriter(Protocol):
     """Commit bounded contiguous logical-point progress."""
 
     def advance(self, *, start_index: int, point_count: int) -> None: ...
 
     def flush(self) -> None: ...
+
+
+class RunRecoveryGroupWriter(Protocol):
+    """Publish exact groups only after their output proof is durable."""
+
+    def commit(self, groups: tuple[RecoveryGroupCompletion, ...]) -> None: ...
 
 
 class RunDomainJobTransitionWriter(Protocol):
@@ -111,10 +122,14 @@ class ExecutionSession:
     instruments: RunInstrumentHost
     domain_job_transitions: RunDomainJobTransitionWriter | None = None
     coverage: RunCoverageWriter | None = None
+    recovery_groups: RunRecoveryGroupWriter | None = None
     domain_proposals: RunDomainProposalWriter | None = None
     cancellation_requested: Callable[[], bool] = _never_cancel
     effects_ready: Callable[[], bool] = _effects_are_ready
     durable_completed_point_count: Callable[[], int] = _zero_completed_point_count
+    durable_recovery_groups: Callable[[], tuple[RecoveryGroupCompletion, ...]] = (
+        _no_completed_recovery_groups
+    )
     has_prior_execution_segment: Callable[[], bool] = _no_prior_execution_segment
 
     @property

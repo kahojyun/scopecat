@@ -25,6 +25,7 @@ from scopecat.records.execution import (
     DomainJobInvocationTransition,
     DomainJobTerminalTransition,
     DomainJobTransitionRecord,
+    RecoveryGroupCompletion,
 )
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
@@ -46,6 +47,8 @@ from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
 from scopecat_server.storage.sqlite.execution import (
     SQLiteDomainJobTransitions,
     SQLiteMeasurementDatasetRepository,
+    SQLiteRecoveryGroups,
+    SQLiteRunCoverage,
 )
 from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
 from scopecat_server.storage.sqlite.run_repository import (
@@ -144,7 +147,7 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
             self._active.initialize(
                 header,
                 segment_id=self._segment_id,
-                start_index=0,
+                acquisition_start=0,
             )
             return receipt
 
@@ -152,7 +155,16 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
         self,
         batch: MeasurementDatasetBatch,
     ) -> tuple[MeasurementDatasetReceipt, ...]:
-        self._active.ingest(batch)
+        self._active.ingest(
+            MeasurementDatasetAppend(
+                run_id=batch.run_id,
+                header_content_hash=batch.header_content_hash,
+                acquisition_start=self._active.preview(
+                    self._run_id
+                ).received_record_count,
+                records=batch.records,
+            )
+        )
         return self._flush(force=False)
 
     def flush(self) -> tuple[MeasurementDatasetReceipt, ...]:
@@ -184,7 +196,7 @@ class SQLiteTestMeasurementDatasetRepository(SQLiteMeasurementDatasetRepository)
             append = MeasurementDatasetAppend(
                 run_id=self._run_id,
                 header_content_hash=self._active.header_content_hash(self._run_id),
-                start_index=self._active.durable_record_count(self._run_id),
+                acquisition_start=self._active.durable_record_count(self._run_id),
                 records=records,
             )
             receipts.append(self.append(append))
@@ -295,6 +307,56 @@ class SQLiteTestDomainJobTransitionWriter:
         self._pending.clear()
 
 
+class SQLiteTestRunCoverage:
+    """Stage logical coverage until the execution flush boundary."""
+
+    def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
+        self._runs = runs
+        self._coverage = SQLiteRunCoverage(runs, run_id=run_id)
+        self._pending: list[tuple[int, int]] = []
+
+    def advance(self, *, start_index: int, point_count: int) -> None:
+        self._pending.append((start_index, point_count))
+
+    def flush(self) -> None:
+        if not self._pending:
+            return
+        with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:
+            for start_index, point_count in self._pending:
+                self._coverage.advance_in_transaction(
+                    connection,
+                    start_index=start_index,
+                    point_count=point_count,
+                )
+        self._pending.clear()
+
+    def completed_count(self) -> int:
+        return self._coverage.read()
+
+
+class SQLiteTestRecoveryGroups:
+    """Commit exact group proofs through the in-process execution segment."""
+
+    def __init__(self, runs: SQLiteRunRepository, *, run_id: str) -> None:
+        self._runs = runs
+        self._run_id = run_id
+        self._segment_id = f"in-process-segment:{run_id}"
+        self._groups = SQLiteRecoveryGroups(runs, run_id=run_id)
+
+    def commit(self, groups: tuple[RecoveryGroupCompletion, ...]) -> None:
+        with SQLiteControlPlane(self._runs.sqlite).write_transaction() as connection:
+            self._groups.append_in_transaction(
+                connection,
+                groups,
+                segment_id=self._segment_id,
+            )
+
+    def completed(self) -> tuple[RecoveryGroupCompletion, ...]:
+        return tuple(
+            item.completion for item in self._groups.read(limit=1_000_000).items
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class SQLiteExecutionSession(ExecutionSession):
     """Concrete SQLite session exposing read models to test assertions."""
@@ -381,6 +443,8 @@ def sqlite_execution_session(
     """Bind one run's execution ports to isolated SQLite persistence."""
 
     selected_runs = sqlite_run_repository(project) if runs is None else runs
+    coverage = SQLiteTestRunCoverage(selected_runs, run_id=run_id)
+    recovery_groups = SQLiteTestRecoveryGroups(selected_runs, run_id=run_id)
     return SQLiteExecutionSession(
         accepted=selected_runs.read_snapshot(run_id),
         begin=lambda: None,
@@ -389,12 +453,16 @@ def sqlite_execution_session(
             selected_runs,
             run_id=run_id,
         ),
+        coverage=coverage,
+        recovery_groups=recovery_groups,
         instruments=instruments or TestRunInstrumentHost(),
         domain_job_transitions=SQLiteTestDomainJobTransitionWriter(
             selected_runs,
             run_id=run_id,
         ),
         domain_proposals=domain_proposals,
+        durable_completed_point_count=coverage.completed_count,
+        durable_recovery_groups=recovery_groups.completed,
     )
 
 

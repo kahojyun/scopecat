@@ -95,6 +95,7 @@ from scopecat.daemon.wire import (
     RunDomainJobTransitionView,
     RunInstrumentProvisionCommand,
     RunInstrumentProvisionReceipt,
+    RunRecoveryGroupPage,
     RunSubmission,
     TerminalRunCommitCommand,
 )
@@ -978,6 +979,8 @@ def test_execute_honors_initial_lease_cancellation_before_remote_effects(
             return _model(admission, status_code=201)
         if path.endswith("/coverage"):
             return _model(RunCoverageState(run_id="run-1", completed_point_count=0))
+        if path.endswith("/recovery-groups"):
+            return _model(RunRecoveryGroupPage(run_id="run-1", items=()))
         if path.endswith("/executor/start"):
             return _model(
                 _lease(heartbeat_interval=10).model_copy(
@@ -1008,6 +1011,7 @@ def test_execute_honors_initial_lease_cancellation_before_remote_effects(
     assert requests == [
         "/api/v1/runs",
         "/api/v1/runs/run-1/coverage",
+        "/api/v1/runs/run-1/recovery-groups",
         "/api/v1/runs/run-1/executor/start",
         "/api/v1/runs/run-1/terminal",
     ]

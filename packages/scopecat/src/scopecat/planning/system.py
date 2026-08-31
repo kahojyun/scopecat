@@ -917,9 +917,16 @@ def _compile_coverage(
 ) -> RunCoverage:
     compiler = system.domain_compiler
 
-    def operations(start_point_index: int) -> Iterator[RunCoveredOperation]:
+    def recovery_operations(
+        start_point_index: int,
+        completed_group_ids: frozenset[str],
+    ) -> Iterator[RunCoveredOperation]:
         selected_groups = tuple(
-            execution_plan.remaining_groups(durable_start=start_point_index)
+            group
+            for group in execution_plan.remaining_groups(
+                durable_start=start_point_index
+            )
+            if group.id not in completed_group_ids
         )
         if not selected_groups:
             return iter(())
@@ -934,7 +941,13 @@ def _compile_coverage(
                 initial_local_probe=(
                     initial_local_probe
                     if initial_local_probe is not None
-                    and (start_point_index == 0 or initial_local_probe.point_invariant)
+                    and (
+                        initial_local_probe.point_invariant
+                        or any(
+                            initial_local_probe.ordinal in group.ordinals
+                            for group in selected_groups
+                        )
+                    )
                     else None
                 ),
                 initial_batch_ordinal=start_point_index,
@@ -946,6 +959,9 @@ def _compile_coverage(
                 catalog=catalog,
             ),
         )
+
+    def operations(start_point_index: int) -> Iterator[RunCoveredOperation]:
+        return recovery_operations(start_point_index, frozenset())
 
     def inspect(
         point: int | PointProposalAttempt,
@@ -1076,6 +1092,7 @@ def _compile_coverage(
             if adaptive
             else execution_plan.is_durable_cut
         ),
+        resume_factory=recovery_operations,
     )
 
 
@@ -1233,7 +1250,7 @@ def _coverage_operations(
                 start=region_end - len(region),
                 end=region_end,
             ):
-                yield RunCoverageCheckpoint(group.ordinals)
+                yield RunCoverageCheckpoint(group.id, group.ordinals)
         previous_static_frame = _static_state_frame(
             local_effects,
             coverage_batch[-1],

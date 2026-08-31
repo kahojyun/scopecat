@@ -262,7 +262,8 @@ experiment.grid(
 `repeat_mode="point"` measures all repeats of one base point before advancing;
 `"sweep"` repeats the complete sweep. Counts above one add a typed `repeat`
 coordinate. Snake traversal reduces retracing but changes only physical
-execution order: logical point identities and durable row order stay canonical.
+execution order: the acquisition log retains that order, while logical point
+identity and completed dataset reads remain canonical.
 
 When several points form one comparison, declare that relation by naming the
 coordinates allowed to vary inside the group. For example, this keeps the two
@@ -281,9 +282,25 @@ experiment.group_points(
 Every coordinate not listed in `varying` forms the group key. Groups may have
 different sizes for explicit point rows. Grouping is a scheduling preference
 and recovery boundary, not a hardware batch requirement: target capacity or a
-host-side state change may split a group, but its measurements become durable
-only after the complete group succeeds. Truly indivisible real-time sequences
-belong inside one point as target-owned shots, rounds, or feedback instead.
+host-side state change may split a group. Each acquired record is appended
+durably in physical order, but the group becomes resumably complete and enters
+the logical dataset projection only after every member succeeds. Truly
+indivisible real-time sequences belong inside one point as target-owned shots,
+rounds, or feedback instead.
+
+Every resolved recovery group has a unique stable id. The complete ordered
+membership has a separate schedule fingerprint, so resumption rejects a group
+ledger produced by a differently compiled point plan. Durable group completion,
+logical coverage, and the physical acquisition log are separate facts. A
+completion proof for a measurement group is accepted only after every
+correlated record hash is present in that log, and it pins the exact acquired
+rows selected by the logical dataset. A response loss can therefore leave an
+orphan acquisition without advancing recovery state; the next executor
+remeasures the complete group while preserving the orphan for diagnostics.
+Runs without a dataset use the same sparse group ledger without record hashes.
+On successful seal, points not governed by a static recovery group (for example
+adaptive points) select their latest acquisition, and the dataset identity is
+calculated in logical `point_index` order.
 
 Use explicit rows when coordinates are correlated, sparse, duplicated, or do
 not form a rectangular product:

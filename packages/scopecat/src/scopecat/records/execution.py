@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -17,6 +17,28 @@ from scopecat.records.instrument import (
     state_member_identity,
 )
 from scopecat.records.metadata import JsonMetadata
+
+
+def recovery_schedule_fingerprint(
+    groups: Sequence[tuple[str, Sequence[int]]],
+    *,
+    point_count: int,
+) -> str:
+    """Identify exact recovery-group membership and order."""
+
+    return stable_content_hash(
+        {
+            "schema": "scopecat.point_execution_recovery.v1",
+            "point_count": point_count,
+            "groups": tuple(
+                {
+                    "id": group_id,
+                    "ordinals": tuple(point_indices),
+                }
+                for group_id, point_indices in groups
+            ),
+        }
+    )
 
 
 def _exclude_empty(value: object) -> bool:
@@ -288,6 +310,68 @@ type DomainJobTransitionRecord = Annotated[
     | DomainJobTerminalTransition,
     Field(discriminator="kind"),
 ]
+
+
+class RecoveryGroupCompletion(BaseModel):
+    """Durable proof that one exact recovery group has publishable outputs.
+
+    ``measurement`` means every correlated record is present in the acquisition
+    log and can be projected into the logical dataset by content hash.
+    ``unrecorded`` is reserved for runs without a measurement dataset.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schedule_fingerprint: str
+    group_id: str
+    point_indices: tuple[int, ...] = Field(min_length=1)
+    output_kind: Literal["unrecorded", "measurement"]
+    record_content_hashes: tuple[str, ...] = ()
+
+    @field_validator("schedule_fingerprint", "group_id")
+    @classmethod
+    def validate_identity(cls, value: str) -> str:
+        if not value:
+            raise ValueError("recovery group identities must be non-empty")
+        return value
+
+    @field_validator("point_indices")
+    @classmethod
+    def validate_point_indices(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        if any(point_index < 0 for point_index in value):
+            raise ValueError("recovery group point indices must be non-negative")
+        if len(value) != len(set(value)):
+            raise ValueError("recovery group point indices must be unique")
+        return value
+
+    @field_validator("record_content_hashes")
+    @classmethod
+    def validate_record_hashes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not content_hash for content_hash in value):
+            raise ValueError("recovery group record hashes must be non-empty")
+        return value
+
+    @model_validator(mode="after")
+    def validate_output(self) -> RecoveryGroupCompletion:
+        expected = 0 if self.output_kind == "unrecorded" else len(self.point_indices)
+        if len(self.record_content_hashes) != expected:
+            raise ValueError(
+                "recovery group output kind does not match its record hashes"
+            )
+        return self
+
+    @property
+    def completion_fingerprint(self) -> str:
+        return stable_content_hash(
+            {
+                "schema": "scopecat.recovery_group_completion.v1",
+                **self.model_dump(mode="json"),
+            }
+        )
+
+    @property
+    def operation_id(self) -> str:
+        return f"recovery-group:{self.completion_fingerprint}:complete"
 
 
 class InstrumentStateEvidenceSummary(BaseModel):

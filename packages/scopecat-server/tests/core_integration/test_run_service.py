@@ -23,22 +23,22 @@ from scopecat.kernel.errors import CheckFailed, RunCancelled, RunIndeterminate
 from scopecat.kernel.problems import ProblemPhase, problem
 from scopecat.kernel.resource_identity import DomainTargetRequirement
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.measurements.projection import MeasurementProjection
+from scopecat.measurements.values import MeasurementValueCatalog
 from scopecat.optimization import (
     AdaptiveDomainPlan,
     DomainOptimizerContext,
     OptimizationComplete,
 )
+from scopecat.planning.point_order import PointExecutionGroup, PointExecutionPlan
 from scopecat.planning.service import plan_experiment_invocation
 from scopecat.records.config import (
     ConfigProfileSnapshot,
     config_content_hash,
     instrument_bindings,
 )
-from scopecat.records.execution import InstrumentStateEvidence
-from scopecat.records.measurement_recording import (
-    MeasurementDatasetAppend,
-    MeasurementDatasetHeader,
-)
+from scopecat.records.execution import InstrumentStateEvidence, RecoveryGroupCompletion
+from scopecat.records.measurement_recording import MeasurementDatasetHeader
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.runs.service import load_run_request
@@ -115,6 +115,37 @@ class _UnusedOptimizer:
     def propose(self, context: DomainOptimizerContext) -> OptimizationComplete:
         del context
         raise AssertionError("unsupported continuation must fail before optimization")
+
+
+class _MemoryCoverage:
+    def __init__(self, completed: int = 0) -> None:
+        self.completed = completed
+        self._pending: list[tuple[int, int]] = []
+
+    def advance(self, *, start_index: int, point_count: int) -> None:
+        expected_start = self.completed + sum(
+            pending_count for _, pending_count in self._pending
+        )
+        assert start_index == expected_start
+        self._pending.append((start_index, point_count))
+
+    def flush(self) -> None:
+        self.completed += sum(point_count for _, point_count in self._pending)
+        self._pending.clear()
+
+
+class _MemoryRecoveryGroups:
+    def __init__(
+        self,
+        completed: tuple[RecoveryGroupCompletion, ...] = (),
+    ) -> None:
+        self.committed = list(completed)
+
+    def commit(self, groups: tuple[RecoveryGroupCompletion, ...]) -> None:
+        self.committed.extend(groups)
+
+    def completed(self) -> tuple[RecoveryGroupCompletion, ...]:
+        return tuple(self.committed)
 
 
 def test_plan_admit_and_execute_are_separate_run_phases(tmp_path: Path) -> None:
@@ -210,6 +241,8 @@ def test_static_execution_continues_only_the_durable_point_suffix(
         repository=services.runs,
     )
     baseline_measurements = FakeMeasurementDatasetRepository()
+    baseline_coverage = _MemoryCoverage()
+    baseline_recovery = _MemoryRecoveryGroups()
     execute_admitted_run(
         program=planned.program,
         session=replace(
@@ -219,6 +252,10 @@ def test_static_execution_continues_only_the_durable_point_suffix(
                 instruments=instruments(),
             ),
             measurements=baseline_measurements,
+            coverage=baseline_coverage,
+            recovery_groups=baseline_recovery,
+            durable_completed_point_count=lambda: baseline_coverage.completed,
+            durable_recovery_groups=baseline_recovery.completed,
         ),
     )
     baseline_records = baseline_measurements.measurements()
@@ -243,14 +280,9 @@ def test_static_execution_continues_only_the_durable_point_suffix(
     continued_measurements = FakeMeasurementDatasetRepository()
     continued_measurements.initialize(header)
     first_record = baseline_records[0].model_copy(update={"run_id": accepted.run_id})
-    continued_measurements.append(
-        MeasurementDatasetAppend(
-            run_id=accepted.run_id,
-            header_content_hash=header.content_hash,
-            start_index=0,
-            records=(first_record,),
-        )
-    )
+    continued_measurements.seed_prior_records((first_record,))
+    continued_coverage = _MemoryCoverage(completed=1)
+    continued_recovery = _MemoryRecoveryGroups()
 
     completed = execute_admitted_run(
         program=planned.program,
@@ -261,7 +293,10 @@ def test_static_execution_continues_only_the_durable_point_suffix(
                 instruments=instruments(),
             ),
             measurements=continued_measurements,
-            durable_completed_point_count=lambda: 1,
+            coverage=continued_coverage,
+            recovery_groups=continued_recovery,
+            durable_completed_point_count=lambda: continued_coverage.completed,
+            durable_recovery_groups=continued_recovery.completed,
         ),
     )
 
@@ -273,7 +308,160 @@ def test_static_execution_continues_only_the_durable_point_suffix(
     ]
 
 
-def test_execution_publishes_measurements_only_at_logical_block_cuts(
+def test_sparse_unrecorded_recovery_skips_exact_completed_group(
+    tmp_path: Path,
+) -> None:
+    class _InjectedInterruption(BaseException):
+        pass
+
+    class CoverageWriter:
+        completed = 0
+
+        def advance(self, *, start_index: int, point_count: int) -> None:
+            assert start_index == self.completed
+            self.completed += point_count
+
+        def flush(self) -> None:
+            pass
+
+    class RecoveryWriter:
+        committed: list[RecoveryGroupCompletion]
+
+        def __init__(self) -> None:
+            self.committed = []
+
+        def commit(self, groups: tuple[RecoveryGroupCompletion, ...]) -> None:
+            self.committed.extend(groups)
+
+    services = sqlite_project_services(tmp_path)
+    config = load_config()
+    composition = compose_test_instruments(
+        config=config,
+        provider=TestSignalInstrumentProvider(),
+    )
+    planned = plan_experiment(
+        load_invocation(),
+        config=config,
+        services=services,
+        system=composition.system,
+    )
+    groups = (
+        PointExecutionGroup("comparison:a", {}, (0, 2)),
+        PointExecutionGroup("comparison:b", {}, (1,)),
+    )
+    execution_plan = PointExecutionPlan(groups, point_count=3)
+    executed: list[str] = []
+
+    def recovery_operations(
+        start_point_count: int,
+        completed_group_ids: frozenset[str],
+    ) -> Iterator[RunCoveredOperation]:
+        for group in execution_plan.remaining_groups(durable_start=start_point_count):
+            if group.id in completed_group_ids:
+                continue
+            executed.append(group.id)
+            yield RunCoverageCheckpoint(group.id, group.ordinals)
+
+    def operations(start_point_count: int) -> Iterator[RunCoveredOperation]:
+        return recovery_operations(start_point_count, frozenset())
+
+    program = replace(
+        planned.program,
+        host=None,
+        coverage=RunCoverage(
+            operations,
+            is_durable_cut=execution_plan.is_durable_cut,
+            resume_factory=recovery_operations,
+        ),
+        measurements=MeasurementProjection(
+            MeasurementValueCatalog(
+                point_contract=planned.program.measurements.catalog.point_contract,
+                product_uses=(),
+                product_defs=(),
+            ),
+            (),
+        ),
+        point_groups=groups,
+        resource_requirements=(),
+        domain_target_requirement=None,
+        success_state=(),
+        measurement_computes=(),
+    )
+    interrupted = admit_test_run(
+        config=planned.config,
+        request=planned.request,
+        repository=services.runs,
+    )
+    interrupted_coverage = CoverageWriter()
+    interrupted_recovery = RecoveryWriter()
+
+    def interrupted_operations(
+        _start_point_count: int,
+    ) -> Iterator[RunCoveredOperation]:
+        yield RunCoverageCheckpoint(groups[0].id, groups[0].ordinals)
+        raise _InjectedInterruption
+
+    with pytest.raises(_InjectedInterruption):
+        execute_admitted_run(
+            program=replace(
+                program,
+                coverage=RunCoverage(
+                    interrupted_operations,
+                    is_durable_cut=execution_plan.is_durable_cut,
+                    resume_factory=recovery_operations,
+                ),
+            ),
+            session=replace(
+                sqlite_execution_session(
+                    tmp_path,
+                    interrupted.run_id,
+                    instruments=TestRunInstrumentHost(),
+                ),
+                measurements=FakeMeasurementDatasetRepository(),
+                coverage=interrupted_coverage,
+                recovery_groups=interrupted_recovery,
+                durable_completed_point_count=lambda: interrupted_coverage.completed,
+            ),
+        )
+
+    assert interrupted_coverage.completed == 0
+    assert [group.group_id for group in interrupted_recovery.committed] == [
+        "comparison:a"
+    ]
+    [completed_a] = interrupted_recovery.committed
+
+    accepted = admit_test_run(
+        config=planned.config,
+        request=planned.request,
+        repository=services.runs,
+    )
+    coverage = CoverageWriter()
+    recovery = RecoveryWriter()
+
+    snapshot = execute_admitted_run(
+        program=program,
+        session=replace(
+            sqlite_execution_session(
+                tmp_path,
+                accepted.run_id,
+                instruments=TestRunInstrumentHost(),
+            ),
+            measurements=FakeMeasurementDatasetRepository(),
+            coverage=coverage,
+            recovery_groups=recovery,
+            durable_completed_point_count=lambda: coverage.completed,
+            durable_recovery_groups=lambda: (completed_a,),
+            has_prior_execution_segment=lambda: True,
+        ),
+    )
+
+    assert snapshot.status == "completed"
+    assert executed == ["comparison:b"]
+    assert coverage.completed == 3
+    assert [group.group_id for group in recovery.committed] == ["comparison:b"]
+
+
+def test_execution_retains_measurements_before_logical_block_cuts(
     tmp_path: Path,
 ) -> None:
     class _InjectedInterruption(BaseException):
@@ -323,6 +511,8 @@ def test_execution_publishes_measurements_only_at_logical_block_cuts(
         repository=services.runs,
     )
     interrupted_measurements = FakeMeasurementDatasetRepository()
+    interrupted_coverage = _MemoryCoverage()
+    interrupted_recovery = _MemoryRecoveryGroups()
     with pytest.raises(_InjectedInterruption):
         execute_admitted_run(
             program=replace(
@@ -336,11 +526,17 @@ def test_execution_publishes_measurements_only_at_logical_block_cuts(
                     instruments=instruments(),
                 ),
                 measurements=interrupted_measurements,
+                coverage=interrupted_coverage,
+                recovery_groups=interrupted_recovery,
+                durable_completed_point_count=lambda: interrupted_coverage.completed,
+                durable_recovery_groups=interrupted_recovery.completed,
             ),
         )
 
-    assert interrupted_measurements.appends == ()
-    assert interrupted_measurements.measurements() == ()
+    assert [
+        record.point_index for record in interrupted_measurements.measurements()
+    ] == [0]
+    assert interrupted_coverage.completed == 0
 
     completed = admit_test_run(
         config=planned.config,
@@ -348,6 +544,8 @@ def test_execution_publishes_measurements_only_at_logical_block_cuts(
         repository=services.runs,
     )
     completed_measurements = FakeMeasurementDatasetRepository()
+    completed_coverage = _MemoryCoverage()
+    completed_recovery = _MemoryRecoveryGroups()
     snapshot = execute_admitted_run(
         program=replace(
             planned.program,
@@ -360,14 +558,19 @@ def test_execution_publishes_measurements_only_at_logical_block_cuts(
                 instruments=instruments(),
             ),
             measurements=completed_measurements,
+            coverage=completed_coverage,
+            recovery_groups=completed_recovery,
+            durable_completed_point_count=lambda: completed_coverage.completed,
+            durable_recovery_groups=completed_recovery.completed,
         ),
     )
 
     assert snapshot.status == "completed"
-    assert [
-        [record.point_index for record in append.records]
-        for append in completed_measurements.appends
-    ] == [[0, 1, 2]]
+    assert [record.point_index for record in completed_measurements.measurements()] == [
+        0,
+        1,
+        2,
+    ]
 
 
 def test_non_static_continuation_fails_before_acquiring_instruments(

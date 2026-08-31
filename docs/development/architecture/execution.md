@@ -322,9 +322,10 @@ Grouping belongs to the accepted run contract and controls scheduling preference
 and result publication, not physical partitioning. Segments are immutable
 evidence for one executor lease and may contain many groups or part of the final
 unfinished group. Because durable coverage is stored as a canonical point
-prefix, a segment watermark is publishable only when completed groups cover
-exactly a canonical prefix; reordered rows may therefore delay durable
-advancement until a later group boundary.
+prefix, a segment watermark advances only when completed points close that
+prefix. Exact recovery-group proofs are stored separately, so a completed
+reordered group beyond the watermark remains resumable without pretending the
+intervening points completed.
 
 Execution segments are immutable evidence rather than transparent process
 resume. After hardware reconciliation, explicit continuation can return an
@@ -335,19 +336,22 @@ not claim that the Python workspace or environment is unchanged.
 
 The canonical measurement schema remains run-owned, while durable Arrow appends
 are grouped into segment-owned fragments. Initializing a dataset in a new
-segment creates one fragment at that segment's durable global coverage
-watermark. Each existing chunk records its owning segment; individual
-measurement records gain no segment field and no extra per-point transaction.
-Run-level paging and dataset identity still concatenate all chunks by global
-point index, independent of fragment boundaries.
+segment creates one fragment at the next physical acquisition index. Each
+existing chunk records its owning segment and retains acquisition order;
+individual measurement records gain no segment field. A normalized logical
+projection maps point identities to selected acquired rows. Run-level paging
+sorts that projection by global point index, independent of fragment boundaries
+and retries.
 
 Before acquiring instruments, the interpreter reads the durable global coverage
-watermark. A continued static local run materializes only the remaining point
-suffix and initializes its point ledger, ordering buffer, and recording counters
-at that watermark. Its seal identifies only the new segment-owned fragment; the
-daemon verifies that fragment and derives the final run-level dataset identity
-from every durable append across all segments. This avoids replaying completed
-point effects and avoids re-hashing array payloads in the executor.
+watermark and exact recovery-group ledger. A continued static local run
+materializes the remaining work, skips independently completed groups, and
+initializes its ordering buffer at the watermark. Its seal identifies only the
+new segment-owned acquisition fragment; the daemon verifies that fragment,
+completes any non-static logical selections from the latest acquisition per
+point, and derives the final run-level dataset identity in logical point order.
+This avoids replaying completed point effects and avoids re-hashing array
+payloads in the executor.
 
 Automatic suffix continuation is deliberately narrower than control-plane
 continuation. Adaptive runs and domain-target runs are rejected before
@@ -483,12 +487,12 @@ interrupt a blocking provider call in the middle. Cancellation, terminal
 commit, and resource quarantine are described in the
 [lab daemon model](daemon.md).
 
-Instrument state snapshots, measurement prefixes, point-plan decisions, and
-terminal outcomes are durable run evidence. Individual normal hardware calls
-remain typed execution details. Physical values become dataset columns only
-when the experiment explicitly records a scientifically meaningful value.
-Output enable, for example, is ordinary requested state and may itself be varied
-by an experiment.
+Instrument state snapshots, measurement acquisition logs and logical
+projections, point-plan decisions, and terminal outcomes are durable run
+evidence. Individual normal hardware calls remain typed execution details.
+Physical values become dataset columns only when the experiment explicitly
+records a scientifically meaningful value. Output enable, for example, is
+ordinary requested state and may itself be varied by an experiment.
 
 Host acquisitions and domain executions feed one logical measurement stream.
 Every physical result maps completely to logical points and product-use

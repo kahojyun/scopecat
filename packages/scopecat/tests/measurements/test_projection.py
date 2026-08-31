@@ -477,7 +477,7 @@ def test_entity_projection_uses_explicit_ragged_segments() -> None:
             MeasurementDatasetAppend(
                 run_id=projected.run_id,
                 header_content_hash="sha256:header",
-                start_index=0,
+                acquisition_start=0,
                 records=projected.records,
             ),
             schema,
@@ -532,7 +532,7 @@ def test_entity_projection_uses_explicit_ragged_segments() -> None:
             MeasurementDatasetAppend(
                 run_id=projected.run_id,
                 header_content_hash="sha256:expanded",
-                start_index=0,
+                acquisition_start=0,
                 records=expanded.records,
             ),
             expanded.schema,

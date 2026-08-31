@@ -62,6 +62,32 @@ def test_forward_traversal_retains_canonical_order() -> None:
     ) == (0, 1, 2, 3, 4, 5)
 
 
+def test_default_recovery_groups_have_stable_unique_point_ids() -> None:
+    domain = _domain((("x", 3),), point_count=3)
+
+    execution = resolve_point_schedule(
+        domain,
+        repeat=1,
+        repeat_mode="point",
+        schedule=PointSchedule(),
+    )
+
+    assert tuple(group.id for group in execution.groups) == (
+        "point:0",
+        "point:1",
+        "point:2",
+    )
+    assert (
+        execution.recovery_fingerprint
+        == resolve_point_schedule(
+            domain,
+            repeat=1,
+            repeat_mode="point",
+            schedule=PointSchedule(),
+        ).recovery_fingerprint
+    )
+
+
 def test_snake_traversal_reverses_alternating_grid_rows() -> None:
     domain = _domain((("x", 2), ("y", 3)), point_count=6)
 
@@ -245,6 +271,15 @@ def test_point_groups_must_still_partition_the_domain() -> None:
             (
                 PointExecutionGroup("first", {}, (0, 1)),
                 PointExecutionGroup("overlap", {}, (1, 2)),
+            ),
+            point_count=3,
+        )
+
+    with pytest.raises(ValueError, match="ids must be unique"):
+        PointExecutionPlan(
+            (
+                PointExecutionGroup("duplicate", {}, (0,)),
+                PointExecutionGroup("duplicate", {}, (1, 2)),
             ),
             point_count=3,
         )

@@ -50,7 +50,7 @@ def ingest_measurement_dataset(
     *,
     header: MeasurementDatasetHeader,
 ) -> tuple[MeasurementDatasetReceipt, ...]:
-    """Offer one contiguous live range to the daemon-owned durable buffer."""
+    """Offer records in acquisition order to the daemon-owned durable buffer."""
 
     records = dataset.records
     if not records:
@@ -58,7 +58,6 @@ def ingest_measurement_dataset(
     batch = MeasurementDatasetBatch(
         run_id=dataset.run_id,
         header_content_hash=header.content_hash,
-        start_index=records[0].point_index,
         records=records,
     )
     return writer.ingest(batch)
@@ -68,8 +67,7 @@ def seal_measurement_dataset(
     *,
     run_id: str,
     header: MeasurementDatasetHeader,
-    fragment_start_index: int,
-    point_count: int,
+    record_count: int,
     record_content_hashes: tuple[str, ...],
     writer: MeasurementDatasetLifecycleWriter,
 ) -> MeasurementDatasetReceipt:
@@ -78,11 +76,10 @@ def seal_measurement_dataset(
     seal = MeasurementDatasetSeal(
         run_id=run_id,
         header_content_hash=header.content_hash,
-        fragment_start_index=fragment_start_index,
-        point_count=point_count,
+        record_count=record_count,
+        fragment_record_count=len(record_content_hashes),
         fragment_content_hash=measurement_fragment_content_hash(
             header_content_hash=header.content_hash,
-            start_index=fragment_start_index,
             record_content_hashes=record_content_hashes,
         ),
     )

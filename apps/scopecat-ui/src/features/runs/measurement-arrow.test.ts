@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { decodeMeasurementArrowRecord } from "./measurement-arrow";
 
 const fixture = readFileSync(
-  new URL("./test-fixtures/measurement-append-v10.arrow", import.meta.url),
+  new URL("./test-fixtures/measurement-append-v11.arrow", import.meta.url),
 );
 
 describe("live measurement Arrow", () => {
