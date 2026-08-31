@@ -22,6 +22,7 @@ from scopecat_quantum.pulses import (
     AcquireSignal,
     AcquisitionSlot,
     Constant,
+    CosineFlatTop,
     Delay,
     DriveSignal,
     Gaussian,
@@ -603,4 +604,61 @@ def test_gaussian_and_drag_shape_parameters_are_validated() -> None:
     assert {
         "pulse_sigma_exceeds_duration",
         "pulse_time_unit_invalid",
+    } <= _issue_codes(raised.value)
+
+
+def test_cosine_flat_top_normalizes_explicit_edge_durations() -> None:
+    scheduled = schedule(
+        _program(
+            Play(
+                PulseEventId("cosine"),
+                DRIVE_Q0,
+                CosineFlatTop(
+                    duration=Quantity(0.2, "us"),
+                    amplitude=Quantity(200, "mV"),
+                    rise_duration=Quantity(1, "ns"),
+                    fall_duration=Quantity(2, "ns"),
+                    phase=Quantity(90, "deg"),
+                ),
+            )
+        )
+    )
+
+    envelope = cast("Play", scheduled.events[0].instruction).envelope
+    assert isinstance(envelope, CosineFlatTop)
+    assert envelope.duration == Quantity(2e-7, "s")
+    assert envelope.amplitude == Quantity(0.2, "V")
+    assert envelope.rise_duration == Quantity(1e-9, "s")
+    assert envelope.fall_duration == Quantity(2e-9, "s")
+    assert envelope.phase == Quantity(math.pi / 2, "rad")
+
+
+def test_cosine_flat_top_rejects_negative_or_overlapping_edges() -> None:
+    negative = Play(
+        PulseEventId("negative"),
+        DRIVE_Q0,
+        CosineFlatTop(
+            duration=Quantity(10, "ns"),
+            amplitude=Quantity(1, "arb"),
+            rise_duration=Quantity(-1, "ns"),
+            fall_duration=Quantity(1, "ns"),
+        ),
+    )
+    overlapping = Play(
+        PulseEventId("overlapping"),
+        DRIVE_Q1,
+        CosineFlatTop(
+            duration=Quantity(10, "ns"),
+            amplitude=Quantity(1, "arb"),
+            rise_duration=Quantity(6, "ns"),
+            fall_duration=Quantity(6, "ns"),
+        ),
+    )
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(_program(Parallel((negative, overlapping))))
+
+    assert {
+        "pulse_edge_duration_negative",
+        "pulse_edge_durations_exceed_duration",
     } <= _issue_codes(raised.value)

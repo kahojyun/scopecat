@@ -24,6 +24,7 @@ from scopecat_quantum.pulses import (
     AcquireSignal,
     AnalyticEnvelope,
     Constant,
+    CosineFlatTop,
     DriveSignal,
     Gaussian,
     LogicalSignal,
@@ -298,11 +299,21 @@ def _inspection_signal(signal: LogicalSignal) -> str:
 
 def _inspection_envelope(envelope: PulseEnvelope | AnalyticEnvelope) -> str:
     if isinstance(envelope, PulseEnvelope):
-        kind, duration, amplitude, sigma, beta, phase = _pulse_envelope_parts(envelope)
+        (
+            kind,
+            duration,
+            amplitude,
+            sigma,
+            beta,
+            rise_duration,
+            fall_duration,
+            phase,
+        ) = _pulse_envelope_parts(envelope)
     elif isinstance(envelope, Constant):
         kind = "constant"
         duration, amplitude = envelope.duration, envelope.amplitude
-        sigma, beta, phase = None, None, envelope.phase
+        sigma, beta = None, None
+        rise_duration, fall_duration, phase = None, None, envelope.phase
     elif isinstance(envelope, Gaussian):
         kind = "gaussian"
         duration, amplitude, sigma = (
@@ -310,16 +321,26 @@ def _inspection_envelope(envelope: PulseEnvelope | AnalyticEnvelope) -> str:
             envelope.amplitude,
             envelope.sigma,
         )
-        beta, phase = None, envelope.phase
+        beta = None
+        rise_duration, fall_duration, phase = None, None, envelope.phase
+    elif isinstance(envelope, CosineFlatTop):
+        kind = "cosine_flat_top"
+        duration, amplitude = envelope.duration, envelope.amplitude
+        sigma, beta = None, None
+        rise_duration, fall_duration, phase = (
+            envelope.rise_duration,
+            envelope.fall_duration,
+            envelope.phase,
+        )
     else:
         kind = "drag"
-        duration, amplitude, sigma, beta, phase = (
+        duration, amplitude, sigma, beta = (
             envelope.duration,
             envelope.amplitude,
             envelope.sigma,
             envelope.beta,
-            envelope.phase,
         )
+        rise_duration, fall_duration, phase = None, None, envelope.phase
     fields = [
         f"duration={_inspection_value(duration)}",
         f"amplitude={_inspection_value(amplitude)}",
@@ -328,6 +349,10 @@ def _inspection_envelope(envelope: PulseEnvelope | AnalyticEnvelope) -> str:
         fields.append(f"sigma={_inspection_value(sigma)}")
     if beta is not None:
         fields.append(f"beta={_inspection_value(beta)}")
+    if rise_duration is not None:
+        fields.append(f"rise_duration={_inspection_value(rise_duration)}")
+    if fall_duration is not None:
+        fields.append(f"fall_duration={_inspection_value(fall_duration)}")
     if not _is_zero_phase(phase):
         fields.append(f"phase={_inspection_value(phase)}")
     return f"{kind}({', '.join(fields)})"

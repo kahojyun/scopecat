@@ -414,6 +414,8 @@ class PulseEnvelope:
     sigma: QuantumQuantity | None
     beta: QuantumQuantity | None
     phase: QuantumQuantity
+    rise_duration: QuantumQuantity | None = None
+    fall_duration: QuantumQuantity | None = None
 
 
 @dataclass(frozen=True, slots=True, repr=False)

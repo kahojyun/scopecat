@@ -36,6 +36,32 @@ trigger ticks, transfer blocks, waveform padding, and channel packing remain a
 later target-specific layer; they must not be presented as the scientific time
 coordinate itself.
 
+Boundary quantization and analytic-function evaluation are separate choices.
+`SampleGrid.sample_location` defaults to `"midpoint"`; select `"left_edge"`
+only when a device or established waveform contract evaluates each sample at
+the beginning of its half-open interval. The selected convention is reflected
+in the waveform semantics id. Do not emulate left-edge evaluation by shifting
+pulse starts or phases, because that changes scheduling intent and obscures the
+experimentally relevant half-sample offset.
+
+Use an explicit analytic envelope whenever the target knows the pulse shape.
+`CosineFlatTop` and `authoring.cosine_flat_top(...)` expose independent rise and
+fall durations, with the remaining duration interpreted as the plateau. A
+target should not replace a `Constant` envelope with a calibrated cosine shape
+during lowering. Calibration may choose the envelope parameters, but the
+resulting pulse IR should state the shape that will be rendered.
+
+`SampledOutputBinding.carrier_phase_reference` declares where one binding's
+carrier phase is zero. `"schedule_origin"` preserves a carrier across the whole
+program, `"signal_first_play"` preserves it relative to that signal's first
+play, and `"event_origin"` restarts it at each play's exact continuous start.
+The reference retains that pre-quantization time even when nearest boundary
+quantization moves the realized play boundary. A midpoint sample therefore
+still advances the carrier by half a sample from an on-grid event origin.
+Signed intermediate frequency expresses the carrier direction. These choices
+are independent of explicit `ShiftPhase` frame operations and of the
+sample-location convention.
+
 When different logical points produce identical final device codes and timing,
 a target may retain a device-effective fingerprint that excludes point ordinals
 and result mappings. Derive it from the target's final quantized representation,

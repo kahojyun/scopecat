@@ -10,6 +10,8 @@ from scopecat import Quantity
 from scopecat_quantum._ids import PulseEventId, PulseProgramId, QubitId
 from scopecat_quantum.pulses import (
     Constant,
+    CosineFlatTop,
+    Delay,
     DriveSignal,
     Gaussian,
     Parallel,
@@ -21,6 +23,9 @@ from scopecat_quantum.pulses import (
     schedule,
 )
 from scopecat_quantum.waveforms import (
+    LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID,
+    MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID,
+    CarrierPhaseReference,
     Float64ReferenceRenderer,
     IqMatrix,
     SampledOutputBinding,
@@ -359,6 +364,249 @@ def test_gaussian_uses_midpoints_over_the_realized_span() -> None:
 
     np.testing.assert_allclose(rendered.buffers[0], expected)
     np.testing.assert_allclose(rendered.buffers[1], (0.0,) * 4)
+
+
+def test_left_edge_cosine_flat_top_matches_legacy_periodic_hann() -> None:
+    sample_count = 50
+    amplitude = 0.3512
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("legacy-cosine"),
+            Play(
+                PulseEventId("play"),
+                DRIVE_Q0,
+                CosineFlatTop(
+                    duration=Quantity(25, "ns"),
+                    amplitude=Quantity(amplitude, "arb"),
+                    rise_duration=Quantity(12.5, "ns"),
+                    fall_duration=Quantity(12.5, "ns"),
+                ),
+            ),
+        )
+    )
+    plan = plan_sampled_waveforms(
+        program,
+        bindings=(_binding(DRIVE_Q0),),
+        grid=SampleGrid(2_000_000_000, sample_location="left_edge"),
+    )
+
+    rendered = Float64ReferenceRenderer().render(plan)
+    expected = (
+        amplitude
+        * 0.5
+        * (1.0 - np.cos(math.tau * np.arange(sample_count) / sample_count))
+    )
+
+    assert plan.semantics_id == LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID
+    assert rendered.semantics_id == LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID
+    np.testing.assert_allclose(rendered.buffers[0], expected, atol=1e-15)
+    np.testing.assert_allclose(rendered.buffers[1], np.zeros(sample_count))
+
+
+def test_left_edge_cosine_flat_top_preserves_legacy_readout_edges() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("legacy-readout"),
+            Play(
+                PulseEventId("play"),
+                READOUT_Q0,
+                CosineFlatTop(
+                    duration=Quantity(200, "ns"),
+                    amplitude=Quantity(1, "arb"),
+                    rise_duration=Quantity(1, "ns"),
+                    fall_duration=Quantity(1, "ns"),
+                ),
+            ),
+        )
+    )
+    rendered = Float64ReferenceRenderer().render(
+        plan_sampled_waveforms(
+            program,
+            bindings=(_binding(READOUT_Q0),),
+            grid=SampleGrid(2_000_000_000, sample_location="left_edge"),
+        )
+    )
+
+    assert rendered.buffers[0].size == 400
+    np.testing.assert_allclose(rendered.buffers[0][:4], (0.0, 0.5, 1.0, 1.0))
+    np.testing.assert_allclose(rendered.buffers[0][-4:], (1.0, 1.0, 1.0, 0.5))
+
+
+def test_carrier_phase_reference_selects_schedule_signal_or_event_origin() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("carrier-origins"),
+            Sequence(
+                (
+                    Delay(PulseEventId("initial"), DRIVE_Q0, Quantity(1, "ns")),
+                    Play(
+                        PulseEventId("first"),
+                        DRIVE_Q0,
+                        Constant(Quantity(2, "ns"), Quantity(1, "arb")),
+                    ),
+                    Delay(PulseEventId("gap"), DRIVE_Q0, Quantity(1, "ns")),
+                    Play(
+                        PulseEventId("second"),
+                        DRIVE_Q0,
+                        Constant(Quantity(2, "ns"), Quantity(1, "arb")),
+                    ),
+                )
+            ),
+        )
+    )
+
+    def render(
+        reference: CarrierPhaseReference,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        binding = SampledOutputBinding(
+            signal=DRIVE_Q0,
+            i_lane=0,
+            q_lane=1,
+            intermediate_frequency_hz=250_000_000,
+            mixer=IDENTITY_IQ,
+            carrier_phase_reference=reference,
+        )
+        rendered = Float64ReferenceRenderer().render(
+            plan_sampled_waveforms(
+                program,
+                bindings=(binding,),
+                grid=SampleGrid(1_000_000_000, sample_location="left_edge"),
+            )
+        )
+        return rendered.buffers[0], rendered.buffers[1]
+
+    schedule_i, schedule_q = render("schedule_origin")
+    signal_i, signal_q = render("signal_first_play")
+    event_i, event_q = render("event_origin")
+
+    np.testing.assert_allclose(
+        schedule_i[[1, 2, 4, 5]], (0.0, -1.0, 1.0, 0.0), atol=1e-15
+    )
+    np.testing.assert_allclose(
+        schedule_q[[1, 2, 4, 5]], (1.0, 0.0, 0.0, 1.0), atol=1e-15
+    )
+    np.testing.assert_allclose(signal_i[[1, 2, 4, 5]], (1.0, 0.0, 0.0, 1.0), atol=1e-15)
+    np.testing.assert_allclose(
+        signal_q[[1, 2, 4, 5]], (0.0, 1.0, -1.0, 0.0), atol=1e-15
+    )
+    np.testing.assert_allclose(event_i[[1, 2, 4, 5]], (1.0, 0.0, 1.0, 0.0), atol=1e-15)
+    np.testing.assert_allclose(event_q[[1, 2, 4, 5]], (0.0, 1.0, 0.0, 1.0), atol=1e-15)
+
+
+def test_default_sample_location_retains_midpoint_semantics() -> None:
+    plan = _phase_plan(0.0)
+
+    assert plan.grid.sample_location == "midpoint"
+    assert plan.semantics_id == MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID
+
+
+def test_event_origin_is_the_continuous_boundary_not_the_first_sample() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("midpoint-event-origin"),
+            Play(
+                PulseEventId("play"),
+                DRIVE_Q0,
+                Constant(Quantity(2, "ns"), Quantity(1, "arb")),
+            ),
+        )
+    )
+    binding = SampledOutputBinding(
+        signal=DRIVE_Q0,
+        i_lane=0,
+        q_lane=1,
+        intermediate_frequency_hz=250_000_000,
+        mixer=IDENTITY_IQ,
+        carrier_phase_reference="event_origin",
+    )
+
+    rendered = Float64ReferenceRenderer().render(
+        plan_sampled_waveforms(
+            program,
+            bindings=(binding,),
+            grid=SampleGrid(1_000_000_000),
+        )
+    )
+
+    half_sqrt_two = math.sqrt(0.5)
+    np.testing.assert_allclose(
+        rendered.buffers[0],
+        (half_sqrt_two, -half_sqrt_two),
+    )
+    np.testing.assert_allclose(
+        rendered.buffers[1],
+        (half_sqrt_two, half_sqrt_two),
+    )
+
+
+def test_event_origin_preserves_a_subsample_continuous_start() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("subsample-event-origin"),
+            Sequence(
+                (
+                    Delay(PulseEventId("initial"), DRIVE_Q0, Quantity(1.2, "ns")),
+                    Play(
+                        PulseEventId("play"),
+                        DRIVE_Q0,
+                        Constant(Quantity(2, "ns"), Quantity(1, "arb")),
+                    ),
+                )
+            ),
+        )
+    )
+    binding = SampledOutputBinding(
+        signal=DRIVE_Q0,
+        i_lane=0,
+        q_lane=1,
+        intermediate_frequency_hz=250_000_000,
+        mixer=IDENTITY_IQ,
+        carrier_phase_reference="event_origin",
+    )
+
+    plan = plan_sampled_waveforms(
+        program,
+        bindings=(binding,),
+        grid=SampleGrid(1_000_000_000),
+    )
+    rendered = Float64ReferenceRenderer().render(plan)
+    [event] = plan.render_events
+    relative_positions = np.array((0.3e-9, 1.3e-9))
+    phases = math.tau * binding.intermediate_frequency_hz * relative_positions
+
+    assert event.timing.start_sample == 1
+    assert event.carrier_origin_seconds == Decimal("1.2e-9")
+    np.testing.assert_allclose(rendered.buffers[0][1:3], np.cos(phases))
+    np.testing.assert_allclose(rendered.buffers[1][1:3], np.sin(phases))
+
+
+def test_nearest_rejects_cosine_edges_longer_than_realized_duration() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("collapsed-cosine-plateau"),
+            Play(
+                PulseEventId("play"),
+                DRIVE_Q0,
+                CosineFlatTop(
+                    duration=Quantity(2.4, "ns"),
+                    amplitude=Quantity(1, "arb"),
+                    rise_duration=Quantity(1.2, "ns"),
+                    fall_duration=Quantity(1.2, "ns"),
+                ),
+            ),
+        )
+    )
+
+    with pytest.raises(WaveformPlanningError) as caught:
+        plan_sampled_waveforms(
+            program,
+            bindings=(_binding(DRIVE_Q0),),
+            grid=SampleGrid(1_000_000_000),
+        )
+
+    assert {issue.code for issue in caught.value.issues} == {
+        "sampled_cosine_edges_exceed_realized_duration"
+    }
 
 
 def test_final_lane_peak_is_measured_after_additive_accumulation() -> None:

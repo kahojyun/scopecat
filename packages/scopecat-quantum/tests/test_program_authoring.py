@@ -41,6 +41,7 @@ from scopecat_quantum.pulses import (
     Acquire,
     AcquireSignal,
     Constant,
+    CosineFlatTop,
     DriveSignal,
     FluxSignal,
     Play,
@@ -472,6 +473,41 @@ def test_explicit_acquire_composes_with_readout_play_and_keeps_public_slot() -> 
     assert scheduled.duration_seconds == Decimal("1.2e-8")
     assert {type(event.instruction) for event in scheduled.events} == {Play, Acquire}
     assert {event.start_seconds for event in scheduled.events} == {0}
+
+
+def test_symbolic_cosine_flat_top_binds_into_explicit_pulse_ir() -> None:
+    q0 = authoring.qubit("q0")
+    edge = authoring.input(
+        "edge",
+        sc.ScalarType(sc.QuantityType(unit="ns")),
+    )
+    declaration = authoring._close_program(
+        "cosine-flat-top",
+        authoring.play(
+            authoring.drive(q0),
+            authoring.cosine_flat_top(
+                duration=Quantity(20, "ns"),
+                amplitude=Quantity(0.2, "arb"),
+                rise_duration=_symbolic_quantity(edge),
+                fall_duration=_symbolic_quantity(edge),
+            ),
+        ),
+    )
+
+    bound = authoring.bind(declaration, {"edge": Quantity(2, "ns")})
+    plan = plan_quantum_pulse_lowering(
+        bound.verified,
+        ResolvedPulseImplementations(),
+        output_id=PulseProgramId("cosine-flat-top-pulses"),
+    )
+    pulses = materialize_quantum_pulse_program(plan)
+    [event] = schedule(pulses).events
+
+    assert declaration.inputs == (edge,)
+    assert isinstance(event.instruction, Play)
+    assert isinstance(event.instruction.envelope, CosineFlatTop)
+    assert event.instruction.envelope.rise_duration == Quantity(2e-9, "s")
+    assert event.instruction.envelope.fall_duration == Quantity(2e-9, "s")
 
 
 def test_explicit_acquire_results_cannot_repeat_or_reuse_an_id() -> None:

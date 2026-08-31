@@ -720,7 +720,16 @@ def _substitute_envelope(
 ) -> PulseEnvelope | AnalyticEnvelope:
     if not isinstance(envelope, PulseEnvelope):
         return envelope
-    kind, duration, amplitude, sigma, beta, phase = _pulse_envelope_parts(envelope)
+    (
+        kind,
+        duration,
+        amplitude,
+        sigma,
+        beta,
+        rise_duration,
+        fall_duration,
+        phase,
+    ) = _pulse_envelope_parts(envelope)
     return _pulse_envelope(
         kind,
         duration=cast(
@@ -739,6 +748,22 @@ def _substitute_envelope(
         beta=(
             cast("QuantumQuantity", _substitute_template_value(beta, bindings))
             if beta is not None
+            else None
+        ),
+        rise_duration=(
+            cast(
+                "QuantumQuantity",
+                _substitute_template_value(rise_duration, bindings),
+            )
+            if rise_duration is not None
+            else None
+        ),
+        fall_duration=(
+            cast(
+                "QuantumQuantity",
+                _substitute_template_value(fall_duration, bindings),
+            )
+            if fall_duration is not None
             else None
         ),
         phase=cast(
