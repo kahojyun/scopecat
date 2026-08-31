@@ -317,16 +317,16 @@ def test_scopecat_benchmark_batches_measurement_appends(tmp_path: Path) -> None:
             "list[tuple[int, int]]",
             connection.execute(
                 """
-                SELECT start_index, record_count
+                SELECT acquisition_start, record_count
                 FROM execution_measurement_appends
-                ORDER BY start_index
+                ORDER BY acquisition_start
                 """
             ).fetchall(),
         )
     assert len(append_ranges) > 1
     next_start = 0
-    for start_index, record_count in append_ranges:
-        assert start_index == next_start
+    for acquisition_start, record_count in append_ranges:
+        assert acquisition_start == next_start
         assert 0 < record_count <= 256
         next_start += record_count
     assert next_start == 257

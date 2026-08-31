@@ -122,11 +122,11 @@ with project.connect() as lab:
 
     ingest_count = [0]
 
-    def gated_ingest(run_id, *, lease_id, batch, dataset_schema):
+    def gated_ingest(run_id, *, lease_id, append, dataset_schema):
         receipt = original_ingest(
             run_id,
             lease_id=lease_id,
-            batch=batch,
+            append=append,
             dataset_schema=dataset_schema,
         )
         ingest_count[0] += 1
