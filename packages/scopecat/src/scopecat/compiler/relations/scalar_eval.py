@@ -90,6 +90,8 @@ def _sub(left: CellValue, right: CellValue) -> CellValue:
 
 
 def _mul(left: CellValue, right: CellValue) -> CellValue:
+    if isinstance(left, Quantity) and isinstance(right, Quantity):
+        return left * right
     if isinstance(left, Quantity) and _is_number(right):
         return left * right
     if _is_number(left) and isinstance(right, Quantity):
@@ -101,6 +103,8 @@ def _mul(left: CellValue, right: CellValue) -> CellValue:
 
 
 def _div(left: CellValue, right: CellValue) -> CellValue:
+    if isinstance(left, Quantity) and isinstance(right, Quantity):
+        return left / right
     if isinstance(left, Quantity) and _is_number(right):
         return left / right
     if _is_number(left) and _is_number(right):

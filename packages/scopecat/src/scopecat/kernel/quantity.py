@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from typing import overload
+
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from scopecat.kernel.units import (
     compatible_units,
     convert_linear_value,
+    divide_quantities_to_dimensionless,
     is_supported_unit,
+    multiply_quantities_to_dimensionless,
 )
 
 
@@ -85,18 +89,60 @@ class Quantity(BaseModel):
         converted = other.to(self.unit)
         return Quantity(value=self.value - converted.value, unit=self.unit)
 
-    def __mul__(self, other: object) -> Quantity:
-        if not isinstance(other, int | float) or isinstance(other, bool):
-            return NotImplemented
-        return Quantity(value=self.value * float(other), unit=self.unit)
+    @overload
+    def __mul__(self, other: float) -> Quantity: ...
 
-    def __rmul__(self, other: object) -> Quantity:
-        return self.__mul__(other)
+    @overload
+    def __mul__(self, other: Quantity) -> float: ...
 
-    def __truediv__(self, other: object) -> Quantity:
-        if not isinstance(other, int | float) or isinstance(other, bool):
-            return NotImplemented
-        if other == 0:
-            msg = "cannot divide quantity by zero"
-            raise ZeroDivisionError(msg)
-        return Quantity(value=self.value / float(other), unit=self.unit)
+    def __mul__(self, other: object) -> Quantity | float:
+        if isinstance(other, Quantity):
+            product = multiply_quantities_to_dimensionless(
+                self.value,
+                self.unit,
+                other.value,
+                other.unit,
+            )
+            if product is None:
+                return NotImplemented
+            return product
+        if isinstance(other, int | float) and not isinstance(other, bool):
+            return Quantity(value=self.value * float(other), unit=self.unit)
+        return NotImplemented
+
+    @overload
+    def __rmul__(self, other: float) -> Quantity: ...
+
+    @overload
+    def __rmul__(self, other: Quantity) -> float: ...
+
+    def __rmul__(self, other: object) -> Quantity | float:
+        if isinstance(other, Quantity):
+            return other * self
+        if isinstance(other, int | float) and not isinstance(other, bool):
+            return Quantity(value=float(other) * self.value, unit=self.unit)
+        return NotImplemented
+
+    @overload
+    def __truediv__(self, other: float) -> Quantity: ...
+
+    @overload
+    def __truediv__(self, other: Quantity) -> float: ...
+
+    def __truediv__(self, other: object) -> Quantity | float:
+        if isinstance(other, Quantity):
+            ratio = divide_quantities_to_dimensionless(
+                self.value,
+                self.unit,
+                other.value,
+                other.unit,
+            )
+            if ratio is None:
+                return NotImplemented
+            return ratio
+        if isinstance(other, int | float) and not isinstance(other, bool):
+            if other == 0:
+                msg = "cannot divide quantity by zero"
+                raise ZeroDivisionError(msg)
+            return Quantity(value=self.value / float(other), unit=self.unit)
+        return NotImplemented

@@ -16,7 +16,15 @@ from scopecat.kernel.entity import (
     same_entity_identity,
 )
 from scopecat.kernel.quantity import Quantity as QuantityValue
-from scopecat.kernel.units import compatible_units, unit_kind
+from scopecat.kernel.units import (
+    compatible_units,
+    divide_quantities_to_dimensionless,
+    is_linear_unit,
+    multiply_quantities_to_dimensionless,
+    unit_kind,
+    unit_kind_has_linear_ratios,
+    unit_product_is_dimensionless,
+)
 from scopecat.kernel.value_identity import (
     quantity_comparison_values,
     scalar_values_equal,
@@ -52,9 +60,16 @@ _ARITHMETIC_OPERANDS: dict[
             ("number", "number"),
             ("quantity", "number"),
             ("number", "quantity"),
+            ("quantity", "quantity"),
         }
     ),
-    "/": frozenset({("number", "number"), ("quantity", "number")}),
+    "/": frozenset(
+        {
+            ("number", "number"),
+            ("quantity", "number"),
+            ("quantity", "quantity"),
+        }
+    ),
 }
 
 
@@ -72,6 +87,7 @@ def scalar_operator_result_type(
     _require_type_specific_compatibility(
         left.atom,
         right.atom,
+        operator,
     )
     return _arithmetic_result_type(left.atom, right.atom, operator)
 
@@ -90,7 +106,7 @@ def require_runtime_operator(
     right_category = _runtime_arithmetic_category(right)
     if (left_category, right_category) not in _ARITHMETIC_OPERANDS[operator]:
         raise _unsupported_runtime_operator(left, right, operator)
-    _require_runtime_specific_compatibility(left, right)
+    _require_runtime_specific_compatibility(left, right, operator)
 
 
 def runtime_values_equal(left: object, right: object) -> bool:
@@ -156,22 +172,62 @@ def _runtime_arithmetic_category(value: object) -> ArithmeticCategory | None:
 def _require_type_specific_compatibility(
     left: AtomType,
     right: AtomType,
+    operator: ScalarOperator,
 ) -> None:
-    if (
-        isinstance(left, Quantity)
-        and isinstance(right, Quantity)
-        and not _quantity_types_are_compatible(left, right)
-    ):
+    if not isinstance(left, Quantity) or not isinstance(right, Quantity):
+        return
+    if operator in {"+", "-"}:
+        supported = _quantity_types_are_compatible(left, right)
+    elif operator == "*":
+        supported = _quantity_product_type_is_dimensionless(left, right)
+    else:
+        supported = _quantity_ratio_type_is_dimensionless(left, right)
+    if supported:
+        return
+    if operator in {"+", "-"}:
         msg = "quantity operands do not guarantee compatible units"
-        raise TypeError(msg)
+    elif operator == "*":
+        msg = (
+            "quantity multiplication must cancel to a dimensionless value; "
+            "composite quantity results are not supported"
+        )
+    else:
+        msg = "quantity division requires one shared linearly scaled dimension"
+    raise TypeError(msg)
 
 
 def _require_runtime_specific_compatibility(
     left: object,
     right: object,
+    operator: ScalarOperator,
 ) -> None:
-    if isinstance(left, QuantityValue) and isinstance(right, QuantityValue):
+    if not isinstance(left, QuantityValue) or not isinstance(right, QuantityValue):
+        return
+    if operator in {"+", "-"}:
         _quantity_comparison_values(left, right)
+        return
+    if operator == "*":
+        supported = (
+            multiply_quantities_to_dimensionless(
+                left.value,
+                left.unit,
+                right.value,
+                right.unit,
+            )
+            is not None
+        )
+    else:
+        supported = (
+            divide_quantities_to_dimensionless(
+                left.value,
+                left.unit,
+                right.value,
+                right.unit,
+            )
+            is not None
+        )
+    if not supported:
+        raise _unsupported_runtime_operator(left, right, operator)
 
 
 def _arithmetic_result_type(
@@ -182,6 +238,12 @@ def _arithmetic_result_type(
     if isinstance(left, Int) and isinstance(right, Int) and operator != "/":
         return Scalar(_integer_arithmetic_result_type(left, right, operator))
     if isinstance(left, Int | Float) and isinstance(right, Int | Float):
+        return Scalar(Float())
+    if (
+        isinstance(left, Quantity)
+        and isinstance(right, Quantity)
+        and operator in {"*", "/"}
+    ):
         return Scalar(Float())
     quantity = left if isinstance(left, Quantity) else right
     if isinstance(quantity, Quantity):
@@ -267,6 +329,36 @@ def _quantity_types_are_compatible(left: Quantity, right: Quantity) -> bool:
     if left.unit is not None and right.unit is not None:
         return compatible_units(left.unit, right.unit)
     return True
+
+
+def _quantity_product_type_is_dimensionless(
+    left: Quantity,
+    right: Quantity,
+) -> bool:
+    left_dimension = _quantity_dimension(left)
+    right_dimension = _quantity_dimension(right)
+    return (
+        left_dimension is not None
+        and right_dimension is not None
+        and unit_product_is_dimensionless(left_dimension, right_dimension)
+    )
+
+
+def _quantity_ratio_type_is_dimensionless(
+    left: Quantity,
+    right: Quantity,
+) -> bool:
+    left_dimension = _quantity_dimension(left)
+    right_dimension = _quantity_dimension(right)
+    if (
+        left_dimension is None
+        or right_dimension is None
+        or left_dimension != right_dimension
+    ):
+        return False
+    if left.unit is not None and right.unit is not None:
+        return is_linear_unit(left.unit) and is_linear_unit(right.unit)
+    return unit_kind_has_linear_ratios(left_dimension)
 
 
 def _quantity_dimension(value_type: Quantity) -> str | None:

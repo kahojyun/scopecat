@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import assert_type
 
 import pytest
 
@@ -47,3 +48,27 @@ def test_quantity_arithmetic_does_not_quantize_sub_picounit_values() -> None:
     assert (tiny - Quantity(1e-13, "ns")).value == tiny.value - 1e-13
     assert (tiny * 0.5).value == tiny.value * 0.5
     assert (tiny / 2).value == tiny.value / 2
+
+
+def test_quantity_arithmetic_can_reduce_units_to_plain_numbers() -> None:
+    frequency = Quantity(5.0, "GHz")
+    delay = Quantity(20.0, "ns")
+
+    assert_type(frequency * delay, float)
+    assert_type(2.0 * frequency, Quantity)
+    assert frequency * delay == 100.0
+    assert delay * frequency == 100.0
+    assert Quantity(5_000.0, "MHz") / frequency == 1.0
+    assert Quantity(180.0, "deg") / Quantity(math.pi, "rad") == 1.0
+    assert Quantity(1.0, "W") / Quantity(2.0, "W") == 0.5
+
+
+def test_quantity_arithmetic_rejects_unrepresented_derived_units() -> None:
+    with pytest.raises(TypeError, match="unsupported operand type"):
+        _ = Quantity(1.0, "V") * Quantity(2.0, "s")
+
+    with pytest.raises(TypeError, match="unsupported operand type"):
+        _ = Quantity(-20.0, "dBm") / Quantity(-10.0, "dBm")
+
+    with pytest.raises(ZeroDivisionError, match="quantity by zero"):
+        _ = Quantity(1.0, "V") / Quantity(0.0, "mV")

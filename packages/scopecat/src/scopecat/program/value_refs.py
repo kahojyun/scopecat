@@ -200,16 +200,82 @@ class ValueRef[T = object]:
     def __rsub__(self, other: object) -> ValueRef[object]:
         return _binary_value(other, self, "-")
 
-    def __mul__(self, other: object) -> ValueRef[object]:
+    @overload
+    def __mul__(
+        self: ValueRef[Quantity],
+        other: ValueRef[Quantity] | Quantity,
+    ) -> ValueRef[float]: ...
+
+    @overload
+    def __mul__(
+        self: ValueRef[Quantity],
+        other: ValueRef[int] | ValueRef[float] | float,
+    ) -> ValueRef[Quantity]: ...
+
+    @overload
+    def __mul__(
+        self: ValueRef[int] | ValueRef[float],
+        other: ValueRef[Quantity] | Quantity,
+    ) -> ValueRef[Quantity]: ...
+
+    @overload
+    def __mul__(self, other: object) -> ValueRef[object]: ...
+
+    def __mul__(self, other: object) -> ValueRef:
         return _binary_value(self, other, "*")
 
-    def __rmul__(self, other: object) -> ValueRef[object]:
+    @overload
+    def __rmul__(
+        self: ValueRef[Quantity],
+        other: Quantity,
+    ) -> ValueRef[float]: ...
+
+    @overload
+    def __rmul__(
+        self: ValueRef[Quantity],
+        other: ValueRef[int] | ValueRef[float] | float,
+    ) -> ValueRef[Quantity]: ...
+
+    @overload
+    def __rmul__(
+        self: ValueRef[int] | ValueRef[float],
+        other: ValueRef[Quantity] | Quantity,
+    ) -> ValueRef[Quantity]: ...
+
+    @overload
+    def __rmul__(self, other: object) -> ValueRef[object]: ...
+
+    def __rmul__(self, other: object) -> ValueRef:
         return _binary_value(other, self, "*")
 
-    def __truediv__(self, other: object) -> ValueRef[object]:
+    @overload
+    def __truediv__(
+        self: ValueRef[Quantity],
+        other: ValueRef[Quantity] | Quantity,
+    ) -> ValueRef[float]: ...
+
+    @overload
+    def __truediv__(
+        self: ValueRef[Quantity],
+        other: ValueRef[int] | ValueRef[float] | float,
+    ) -> ValueRef[Quantity]: ...
+
+    @overload
+    def __truediv__(self, other: object) -> ValueRef[object]: ...
+
+    def __truediv__(self, other: object) -> ValueRef:
         return _binary_value(self, other, "/")
 
-    def __rtruediv__(self, other: object) -> ValueRef[object]:
+    @overload
+    def __rtruediv__(
+        self: ValueRef[Quantity],
+        other: Quantity,
+    ) -> ValueRef[float]: ...
+
+    @overload
+    def __rtruediv__(self, other: object) -> ValueRef[object]: ...
+
+    def __rtruediv__(self, other: object) -> ValueRef:
         return _binary_value(other, self, "/")
 
 

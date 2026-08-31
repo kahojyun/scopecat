@@ -443,6 +443,32 @@ also compare dtype, value unit, and each local dimension's ID, kind, unit, and
 size. Leaving a parameter unannotated opts out when a generic kernel genuinely
 accepts several schemas.
 
+Symbolic quantity arithmetic may remove units when the result has an
+unambiguous scalar representation. Multiplying frequency by time produces a
+plain floating-point cycle count, while dividing two quantities in the same
+linear dimension produces a normalized floating-point ratio. For example, a
+Ramsey phase keeps the `2π` convention explicit:
+
+```python
+import math
+
+
+delay = experiment.scan(
+    "delay",
+    (sc.Quantity(20, "ns"), sc.Quantity(40, "ns")),
+)
+detuning = sc.parameter("detuning", sc.QuantityType(unit="MHz"))
+cycles = detuning * delay
+phase = cycles * sc.Quantity(math.tau, "rad")
+```
+
+Here `cycles` is a `ValueRef[float]` and `phase` is a
+`ValueRef[Quantity]` in radians. `Hz` retains its ordinary cycles-per-second
+meaning; Scopecat never inserts `2π` implicitly. Operations whose result would
+require an unregistered composite unit, such as voltage multiplied by time,
+remain authoring errors. Logarithmic units such as `dBm` also cannot participate
+in linear ratios.
+
 Convert a symbolic reference explicitly when the next data edge should carry a
 different unit:
 
