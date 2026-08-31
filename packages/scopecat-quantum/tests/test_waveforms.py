@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from decimal import Decimal
 
 import numpy as np
@@ -34,8 +35,10 @@ from scopecat_quantum.waveforms import (
     TimingQuantizationPolicy,
     WaveformPlanningError,
     factor_phase_parameterized_waveforms,
+    plan_sampled_waveform_window,
     plan_sampled_waveforms,
     realize_event_timings,
+    resolve_waveform_events,
 )
 
 Q0 = QubitId("q0")
@@ -334,6 +337,252 @@ def test_shift_phase_precedes_same_time_playback() -> None:
     assert all(buffer.dtype == np.float64 for buffer in rendered.buffers)
     assert all(buffer.flags.c_contiguous for buffer in rendered.buffers)
     assert all(not buffer.flags.writeable for buffer in rendered.buffers)
+
+
+def test_resolved_waveform_events_retain_continuous_intent_without_a_grid() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("continuous-waveform-intent"),
+            Sequence(
+                (
+                    Delay(PulseEventId("initial"), DRIVE_Q0, Quantity(1.2, "ns")),
+                    ShiftPhase(
+                        PulseEventId("shift"),
+                        DRIVE_Q0,
+                        Quantity(0.5, "rad"),
+                    ),
+                    Play(
+                        PulseEventId("play"),
+                        DRIVE_Q0,
+                        Constant(
+                            Quantity(2.4, "ns"),
+                            Quantity(0.25, "arb"),
+                            phase=Quantity(0.125, "rad"),
+                        ),
+                    ),
+                )
+            ),
+        )
+    )
+
+    [event] = resolve_waveform_events(program.events)
+
+    assert event.event_id == PulseEventId("play")
+    assert event.signal == DRIVE_Q0
+    assert event.start_seconds == Decimal("1.2e-9")
+    assert event.duration_seconds == Decimal("2.4e-9")
+    assert event.frame_phase_radians == pytest.approx(0.5)
+    assert event.effective_phase_radians == pytest.approx(0.625)
+    rephased = replace(
+        event,
+        envelope=replace(event.envelope, phase=Quantity(0.25, "rad")),
+    )
+    assert rephased.effective_phase_radians == pytest.approx(0.75)
+
+
+@pytest.mark.parametrize(
+    "carrier_phase_reference",
+    ("schedule_origin", "signal_first_play", "event_origin"),
+)
+def test_window_render_matches_the_same_full_program_slice(
+    carrier_phase_reference: CarrierPhaseReference,
+) -> None:
+    second_id = PulseEventId("second")
+    program = schedule(
+        PulseProgram(
+            PulseProgramId(f"window-{carrier_phase_reference}"),
+            Sequence(
+                (
+                    Delay(PulseEventId("initial"), DRIVE_Q0, Quantity(1.2, "ns")),
+                    Play(
+                        PulseEventId("first"),
+                        DRIVE_Q0,
+                        Constant(Quantity(2, "ns"), Quantity(0.4, "arb")),
+                    ),
+                    ShiftPhase(
+                        PulseEventId("shift"),
+                        DRIVE_Q0,
+                        Quantity(0.25, "rad"),
+                    ),
+                    Delay(PulseEventId("gap"), DRIVE_Q0, Quantity(1.1, "ns")),
+                    Play(
+                        second_id,
+                        DRIVE_Q0,
+                        Constant(Quantity(2, "ns"), Quantity(0.6, "arb")),
+                    ),
+                )
+            ),
+        )
+    )
+    binding = SampledOutputBinding(
+        signal=DRIVE_Q0,
+        i_lane=0,
+        q_lane=1,
+        intermediate_frequency_hz=175_000_000,
+        mixer=IDENTITY_IQ,
+        carrier_phase_reference=carrier_phase_reference,
+    )
+    grid = SampleGrid(1_000_000_000)
+    resolved = resolve_waveform_events(program.events)
+    selected = tuple(event for event in resolved if event.event_id == second_id)
+
+    full_plan = plan_sampled_waveforms(program, bindings=(binding,), grid=grid)
+    window_plan = plan_sampled_waveform_window(
+        resolved,
+        program_id=program.id,
+        selected_events=selected,
+        bindings=(binding,),
+        grid=grid,
+    )
+    full = Float64ReferenceRenderer().render(full_plan)
+    window = Float64ReferenceRenderer().render(window_plan)
+    full_timing = full_plan.timing_for(second_id)
+
+    assert window_plan.time_origin_seconds == Decimal("4e-9")
+    assert window.time_origin_seconds == window_plan.time_origin_seconds
+    assert window_plan.timing_for(second_id).requested_start_seconds == Decimal(
+        "0.3e-9"
+    )
+    assert window_plan.render_events[0].effective_phase_radians == pytest.approx(0.25)
+    np.testing.assert_allclose(
+        window.buffers[0],
+        full.buffers[0][full_timing.start_sample : full_timing.end_sample],
+        atol=1e-15,
+    )
+    np.testing.assert_allclose(
+        window.buffers[1],
+        full.buffers[1][full_timing.start_sample : full_timing.end_sample],
+        atol=1e-15,
+    )
+
+
+def test_window_quantizes_only_its_selected_timing_domain() -> None:
+    second_id = PulseEventId("second")
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("window-timing-domain"),
+            Sequence(
+                (
+                    Delay(PulseEventId("initial"), DRIVE_Q0, Quantity(1.2, "ns")),
+                    Play(
+                        PulseEventId("off-grid"),
+                        DRIVE_Q0,
+                        Constant(Quantity(0.8, "ns"), Quantity(0.4, "arb")),
+                    ),
+                    Delay(PulseEventId("gap"), DRIVE_Q0, Quantity(1, "ns")),
+                    Play(
+                        second_id,
+                        DRIVE_Q0,
+                        Constant(Quantity(2, "ns"), Quantity(0.6, "arb")),
+                    ),
+                )
+            ),
+        )
+    )
+    grid = SampleGrid(
+        1_000_000_000,
+        TimingQuantizationPolicy(mode="strict"),
+    )
+    resolved = resolve_waveform_events(program.events)
+    selected = tuple(event for event in resolved if event.event_id == second_id)
+
+    plan = plan_sampled_waveform_window(
+        resolved,
+        program_id=program.id,
+        selected_events=selected,
+        bindings=(_binding(DRIVE_Q0),),
+        grid=grid,
+    )
+
+    assert plan.time_origin_seconds == Decimal("3e-9")
+    assert plan.sample_count == 2
+    assert plan.timing_for(second_id).start_sample == 0
+    with pytest.raises(WaveformPlanningError):
+        plan_sampled_waveforms(program, bindings=(_binding(DRIVE_Q0),), grid=grid)
+
+
+def test_window_selects_one_realtime_occurrence_with_a_repeated_authored_id() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("repeated-occurrence"),
+            Play(
+                PulseEventId("repeat-body-play"),
+                DRIVE_Q0,
+                Constant(Quantity(2, "ns"), Quantity(0.5, "arb")),
+            ),
+        )
+    )
+    [authored] = resolve_waveform_events(program.events)
+    first = replace(authored, start_seconds=Decimal("2e-9"))
+    second = replace(authored, start_seconds=Decimal("10e-9"))
+
+    plan = plan_sampled_waveform_window(
+        (first, second),
+        program_id=program.id,
+        selected_events=(second,),
+        bindings=(
+            SampledOutputBinding(
+                signal=DRIVE_Q0,
+                i_lane=0,
+                q_lane=1,
+                intermediate_frequency_hz=0.0,
+                mixer=IDENTITY_IQ,
+                carrier_phase_reference="signal_first_play",
+            ),
+        ),
+        grid=SampleGrid(1_000_000_000),
+    )
+
+    assert plan.time_origin_seconds == Decimal("10e-9")
+    assert plan.sample_count == 2
+    assert plan.render_events[0].carrier_origin_seconds == Decimal("-8e-9")
+
+    repeated_plan = plan_sampled_waveform_window(
+        (first, second),
+        program_id=program.id,
+        selected_events=(first, second),
+        bindings=(plan.render_events[0].binding,),
+        grid=SampleGrid(1_000_000_000),
+    )
+
+    assert tuple(
+        timing.start_sample
+        for timing in repeated_plan.timings_for(PulseEventId("repeat-body-play"))
+    ) == (0, 8)
+    with pytest.raises(ValueError, match="repeated occurrences"):
+        repeated_plan.timing_for(PulseEventId("repeat-body-play"))
+
+
+def test_window_selection_requires_distinct_instances_from_its_context() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("window-event-instance"),
+            Play(
+                PulseEventId("play"),
+                DRIVE_Q0,
+                Constant(Quantity(2, "ns"), Quantity(0.5, "arb")),
+            ),
+        )
+    )
+    [event] = resolve_waveform_events(program.events)
+
+    with pytest.raises(ValueError, match="instances from the complete context"):
+        plan_sampled_waveform_window(
+            (event,),
+            program_id=program.id,
+            selected_events=(replace(event),),
+            bindings=(_binding(DRIVE_Q0),),
+            grid=SampleGrid(1_000_000_000),
+        )
+
+    with pytest.raises(ValueError, match="select each event instance only once"):
+        plan_sampled_waveform_window(
+            (event,),
+            program_id=program.id,
+            selected_events=(event, event),
+            bindings=(_binding(DRIVE_Q0),),
+            grid=SampleGrid(1_000_000_000),
+        )
 
 
 def test_gaussian_uses_midpoints_over_the_realized_span() -> None:
