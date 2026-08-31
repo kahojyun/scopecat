@@ -27,10 +27,7 @@ from scopecat.execution.evidence import (
 from scopecat.execution.measurement_computes import (
     execute_measurement_computes,
 )
-from scopecat.execution.measurement_ordering import (
-    CanonicalMeasurementBuffer,
-    CanonicalPointBuffer,
-)
+from scopecat.execution.measurement_ordering import CanonicalPointBuffer
 from scopecat.execution.measurement_recording import (
     ingest_measurement_dataset,
     initialize_measurement_dataset,
@@ -66,10 +63,7 @@ from scopecat.kernel.problems import (
     ProblemPhase,
 )
 from scopecat.kernel.run_outcome import RunOutcome
-from scopecat.measurements.projection import (
-    ProjectedMeasurementDataset,
-    project_measurement_records,
-)
+from scopecat.measurements.projection import project_measurement_records
 from scopecat.measurements.records import ValueRecordCandidate
 from scopecat.measurements.values import (
     MeasurementValueCandidate,
@@ -167,7 +161,7 @@ def _execute_run(
     dataset_header, header_failure, cancelled_without_effects = (
         _prepare_execution_start(program, session)
     )
-    recorded_measurement_count = start_point_count
+    recorded_measurement_count = start_point_count + len(recovered_point_indices)
     record_content_hashes: list[str] = []
     pending_recovery_groups: list[RecoveryGroupCompletion] = []
     recovery_fingerprint = recovery_schedule_fingerprint(
@@ -175,15 +169,11 @@ def _execute_run(
         point_count=len(program.points.points),
     )
     recoverable_group_ids = {group.id for group in program.point_groups}
-    measurement_buffer = CanonicalMeasurementBuffer(
-        next_index=start_point_count,
-        is_durable_cut=program.coverage.is_durable_cut,
-    )
     coverage_buffer = CanonicalPointBuffer(
         next_index=start_point_count,
         is_durable_cut=program.coverage.is_durable_cut,
     )
-    _restore_unrecorded_coverage(
+    _restore_recovered_coverage(
         session,
         coverage_buffer,
         recovered_point_indices,
@@ -225,26 +215,15 @@ def _execute_run(
         )
         if block_problems:
             raise ProblemFailure(block_problems)
-        if not projection.has_dataset:
-            _advance_unrecorded_coverage(
-                session,
-                points,
-                buffer=coverage_buffer,
+        if projection.has_dataset:
+            if dataset_header is None:
+                raise ValueError("projected measurements require a dataset header")
+            ingest_measurement_dataset(projected, measurements, header=dataset_header)
+            recorded_measurement_count += len(projected.records)
+            record_content_hashes.extend(
+                measurement_record_content_hash(record) for record in projected.records
             )
-        else:
-            ready_records = measurement_buffer.add(projected.records)
-            if ready_records:
-                if dataset_header is None:
-                    raise ValueError("projected measurements require a dataset header")
-                ingest_measurement_dataset(
-                    ProjectedMeasurementDataset(projection, run_id, ready_records),
-                    measurements,
-                    header=dataset_header,
-                )
-                recorded_measurement_count += len(ready_records)
-                record_content_hashes.extend(
-                    measurement_record_content_hash(record) for record in ready_records
-                )
+        _advance_coverage(session, points, buffer=coverage_buffer)
         records_by_point = {
             point.ordinal: tuple(
                 record
@@ -260,8 +239,6 @@ def _execute_run(
             points=points,
             records_by_point=records_by_point,
             has_dataset=projection.has_dataset,
-            canonical_point_count=coverage_buffer.next_index,
-            session=session,
             pending=pending_recovery_groups,
         )
         point_state.add_observations(
@@ -320,10 +297,6 @@ def _execute_run(
         )
         if coverage_failure is not None:
             raise coverage_failure
-        _validate_measurement_completion(
-            measurement_buffer,
-            successful=not problems,
-        )
         _validate_point_completion(
             coverage_buffer,
             successful=not problems,
@@ -332,8 +305,7 @@ def _execute_run(
             seal_receipt = seal_measurement_dataset(
                 run_id=run_id,
                 header=dataset_header,
-                fragment_start_index=start_point_count,
-                point_count=recorded_measurement_count,
+                record_count=recorded_measurement_count,
                 record_content_hashes=tuple(record_content_hashes),
                 writer=measurements,
             )
@@ -487,13 +459,9 @@ def _validate_recovery_groups(
         if any(before_prefix) and not all(before_prefix):
             raise ValueError("durable point coverage splits a recovery group")
         if program.measurements.has_dataset:
-            if completion.output_kind != "canonical_measurement":
+            if completion.output_kind != "measurement":
                 raise ValueError(
                     "measurement run recovery group lacks measurement output proof"
-                )
-            if not all(before_prefix):
-                raise ValueError(
-                    "sparse measurement recovery requires durable staging hydration"
                 )
         elif completion.output_kind != "unrecorded":
             raise ValueError(
@@ -506,7 +474,7 @@ def _validate_recovery_groups(
     return frozenset(completed_ids), tuple(recovered_indices)
 
 
-def _restore_unrecorded_coverage(
+def _restore_recovered_coverage(
     session: ExecutionSession,
     buffer: CanonicalPointBuffer,
     point_indices: tuple[int, ...],
@@ -522,7 +490,7 @@ def _restore_unrecorded_coverage(
         )
 
 
-def _advance_unrecorded_coverage(
+def _advance_coverage(
     session: ExecutionSession,
     points: tuple[AcceptedRunPoint, ...],
     *,
@@ -546,27 +514,12 @@ def _flush_execution_progress(
     has_dataset: bool,
     pending_recovery_groups: list[RecoveryGroupCompletion] | None = None,
 ) -> tuple[MeasurementDatasetReceipt, ...]:
-    if session.coverage is not None:
-        session.coverage.flush()
     receipts = session.measurements.flush() if has_dataset else ()
     if pending_recovery_groups and session.recovery_groups is not None:
-        completed_point_count = session.durable_completed_point_count()
-        publishable = tuple(
-            group
-            for group in pending_recovery_groups
-            if all(
-                point_index < completed_point_count
-                for point_index in group.point_indices
-            )
-        )
-        if publishable:
-            session.recovery_groups.commit(publishable)
-            published_ids = {group.group_id for group in publishable}
-            pending_recovery_groups[:] = [
-                group
-                for group in pending_recovery_groups
-                if group.group_id not in published_ids
-            ]
+        session.recovery_groups.commit(tuple(pending_recovery_groups))
+        pending_recovery_groups.clear()
+    if session.coverage is not None:
+        session.coverage.flush()
     return receipts
 
 
@@ -588,8 +541,6 @@ def _record_completed_recovery_group(
     points: tuple[AcceptedRunPoint, ...],
     records_by_point: dict[int, tuple[MeasurementRecord, ...]],
     has_dataset: bool,
-    canonical_point_count: int,
-    session: ExecutionSession,
     pending: list[RecoveryGroupCompletion],
 ) -> None:
     if group_id is None or group_id not in recoverable_group_ids:
@@ -598,7 +549,7 @@ def _record_completed_recovery_group(
         schedule_fingerprint=recovery_fingerprint,
         group_id=group_id,
         point_indices=tuple(point.ordinal for point in points),
-        output_kind="canonical_measurement" if has_dataset else "unrecorded",
+        output_kind="measurement" if has_dataset else "unrecorded",
         record_content_hashes=(
             tuple(
                 measurement_record_content_hash(
@@ -610,10 +561,6 @@ def _record_completed_recovery_group(
             else ()
         ),
     )
-    prefix_backed = all(point.ordinal < canonical_point_count for point in points)
-    if not has_dataset and not prefix_backed and session.recovery_groups is not None:
-        session.recovery_groups.commit((completion,))
-        return
     pending.append(completion)
 
 
@@ -623,17 +570,6 @@ def _raise_terminal_run_error(run_id: str, outcome: RunOutcome) -> None:
     if outcome.result == "cancelled":
         raise RunCancelled(run_id=run_id, outcome=outcome)
     raise RunFailed(run_id=run_id, outcome=outcome)
-
-
-def _validate_measurement_completion(
-    buffer: CanonicalMeasurementBuffer,
-    *,
-    successful: bool,
-) -> None:
-    if successful and buffer.pending_indices:
-        raise AssertionError(
-            "successful coverage left non-contiguous measurement records"
-        )
 
 
 def _validate_point_completion(

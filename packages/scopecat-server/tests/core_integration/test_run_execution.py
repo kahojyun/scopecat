@@ -85,7 +85,7 @@ class _TwoDomainOptimizer:
             SQLiteMeasurementDatasetRepository(
                 sqlite_run_repository(self.project_root),
                 run_id=run_id,
-            ).measurement_record_count()
+            ).acquisition_record_count()
         )
         if context.region.completed_point_count >= 5:
             return OptimizationComplete("two adaptive domains completed")

@@ -20,7 +20,7 @@ import { requestPath } from "../../test/http";
 import type { ContentEntry } from "../../types";
 
 const liveMeasurementFixture = readFileSync(
-  new URL("./test-fixtures/measurement-append-v10.arrow", import.meta.url),
+  new URL("./test-fixtures/measurement-append-v11.arrow", import.meta.url),
 );
 
 afterEach(() => {

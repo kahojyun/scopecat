@@ -880,7 +880,7 @@ class RunService:
         append = MeasurementDatasetAppend(
             run_id=run_id,
             header_content_hash=header.content_hash,
-            start_index=latest.point_index,
+            acquisition_start=preview.received_record_count - 1,
             records=(latest,),
         )
         return preview, encode_measurement_append(

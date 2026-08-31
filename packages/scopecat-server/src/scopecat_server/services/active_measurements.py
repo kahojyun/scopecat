@@ -12,7 +12,7 @@ from scopecat.records.measurement import (
     MeasurementRecord,
 )
 from scopecat.records.measurement_recording import (
-    MeasurementDatasetBatch,
+    MeasurementDatasetAppend,
     MeasurementDatasetHeader,
 )
 
@@ -54,7 +54,7 @@ class ActiveMeasurementStore:
         header: MeasurementDatasetHeader,
         *,
         segment_id: str,
-        start_index: int,
+        acquisition_start: int,
     ) -> None:
         with self._lock:
             current = self._datasets.get(header.run_id)
@@ -62,8 +62,8 @@ class ActiveMeasurementStore:
                 self._datasets[header.run_id] = _ActiveMeasurementDataset(
                     segment_id=segment_id,
                     header=header,
-                    received_record_count=start_index,
-                    durable_record_count=start_index,
+                    received_record_count=acquisition_start,
+                    durable_record_count=acquisition_start,
                 )
                 return
             if current.header.content_hash != header.content_hash:
@@ -71,16 +71,16 @@ class ActiveMeasurementStore:
                     "active measurement header already has different content"
                 )
 
-    def ingest(self, batch: MeasurementDatasetBatch) -> None:
+    def ingest(self, batch: MeasurementDatasetAppend) -> None:
         with self._lock:
             active = self._require(batch.run_id)
             if batch.header_content_hash != active.header.content_hash:
                 raise ActiveMeasurementConflict(
                     "measurement ingest references a different active header"
                 )
-            if batch.start_index != active.received_record_count:
+            if batch.acquisition_start != active.received_record_count:
                 raise ActiveMeasurementConflict(
-                    "measurement ingest is not the next contiguous live range"
+                    "measurement ingest is not the next acquisition-log range"
                 )
             active.pending.extend(batch.records)
             active.pending_value_bytes += sum(

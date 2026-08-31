@@ -108,7 +108,7 @@ def test_static_run_resumes_end_to_end_after_daemon_restart(
 
         assert run_id is not None
         coverage = first_runtime.application.executor.run_coverage(run_id)
-        assert coverage.completed_point_count == 1
+        assert coverage.completed_point_count == 0
 
     assert run_id is not None
     with (
@@ -121,7 +121,7 @@ def test_static_run_resumes_end_to_end_after_daemon_restart(
             run_id
         ).items
         assert interrupted_segment.start_point_count == 0
-        assert interrupted_segment.end_point_count == 1
+        assert interrupted_segment.end_point_count == 0
         assert interrupted_segment.result == "interrupted"
 
         resumed = LabClient(_daemon_client(_send_through(transport))).resume(
@@ -137,8 +137,8 @@ def test_static_run_resumes_end_to_end_after_daemon_restart(
             (segment.ordinal, segment.start_point_count, segment.end_point_count)
             for segment in segments
         ] == [
-            (1, 1, 3),
-            (0, 0, 1),
+            (1, 0, 3),
+            (0, 0, 0),
         ]
         assert [segment.result for segment in segments] == ["succeeded", "interrupted"]
 
@@ -150,12 +150,12 @@ def test_static_run_resumes_end_to_end_after_daemon_restart(
             segments[1].segment_id,
             segments[0].segment_id,
         ]
-        assert [fragment.start_index for fragment in fragments] == [0, 1]
-        assert [fragment.record_count for fragment in fragments] == [1, 2]
+        assert [fragment.acquisition_start for fragment in fragments] == [0, 1]
+        assert [fragment.record_count for fragment in fragments] == [1, 3]
         dataset = resumed.content("dataset", RAW_MEASUREMENTS_DATASET_ID)
         assert fragments[-1].dataset_content_hash == dataset.content_hash
 
-    assert [len(driver.collect_requests) for driver in provider.drivers] == [1, 2]
+    assert [len(driver.collect_requests) for driver in provider.drivers] == [1, 3]
 
 
 def _runtime(

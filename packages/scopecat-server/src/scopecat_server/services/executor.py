@@ -508,7 +508,7 @@ class ExecutorService:
             self._active_measurements.initialize(
                 command.header,
                 segment_id=lease.segment_id,
-                start_index=fragment.start_index,
+                acquisition_start=fragment.acquisition_start,
             )
         except ActiveMeasurementConflict as error:
             raise BackendConflict(str(error)) from error
@@ -563,7 +563,6 @@ class ExecutorService:
         force: bool,
     ) -> tuple[MeasurementDatasetReceipt, ...]:
         repository = self._measurement_repository(run_id)
-        coverage = SQLiteRunCoverage(self._runs, run_id=run_id)
         segment_id = self._active_measurements.segment_id(run_id)
         receipts: list[MeasurementDatasetReceipt] = []
         while records := self._active_measurements.next_chunk(run_id, force=force):
@@ -572,7 +571,9 @@ class ExecutorService:
                 header_content_hash=self._active_measurements.header_content_hash(
                     run_id
                 ),
-                start_index=self._active_measurements.durable_record_count(run_id),
+                acquisition_start=self._active_measurements.durable_record_count(
+                    run_id
+                ),
                 records=records,
             )
             try:
@@ -586,11 +587,6 @@ class ExecutorService:
                     connection,
                     prepared,
                     segment_id=segment_id,
-                )
-                coverage.advance_in_transaction(
-                    connection,
-                    start_index=append.start_index,
-                    point_count=len(append.records),
                 )
                 if created:
                     self.append_effect_event_in_transaction(

@@ -213,7 +213,6 @@ from scopecat.records.instrument import (
 from scopecat.records.measurement import MeasurementDatasetSchema
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
-    MeasurementDatasetBatch,
     MeasurementDatasetReceipt,
 )
 from scopecat.records.run import RunSnapshot
@@ -1878,15 +1877,9 @@ class DaemonClient:
         run_id: str,
         *,
         lease_id: str,
-        batch: MeasurementDatasetBatch,
+        append: MeasurementDatasetAppend,
         dataset_schema: MeasurementDatasetSchema,
     ) -> MeasurementIngestReceipt:
-        append = MeasurementDatasetAppend(
-            run_id=batch.run_id,
-            header_content_hash=batch.header_content_hash,
-            start_index=batch.start_index,
-            records=batch.records,
-        )
         response = self._request(
             "POST",
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/measurements/ingest",

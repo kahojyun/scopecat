@@ -38,10 +38,7 @@ from scopecat.records.config import (
     instrument_bindings,
 )
 from scopecat.records.execution import InstrumentStateEvidence, RecoveryGroupCompletion
-from scopecat.records.measurement_recording import (
-    MeasurementDatasetAppend,
-    MeasurementDatasetHeader,
-)
+from scopecat.records.measurement_recording import MeasurementDatasetHeader
 from scopecat.records.run import RunSnapshot
 from scopecat.runs.repository import TerminalRunCommit
 from scopecat.runs.service import load_run_request
@@ -118,6 +115,37 @@ class _UnusedOptimizer:
     def propose(self, context: DomainOptimizerContext) -> OptimizationComplete:
         del context
         raise AssertionError("unsupported continuation must fail before optimization")
+
+
+class _MemoryCoverage:
+    def __init__(self, completed: int = 0) -> None:
+        self.completed = completed
+        self._pending: list[tuple[int, int]] = []
+
+    def advance(self, *, start_index: int, point_count: int) -> None:
+        expected_start = self.completed + sum(
+            pending_count for _, pending_count in self._pending
+        )
+        assert start_index == expected_start
+        self._pending.append((start_index, point_count))
+
+    def flush(self) -> None:
+        self.completed += sum(point_count for _, point_count in self._pending)
+        self._pending.clear()
+
+
+class _MemoryRecoveryGroups:
+    def __init__(
+        self,
+        completed: tuple[RecoveryGroupCompletion, ...] = (),
+    ) -> None:
+        self.committed = list(completed)
+
+    def commit(self, groups: tuple[RecoveryGroupCompletion, ...]) -> None:
+        self.committed.extend(groups)
+
+    def completed(self) -> tuple[RecoveryGroupCompletion, ...]:
+        return tuple(self.committed)
 
 
 def test_plan_admit_and_execute_are_separate_run_phases(tmp_path: Path) -> None:
@@ -213,6 +241,8 @@ def test_static_execution_continues_only_the_durable_point_suffix(
         repository=services.runs,
     )
     baseline_measurements = FakeMeasurementDatasetRepository()
+    baseline_coverage = _MemoryCoverage()
+    baseline_recovery = _MemoryRecoveryGroups()
     execute_admitted_run(
         program=planned.program,
         session=replace(
@@ -222,6 +252,10 @@ def test_static_execution_continues_only_the_durable_point_suffix(
                 instruments=instruments(),
             ),
             measurements=baseline_measurements,
+            coverage=baseline_coverage,
+            recovery_groups=baseline_recovery,
+            durable_completed_point_count=lambda: baseline_coverage.completed,
+            durable_recovery_groups=baseline_recovery.completed,
         ),
     )
     baseline_records = baseline_measurements.measurements()
@@ -246,14 +280,9 @@ def test_static_execution_continues_only_the_durable_point_suffix(
     continued_measurements = FakeMeasurementDatasetRepository()
     continued_measurements.initialize(header)
     first_record = baseline_records[0].model_copy(update={"run_id": accepted.run_id})
-    continued_measurements.append(
-        MeasurementDatasetAppend(
-            run_id=accepted.run_id,
-            header_content_hash=header.content_hash,
-            start_index=0,
-            records=(first_record,),
-        )
-    )
+    continued_measurements.seed_prior_records((first_record,))
+    continued_coverage = _MemoryCoverage(completed=1)
+    continued_recovery = _MemoryRecoveryGroups()
 
     completed = execute_admitted_run(
         program=planned.program,
@@ -264,7 +293,10 @@ def test_static_execution_continues_only_the_durable_point_suffix(
                 instruments=instruments(),
             ),
             measurements=continued_measurements,
-            durable_completed_point_count=lambda: 1,
+            coverage=continued_coverage,
+            recovery_groups=continued_recovery,
+            durable_completed_point_count=lambda: continued_coverage.completed,
+            durable_recovery_groups=continued_recovery.completed,
         ),
     )
 
@@ -429,7 +461,7 @@ def test_sparse_unrecorded_recovery_skips_exact_completed_group(
     assert [group.group_id for group in recovery.committed] == ["comparison:b"]
 
 
-def test_execution_publishes_measurements_only_at_logical_block_cuts(
+def test_execution_retains_measurements_before_logical_block_cuts(
     tmp_path: Path,
 ) -> None:
     class _InjectedInterruption(BaseException):
@@ -479,6 +511,8 @@ def test_execution_publishes_measurements_only_at_logical_block_cuts(
         repository=services.runs,
     )
     interrupted_measurements = FakeMeasurementDatasetRepository()
+    interrupted_coverage = _MemoryCoverage()
+    interrupted_recovery = _MemoryRecoveryGroups()
     with pytest.raises(_InjectedInterruption):
         execute_admitted_run(
             program=replace(
@@ -492,11 +526,17 @@ def test_execution_publishes_measurements_only_at_logical_block_cuts(
                     instruments=instruments(),
                 ),
                 measurements=interrupted_measurements,
+                coverage=interrupted_coverage,
+                recovery_groups=interrupted_recovery,
+                durable_completed_point_count=lambda: interrupted_coverage.completed,
+                durable_recovery_groups=interrupted_recovery.completed,
             ),
         )
 
-    assert interrupted_measurements.appends == ()
-    assert interrupted_measurements.measurements() == ()
+    assert [
+        record.point_index for record in interrupted_measurements.measurements()
+    ] == [0]
+    assert interrupted_coverage.completed == 0
 
     completed = admit_test_run(
         config=planned.config,
@@ -504,6 +544,8 @@ def test_execution_publishes_measurements_only_at_logical_block_cuts(
         repository=services.runs,
     )
     completed_measurements = FakeMeasurementDatasetRepository()
+    completed_coverage = _MemoryCoverage()
+    completed_recovery = _MemoryRecoveryGroups()
     snapshot = execute_admitted_run(
         program=replace(
             planned.program,
@@ -516,14 +558,19 @@ def test_execution_publishes_measurements_only_at_logical_block_cuts(
                 instruments=instruments(),
             ),
             measurements=completed_measurements,
+            coverage=completed_coverage,
+            recovery_groups=completed_recovery,
+            durable_completed_point_count=lambda: completed_coverage.completed,
+            durable_recovery_groups=completed_recovery.completed,
         ),
     )
 
     assert snapshot.status == "completed"
-    assert [
-        [record.point_index for record in append.records]
-        for append in completed_measurements.appends
-    ] == [[0, 1, 2]]
+    assert [record.point_index for record in completed_measurements.measurements()] == [
+        0,
+        1,
+        2,
+    ]
 
 
 def test_non_static_continuation_fails_before_acquiring_instruments(

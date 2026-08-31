@@ -782,7 +782,7 @@ def test_recovery_group_wire_models_preserve_output_proof() -> None:
         schedule_fingerprint="schedule-v1",
         group_id="comparison:0",
         point_indices=(2, 0),
-        output_kind="canonical_measurement",
+        output_kind="measurement",
         record_content_hashes=("record-2", "record-0"),
     )
     command = RunRecoveryGroupCommitCommand(
@@ -814,7 +814,7 @@ def test_recovery_group_wire_models_preserve_output_proof() -> None:
             schedule_fingerprint="schedule-v1",
             group_id="comparison:0",
             point_indices=(2, 0),
-            output_kind="canonical_measurement",
+            output_kind="measurement",
             record_content_hashes=("record-2",),
         )
 

@@ -17,7 +17,7 @@ OUTPUT = (
     / "features"
     / "runs"
     / "test-fixtures"
-    / "measurement-append-v10.arrow"
+    / "measurement-append-v11.arrow"
 )
 
 

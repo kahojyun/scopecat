@@ -62,6 +62,7 @@ from scopecat.records.measurement import (
     MeasurementRecord,
 )
 from scopecat.records.measurement_recording import (
+    MeasurementDatasetAppend,
     MeasurementDatasetBatch,
     MeasurementDatasetHeader,
     MeasurementDatasetReceipt,
@@ -581,6 +582,7 @@ class _DaemonMeasurementRepository:
         self._last_send_at: float | None = None
         self._header_content_hash: str | None = None
         self._dataset_schema: MeasurementDatasetSchema | None = None
+        self._next_acquisition_index: int | None = None
 
     def initialize(
         self,
@@ -596,6 +598,7 @@ class _DaemonMeasurementRepository:
         )
         self._header_content_hash = header.content_hash
         self._dataset_schema = header.dataset_schema
+        self._next_acquisition_index = receipt.acquisition_record_count
         return receipt
 
     def ingest(
@@ -630,19 +633,26 @@ class _DaemonMeasurementRepository:
         dataset_schema = self._dataset_schema
         if dataset_schema is None:
             raise RuntimeError("measurement transport requires an initialized schema")
-        batch = MeasurementDatasetBatch(
+        acquisition_start = self._next_acquisition_index
+        if acquisition_start is None:
+            raise RuntimeError("measurement transport requires initialized ordering")
+        append = MeasurementDatasetAppend(
             run_id=self._authority.run_id,
             header_content_hash=header_content_hash,
-            start_index=records[0].point_index,
+            acquisition_start=acquisition_start,
             records=records,
         )
         lease_id = self._authority.fence()
         receipt = self._authority.client.ingest_measurements(
             self._authority.run_id,
             lease_id=lease_id,
-            batch=batch,
+            append=append,
             dataset_schema=dataset_schema,
         )
+        expected_count = acquisition_start + len(records)
+        if receipt.received_record_count != expected_count:
+            raise ValueError("measurement ingest did not extend acquisition order")
+        self._next_acquisition_index = expected_count
         self._pending.clear()
         self._pending_value_bytes = 0
         self._last_send_at = monotonic() if now is None else now

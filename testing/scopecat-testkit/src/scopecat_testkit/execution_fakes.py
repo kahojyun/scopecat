@@ -11,6 +11,7 @@ from scopecat.records.measurement_recording import (
     MeasurementDatasetSeal,
     measurement_dataset_content_hash,
     measurement_fragment_content_hash,
+    measurement_record_content_hash,
 )
 
 
@@ -19,6 +20,7 @@ class FakeMeasurementDatasetRepository:
 
     def __init__(self) -> None:
         self._header: MeasurementDatasetHeader | None = None
+        self._prior_records: tuple[MeasurementRecord, ...] = ()
         self._appends: dict[str, MeasurementDatasetAppend] = {}
         self._seals: dict[str, MeasurementDatasetSeal] = {}
         self._receipts: dict[str, MeasurementDatasetReceipt] = {}
@@ -32,9 +34,16 @@ class FakeMeasurementDatasetRepository:
         return tuple(self._receipts.values())
 
     def measurements(self) -> tuple[MeasurementRecord, ...]:
-        return tuple(
+        return self._prior_records + tuple(
             record for append in self._appends.values() for record in append.records
         )
+
+    def seed_prior_records(self, records: tuple[MeasurementRecord, ...]) -> None:
+        """Seed acquisition records owned by an earlier execution segment."""
+
+        if self._appends or self._seals:
+            raise RuntimeError("prior records must be seeded before current writes")
+        self._prior_records = records
 
     @property
     def header(self) -> MeasurementDatasetHeader | None:
@@ -55,6 +64,7 @@ class FakeMeasurementDatasetRepository:
             self._receipts[durable.operation_id] = MeasurementDatasetReceipt(
                 operation_id=durable.operation_id,
                 dataset_content_hash=durable.content_hash,
+                acquisition_record_count=len(self.measurements()),
             )
         return self._receipts[durable.operation_id]
 
@@ -75,6 +85,9 @@ class FakeMeasurementDatasetRepository:
             self._receipts[durable.operation_id] = MeasurementDatasetReceipt(
                 operation_id=durable.operation_id,
                 dataset_content_hash=durable.content_hash,
+                acquisition_record_count=(
+                    durable.acquisition_start + len(durable.records)
+                ),
             )
         return self._receipts[durable.operation_id]
 
@@ -87,7 +100,7 @@ class FakeMeasurementDatasetRepository:
                 MeasurementDatasetAppend(
                     run_id=batch.run_id,
                     header_content_hash=batch.header_content_hash,
-                    start_index=batch.start_index,
+                    acquisition_start=len(self.measurements()),
                     records=batch.records,
                 )
             ),
@@ -110,24 +123,28 @@ class FakeMeasurementDatasetRepository:
             )
         if existing is None:
             appends = tuple(
-                sorted(self._appends.values(), key=lambda append: append.start_index)
+                sorted(
+                    self._appends.values(),
+                    key=lambda append: append.acquisition_start,
+                )
             )
+            fragment_records = tuple(
+                record for append in appends for record in append.records
+            )
+            records = self._prior_records + fragment_records
             record_hashes = tuple(
-                record_hash
-                for append in appends
-                for record_hash in append.record_content_hashes
+                measurement_record_content_hash(record)
+                for record in sorted(records, key=lambda record: record.point_index)
             )
             fragment_record_hashes = tuple(
-                record_hash
-                for append in appends
-                if append.start_index >= durable.fragment_start_index
-                for record_hash in append.record_content_hashes
+                measurement_record_content_hash(record) for record in fragment_records
             )
-            if sum(len(append.records) for append in appends) != durable.point_count:
+            if len(records) != durable.record_count:
                 raise RuntimeError("measurement dataset seal point count is incomplete")
+            if len(fragment_record_hashes) != durable.fragment_record_count:
+                raise RuntimeError("measurement fragment record count is incomplete")
             if durable.fragment_content_hash != measurement_fragment_content_hash(
                 header_content_hash=durable.header_content_hash,
-                start_index=durable.fragment_start_index,
                 record_content_hashes=fragment_record_hashes,
             ):
                 raise RuntimeError("measurement fragment seal changed content")
@@ -138,5 +155,6 @@ class FakeMeasurementDatasetRepository:
                     header_content_hash=durable.header_content_hash,
                     record_content_hashes=record_hashes,
                 ),
+                acquisition_record_count=len(records),
             )
         return self._receipts[durable.operation_id]

@@ -116,7 +116,7 @@ def _append() -> MeasurementDatasetAppend:
     return MeasurementDatasetAppend(
         run_id=run_id,
         header_content_hash="header-hash",
-        start_index=0,
+        acquisition_start=0,
         records=(record,),
     )
 
@@ -277,7 +277,7 @@ def test_megawaveform_binary_round_trip_meets_live_transport_budget(
     append = MeasurementDatasetAppend(
         run_id="run-live-waveform",
         header_content_hash="header-hash",
-        start_index=0,
+        acquisition_start=0,
         records=(
             MeasurementRecord(
                 run_id="run-live-waveform",

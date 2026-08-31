@@ -79,6 +79,7 @@ from scopecat.daemon.wire import (
     MeasurementFlushCommand,
     MeasurementHeaderCommand,
     MeasurementSealCommand,
+    RunCoverageAdvanceCommand,
     RunSubmission,
     SampleCreateCommand,
     TerminalRunCommitCommand,
@@ -261,7 +262,7 @@ def _complete_signal_run(
     append = MeasurementDatasetAppend(
         run_id=run_id,
         header_content_hash=header.content_hash,
-        start_index=0,
+        acquisition_start=0,
         records=(record,),
     )
     runtime.application.executor.initialize_measurements(
@@ -277,6 +278,14 @@ def _complete_signal_run(
         run_id,
         MeasurementFlushCommand(lease_id=lease.lease_id),
     )
+    runtime.application.executor.advance_run_coverage(
+        run_id,
+        RunCoverageAdvanceCommand(
+            lease_id=lease.lease_id,
+            start_index=0,
+            point_count=1,
+        ),
+    )
     runtime.application.executor.seal_measurements(
         run_id,
         MeasurementSealCommand(
@@ -284,11 +293,10 @@ def _complete_signal_run(
             seal=MeasurementDatasetSeal(
                 run_id=run_id,
                 header_content_hash=header.content_hash,
-                fragment_start_index=0,
-                point_count=1,
+                record_count=1,
+                fragment_record_count=1,
                 fragment_content_hash=measurement_fragment_content_hash(
                     header_content_hash=header.content_hash,
-                    start_index=0,
                     record_content_hashes=append.record_content_hashes,
                 ),
             ),

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from bisect import bisect_left
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -230,7 +229,10 @@ class SQLiteRecoveryGroups:
                 accepted.append(view)
                 continue
 
-            self._validate_output_in_transaction(connection, group)
+            acquisition_indices = self._validate_output_in_transaction(
+                connection,
+                group,
+            )
             try:
                 cursor = connection.execute(
                     """
@@ -274,6 +276,39 @@ class SQLiteRecoveryGroups:
                         for member_index, point_index in enumerate(group.point_indices)
                     ),
                 )
+                if acquisition_indices:
+                    projection_start = _measurement_projected_record_count(
+                        connection,
+                        self._run_id,
+                    )
+                    connection.executemany(
+                        """
+                        INSERT INTO execution_measurement_projection(
+                            run_id, point_index, projection_index,
+                            acquisition_index, group_id
+                        )
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        tuple(
+                            (
+                                self._run_id,
+                                point_index,
+                                projection_start + member_index,
+                                acquisition_index,
+                                group.group_id,
+                            )
+                            for member_index, (
+                                point_index,
+                                acquisition_index,
+                            ) in enumerate(
+                                zip(
+                                    group.point_indices,
+                                    acquisition_indices,
+                                    strict=True,
+                                )
+                            )
+                        ),
+                    )
             except sqlite3.IntegrityError as error:
                 raise ExecutionStateConflict(
                     "recovery group conflicts with durable group identity or points"
@@ -298,53 +333,43 @@ class SQLiteRecoveryGroups:
         self,
         connection: sqlite3.Connection,
         group: RecoveryGroupCompletion,
-    ) -> None:
+    ) -> tuple[int, ...]:
         header = _measurement_header_row(connection, self._run_id)
         if group.output_kind == "unrecorded":
             if header is not None:
                 raise ExecutionStateConflict(
                     "unrecorded recovery group belongs to a measurement run"
                 )
-            return
+            return ()
         if header is None:
             raise ExecutionStateConflict(
                 "measurement recovery group requires a dataset header"
             )
-        record_hashes: dict[int, str] = {}
-        rows = _all(
-            connection.execute(
-                """
-                SELECT start_index, record_count, record_content_hashes_json
-                FROM execution_measurement_appends
-                WHERE run_id = ?
-                ORDER BY start_index
-                """,
-                (self._run_id,),
-            )
-        )
-        for row in rows:
-            start_index = _integer(row, "start_index")
-            hashes = _string_tuple(row, "record_content_hashes_json")
-            if len(hashes) != _integer(row, "record_count"):
-                raise ExecutionStateError(
-                    "measurement append record hashes are inconsistent"
+        selected: list[int] = []
+        for point_index, content_hash in zip(
+            group.point_indices,
+            group.record_content_hashes,
+            strict=True,
+        ):
+            row = _one(
+                connection.execute(
+                    """
+                    SELECT acquisition_index
+                    FROM execution_measurement_records
+                    WHERE run_id = ? AND point_index = ?
+                      AND record_content_hash = ?
+                    ORDER BY acquisition_index DESC
+                    LIMIT 1
+                    """,
+                    (self._run_id, point_index, content_hash),
                 )
-            record_hashes.update(
-                (start_index + offset, content_hash)
-                for offset, content_hash in enumerate(hashes)
             )
-        try:
-            durable_hashes = tuple(
-                record_hashes[point_index] for point_index in group.point_indices
-            )
-        except KeyError as error:
-            raise ExecutionStateConflict(
-                "recovery group measurements are not durably published"
-            ) from error
-        if durable_hashes != group.record_content_hashes:
-            raise ExecutionStateConflict(
-                "recovery group measurement hashes disagree with durable records"
-            )
+            if row is None:
+                raise ExecutionStateConflict(
+                    "recovery group measurements are not durably acquired"
+                )
+            selected.append(_integer(row, "acquisition_index"))
+        return tuple(selected)
 
     def _view_in_transaction(
         self,
@@ -363,7 +388,7 @@ class SQLiteRecoveryGroups:
             )
         )
         output_kind = cast(
-            "Literal['unrecorded', 'canonical_measurement']",
+            "Literal['unrecorded', 'measurement']",
             _text(row, "output_kind"),
         )
         completion = RecoveryGroupCompletion(
@@ -1349,7 +1374,17 @@ class SQLiteMeasurementDatasetRepository:
                 header_content_hash=durable.content_hash,
             )
             self._remember_measurement_schema(durable.dataset_schema)
-            return _header_receipt(durable), header_created, fragment_created
+            return (
+                _header_receipt(
+                    durable,
+                    acquisition_record_count=_measurement_record_count(
+                        connection,
+                        self._run_id,
+                    ),
+                ),
+                header_created,
+                fragment_created,
+            )
         except ExecutionStateError:
             raise
         except Exception as error:
@@ -1372,7 +1407,7 @@ class SQLiteMeasurementDatasetRepository:
             )
         ref = (
             f"{CANONICAL_MEASUREMENT_DATASET_REF}/chunks/"
-            f"{durable.start_index:020d}.arrow"
+            f"{durable.acquisition_start:020d}.arrow"
         )
         schema_assets = (
             self._remember_measurement_schema(dataset_schema)
@@ -1412,9 +1447,9 @@ class SQLiteMeasurementDatasetRepository:
                     """
                     SELECT segment_id, operation_id, content_hash, ref
                     FROM execution_measurement_appends
-                    WHERE run_id = ? AND start_index = ?
+                    WHERE run_id = ? AND acquisition_start = ?
                     """,
-                    (self._run_id, durable.start_index),
+                    (self._run_id, durable.acquisition_start),
                 )
             )
             if existing is not None:
@@ -1430,6 +1465,9 @@ class SQLiteMeasurementDatasetRepository:
                     MeasurementDatasetReceipt(
                         operation_id=_text(existing, "operation_id"),
                         dataset_content_hash=_text(existing, "content_hash"),
+                        acquisition_record_count=(
+                            durable.acquisition_start + len(durable.records)
+                        ),
                     ),
                     False,
                 )
@@ -1450,21 +1488,22 @@ class SQLiteMeasurementDatasetRepository:
                     "measurement dataset append references a different header"
                 )
             record_count = _measurement_record_count(connection, self._run_id)
-            if durable.start_index != record_count:
+            if durable.acquisition_start != record_count:
                 raise ExecutionStateConflict(
-                    "measurement dataset append is not the next contiguous range"
+                    "measurement append is not the next acquisition-log range"
                 )
-            if record_count + len(durable.records) > _integer(
-                header, "record_count_limit"
+            record_count_limit = _integer(header, "record_count_limit")
+            if any(
+                record.point_index >= record_count_limit for record in durable.records
             ):
                 raise ExecutionStateConflict(
-                    "measurement dataset append exceeds its declared point count"
+                    "measurement append references a point outside its declared limit"
                 )
             _publish_ref(connection, self._run_id, ref, prepared.stored)
             connection.execute(
                 """
                 INSERT INTO execution_measurement_appends(
-                    run_id, segment_id, start_index, operation_id,
+                    run_id, segment_id, acquisition_start, operation_id,
                     content_hash, header_content_hash,
                     record_content_hashes_json, record_count,
                     ref
@@ -1474,13 +1513,33 @@ class SQLiteMeasurementDatasetRepository:
                 (
                     self._run_id,
                     segment_id,
-                    durable.start_index,
+                    durable.acquisition_start,
                     durable.operation_id,
                     durable.content_hash,
                     durable.header_content_hash,
                     json.dumps(durable.record_content_hashes),
                     len(durable.records),
                     ref,
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO execution_measurement_records(
+                    run_id, acquisition_index, acquisition_start,
+                    row_offset, point_index, record_content_hash
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                tuple(
+                    (
+                        self._run_id,
+                        durable.acquisition_start + row_offset,
+                        durable.acquisition_start,
+                        row_offset,
+                        record.point_index,
+                        durable.record_content_hashes[row_offset],
+                    )
+                    for row_offset, record in enumerate(durable.records)
                 ),
             )
             return _append_receipt(durable), True
@@ -1547,6 +1606,10 @@ class SQLiteMeasurementDatasetRepository:
                                 existing,
                                 "dataset_content_hash",
                             ),
+                            acquisition_record_count=_measurement_record_count(
+                                connection,
+                                self._run_id,
+                            ),
                         ),
                         False,
                     )
@@ -1564,21 +1627,23 @@ class SQLiteMeasurementDatasetRepository:
                     raise ExecutionStateConflict(
                         "measurement dataset seal requires its execution fragment"
                     )
-                fragment_start_index = _integer(fragment, "start_index")
-                if durable.fragment_start_index != fragment_start_index:
-                    raise ExecutionStateConflict(
-                        "measurement dataset seal starts outside its fragment"
-                    )
-                if durable.point_count > _integer(header, "record_count_limit"):
+                if durable.record_count > _integer(header, "record_count_limit"):
                     raise ExecutionStateConflict(
                         "measurement dataset seal exceeds its declared point count"
                     )
-                appends = _measurement_rows(connection, self._run_id)
-                if sum(_integer(row, "record_count") for row in appends) != (
-                    durable.point_count
+                _finalize_measurement_projection(
+                    connection,
+                    self._run_id,
+                )
+                if (
+                    _measurement_projected_record_count(
+                        connection,
+                        self._run_id,
+                    )
+                    != durable.record_count
                 ):
                     raise ExecutionStateConflict(
-                        "measurement dataset seal point count is incomplete"
+                        "measurement logical projection is incomplete"
                     )
                 fragment_record_hashes = tuple(
                     record_hash
@@ -1588,24 +1653,42 @@ class SQLiteMeasurementDatasetRepository:
                         json.loads(_text(row, "record_content_hashes_json")),
                     )
                 )
+                if len(fragment_record_hashes) != durable.fragment_record_count:
+                    raise ExecutionStateConflict(
+                        "measurement fragment record count does not match appends"
+                    )
                 actual_fragment_hash = measurement_fragment_content_hash(
                     header_content_hash=durable.header_content_hash,
-                    start_index=fragment_start_index,
                     record_content_hashes=fragment_record_hashes,
                 )
                 if actual_fragment_hash != durable.fragment_content_hash:
                     raise ExecutionStateConflict(
                         "measurement fragment seal content hash does not match appends"
                     )
+                projected_rows = _all(
+                    connection.execute(
+                        """
+                        SELECT projection.point_index, record.record_content_hash
+                        FROM execution_measurement_projection AS projection
+                        JOIN execution_measurement_records AS record
+                          ON record.run_id = projection.run_id
+                         AND record.acquisition_index = projection.acquisition_index
+                        WHERE projection.run_id = ?
+                        ORDER BY projection.point_index
+                        """,
+                        (self._run_id,),
+                    )
+                )
+                if tuple(
+                    _integer(row, "point_index") for row in projected_rows
+                ) != tuple(range(durable.record_count)):
+                    raise ExecutionStateConflict(
+                        "measurement logical projection is not canonical coverage"
+                    )
                 dataset_content_hash = measurement_dataset_content_hash(
                     header_content_hash=durable.header_content_hash,
                     record_content_hashes=tuple(
-                        record_hash
-                        for row in appends
-                        for record_hash in cast(
-                            "list[str]",
-                            json.loads(_text(row, "record_content_hashes_json")),
-                        )
+                        _text(row, "record_content_hash") for row in projected_rows
                     ),
                 )
                 connection.execute(
@@ -1628,6 +1711,10 @@ class SQLiteMeasurementDatasetRepository:
                     MeasurementDatasetReceipt(
                         operation_id=durable.operation_id,
                         dataset_content_hash=dataset_content_hash,
+                        acquisition_record_count=_measurement_record_count(
+                            connection,
+                            self._run_id,
+                        ),
                     ),
                     True,
                 )
@@ -1644,12 +1731,14 @@ class SQLiteMeasurementDatasetRepository:
         self,
     ) -> tuple[MeasurementRecord, ...]:
         try:
-            return tuple(
-                self._runs.read_measurement_records(
-                    self._run_id,
-                    CANONICAL_MEASUREMENT_DATASET_REF,
-                )
+            record_count = self.measurement_record_count()
+            records, _next_offset, _schema, _snapshot = self.measurement_page(
+                limit=max(1, record_count),
+                offset=0,
+                snapshot_size=record_count,
+                include_schema=False,
             )
+            return records
         except Exception as error:
             raise ExecutionStateError(
                 f"failed to read measurement dataset: {error}"
@@ -1667,7 +1756,7 @@ class SQLiteMeasurementDatasetRepository:
                             fragment.segment_id,
                             fragment.run_id,
                             fragment.header_content_hash,
-                            fragment.start_index,
+                            fragment.acquisition_start,
                             seal.dataset_content_hash
                         FROM execution_measurement_fragments AS fragment
                         JOIN run_execution_segments AS segment
@@ -1693,18 +1782,20 @@ class SQLiteMeasurementDatasetRepository:
                             json.loads(_text(row, "record_content_hashes_json")),
                         )
                     )
-                    start_index = _integer(fragment, "start_index")
+                    acquisition_start = _integer(
+                        fragment,
+                        "acquisition_start",
+                    )
                     header_content_hash = _text(fragment, "header_content_hash")
                     result.append(
                         MeasurementDatasetFragment(
                             segment_id=_text(fragment, "segment_id"),
                             run_id=self._run_id,
                             header_content_hash=header_content_hash,
-                            start_index=start_index,
+                            acquisition_start=acquisition_start,
                             record_count=len(record_hashes),
                             fragment_content_hash=measurement_fragment_content_hash(
                                 header_content_hash=header_content_hash,
-                                start_index=start_index,
                                 record_content_hashes=record_hashes,
                             ),
                             dataset_content_hash=(
@@ -1756,23 +1847,20 @@ class SQLiteMeasurementDatasetRepository:
         MeasurementDatasetSchema | None,
         int,
     ]:
-        """Read one record page against an append-stable finite snapshot.
+        """Read one logical-point page against a projection-stable snapshot.
 
-        The first call may select the current append watermark; subsequent
+        The first call selects the current projection watermark; subsequent
         calls pass it back as ``snapshot_size`` so concurrent appends never
-        extend the read. Storage is an ordered sequence of immutable Arrow IPC
-        append blobs. Only blobs intersecting ``[offset, offset + limit)`` are
-        opened, and ``variable_ids`` limits model decoding and transport even
-        though one intersecting blob remains the physical I/O unit.
+        extend the read. Logical rows are ordered by ``point_index`` while the
+        immutable Arrow blobs retain physical acquisition order.
         """
-
-        from scopecat.measurements.recording_arrow import (
-            decode_measurement_record_slice,
-        )
 
         try:
             with self._runs.sqlite.read_connection() as connection:
-                total = _measurement_record_count(connection, self._run_id)
+                total = _measurement_projected_record_count(
+                    connection,
+                    self._run_id,
+                )
                 selected_size = total if snapshot_size is None else snapshot_size
                 if selected_size > total:
                     raise ValueError(
@@ -1780,52 +1868,37 @@ class SQLiteMeasurementDatasetRepository:
                     )
                 if offset > selected_size:
                     raise ValueError("measurement page offset exceeds its snapshot")
-                page_end = min(offset + limit, selected_size)
                 rows = _all(
                     connection.execute(
                         """
-                        SELECT start_index, record_count, ref
-                        FROM execution_measurement_appends
-                        WHERE run_id = ?
-                          AND start_index < ?
-                          AND start_index + record_count > ?
-                        ORDER BY start_index
+                        SELECT projection.point_index,
+                               projection.acquisition_index,
+                               record.row_offset,
+                               append.acquisition_start,
+                               append.ref
+                        FROM execution_measurement_projection AS projection
+                        JOIN execution_measurement_records AS record
+                          ON record.run_id = projection.run_id
+                         AND record.acquisition_index = projection.acquisition_index
+                        JOIN execution_measurement_appends AS append
+                          ON append.run_id = record.run_id
+                         AND append.acquisition_start = record.acquisition_start
+                        WHERE projection.run_id = ?
+                          AND projection.projection_index < ?
+                        ORDER BY projection.point_index
+                        LIMIT ? OFFSET ?
                         """,
-                        (self._run_id, page_end, offset),
+                        (self._run_id, selected_size, limit, offset),
                     )
                 )
-            schema_assets = self._measurement_schema_assets()
-            if schema_assets is None:
-                return (), None, None, selected_size
-            dataset_schema, dataset_schema_hash = schema_assets
-            items: list[MeasurementRecord] = []
-            for row in rows:
-                start_index = _integer(row, "start_index")
-                chunk_start = max(0, offset - start_index)
-                chunk_end = min(
-                    _integer(row, "record_count"),
-                    page_end - start_index,
-                )
-                items.extend(
-                    decode_measurement_record_slice(
-                        self._runs.read_bytes(
-                            self._run_id,
-                            _text(row, "ref"),
-                        ),
-                        dataset_schema,
-                        offset=chunk_start,
-                        length=chunk_end - chunk_start,
-                        variable_ids=variable_ids,
-                        dataset_schema_hash=dataset_schema_hash,
-                    )
-                )
+            items = self._records_from_locations(rows, variable_ids=variable_ids)
             next_offset = (
                 offset + len(items) if offset + len(items) < selected_size else None
             )
             return (
-                tuple(items),
+                items,
                 next_offset,
-                dataset_schema if include_schema else None,
+                self.measurement_schema() if include_schema else None,
                 selected_size,
             )
         except Exception as error:
@@ -1838,10 +1911,21 @@ class SQLiteMeasurementDatasetRepository:
 
         try:
             with self._runs.sqlite.read_connection() as connection:
-                return _measurement_record_count(connection, self._run_id)
+                return _measurement_projected_record_count(connection, self._run_id)
         except Exception as error:
             raise ExecutionStateError(
                 f"failed to read measurement dataset size: {error}"
+            ) from error
+
+    def acquisition_record_count(self) -> int:
+        """Read physical acquisition-log rows, including retries and orphans."""
+
+        try:
+            with self._runs.sqlite.read_connection() as connection:
+                return _measurement_record_count(connection, self._run_id)
+        except Exception as error:
+            raise ExecutionStateError(
+                f"failed to read measurement acquisition-log size: {error}"
             ) from error
 
     def measurement_records_at(
@@ -1850,11 +1934,7 @@ class SQLiteMeasurementDatasetRepository:
         *,
         variable_ids: Sequence[str] | None = None,
     ) -> tuple[MeasurementRecord, ...]:
-        """Read selected point indices from intersecting Arrow record batches."""
-
-        from scopecat.measurements.recording_arrow import (
-            decode_measurement_record_indices,
-        )
+        """Read selected logical points from their acquired Arrow rows."""
 
         selected = tuple(sorted(set(point_indices)))
         if not selected:
@@ -1864,42 +1944,29 @@ class SQLiteMeasurementDatasetRepository:
                 rows = _all(
                     connection.execute(
                         """
-                        SELECT start_index, record_count, ref
-                        FROM execution_measurement_appends
-                        WHERE run_id = ?
-                          AND start_index < ?
-                          AND start_index + record_count > ?
-                        ORDER BY start_index
+                        SELECT projection.point_index,
+                               projection.acquisition_index,
+                               record.row_offset,
+                               append.acquisition_start,
+                               append.ref
+                        FROM execution_measurement_projection AS projection
+                        JOIN execution_measurement_records AS record
+                          ON record.run_id = projection.run_id
+                         AND record.acquisition_index = projection.acquisition_index
+                        JOIN execution_measurement_appends AS append
+                          ON append.run_id = record.run_id
+                         AND append.acquisition_start = record.acquisition_start
+                        WHERE projection.run_id = ?
+                          AND projection.point_index IN (
+                              SELECT value FROM json_each(?)
+                          )
+                        ORDER BY projection.point_index
                         """,
-                        (self._run_id, selected[-1] + 1, selected[0]),
+                        (self._run_id, json.dumps(selected)),
                     )
                 )
-            schema_assets = self._measurement_schema_assets()
-            if schema_assets is None:
-                return ()
-            dataset_schema, dataset_schema_hash = schema_assets
-            records_by_index: dict[int, MeasurementRecord] = {}
-            for row in rows:
-                start = _integer(row, "start_index")
-                end = start + _integer(row, "record_count")
-                first = bisect_left(selected, start)
-                last = bisect_left(selected, end)
-                if first == last:
-                    continue
-                local_indices = tuple(
-                    point_index - start for point_index in selected[first:last]
-                )
-                records = decode_measurement_record_indices(
-                    self._runs.read_bytes(
-                        self._run_id,
-                        _text(row, "ref"),
-                    ),
-                    dataset_schema,
-                    local_indices,
-                    variable_ids=variable_ids,
-                    dataset_schema_hash=dataset_schema_hash,
-                )
-                records_by_index.update(zip(selected[first:last], records, strict=True))
+            records = self._records_from_locations(rows, variable_ids=variable_ids)
+            records_by_index = {record.point_index: record for record in records}
             return tuple(
                 records_by_index[point_index]
                 for point_index in point_indices
@@ -1909,6 +1976,46 @@ class SQLiteMeasurementDatasetRepository:
             raise ExecutionStateError(
                 f"failed to read selected measurement records: {error}"
             ) from error
+
+    def _records_from_locations(
+        self,
+        rows: Sequence[sqlite3.Row],
+        *,
+        variable_ids: Sequence[str] | None,
+    ) -> tuple[MeasurementRecord, ...]:
+        from scopecat.measurements.recording_arrow import (
+            decode_measurement_record_indices,
+        )
+
+        if not rows:
+            return ()
+        schema_assets = self._measurement_schema_assets()
+        if schema_assets is None:
+            return ()
+        dataset_schema, dataset_schema_hash = schema_assets
+        grouped: dict[tuple[int, str], list[sqlite3.Row]] = {}
+        for row in rows:
+            key = (_integer(row, "acquisition_start"), _text(row, "ref"))
+            grouped.setdefault(key, []).append(row)
+        records_by_acquisition: dict[int, MeasurementRecord] = {}
+        for (_acquisition_start, ref), selected_rows in grouped.items():
+            decoded = decode_measurement_record_indices(
+                self._runs.read_bytes(self._run_id, ref),
+                dataset_schema,
+                tuple(_integer(row, "row_offset") for row in selected_rows),
+                variable_ids=variable_ids,
+                dataset_schema_hash=dataset_schema_hash,
+            )
+            records_by_acquisition.update(
+                zip(
+                    (_integer(row, "acquisition_index") for row in selected_rows),
+                    decoded,
+                    strict=True,
+                )
+            )
+        return tuple(
+            records_by_acquisition[_integer(row, "acquisition_index")] for row in rows
+        )
 
     def _measurement_schema_assets(
         self,
@@ -1936,10 +2043,13 @@ class SQLiteMeasurementDatasetRepository:
 
 def _header_receipt(
     header: MeasurementDatasetHeader,
+    *,
+    acquisition_record_count: int,
 ) -> MeasurementDatasetReceipt:
     return MeasurementDatasetReceipt(
         operation_id=header.operation_id,
         dataset_content_hash=header.content_hash,
+        acquisition_record_count=acquisition_record_count,
     )
 
 
@@ -1949,6 +2059,7 @@ def _append_receipt(
     return MeasurementDatasetReceipt(
         operation_id=append.operation_id,
         dataset_content_hash=append.content_hash,
+        acquisition_record_count=(append.acquisition_start + len(append.records)),
     )
 
 
@@ -1979,7 +2090,7 @@ def _measurement_rows(
             """
             SELECT * FROM execution_measurement_appends
             WHERE run_id = ?
-            ORDER BY start_index
+            ORDER BY acquisition_start
             """,
             (run_id,),
         )
@@ -1995,7 +2106,7 @@ def _measurement_fragment_rows(
             """
             SELECT * FROM execution_measurement_appends
             WHERE segment_id = ?
-            ORDER BY start_index
+            ORDER BY acquisition_start
             """,
             (segment_id,),
         )
@@ -2037,7 +2148,7 @@ def _ensure_measurement_fragment(
     segment = _one(
         connection.execute(
             """
-            SELECT run_id, start_point_count
+            SELECT run_id
             FROM run_execution_segments
             WHERE segment_id = ?
             """,
@@ -2048,19 +2159,15 @@ def _ensure_measurement_fragment(
         raise ExecutionStateConflict(
             "measurement fragment requires its execution segment"
         )
-    start_index = _integer(segment, "start_point_count")
-    if start_index != _measurement_record_count(connection, run_id):
-        raise ExecutionStateConflict(
-            "measurement fragment start differs from the durable dataset prefix"
-        )
+    acquisition_start = _measurement_record_count(connection, run_id)
     connection.execute(
         """
         INSERT INTO execution_measurement_fragments(
-            segment_id, run_id, header_content_hash, start_index
+            segment_id, run_id, header_content_hash, acquisition_start
         )
         VALUES (?, ?, ?, ?)
         """,
-        (segment_id, run_id, header_content_hash, start_index),
+        (segment_id, run_id, header_content_hash, acquisition_start),
     )
     return True
 
@@ -2087,15 +2194,83 @@ def _measurement_record_count(
     row = _one(
         connection.execute(
             """
-            SELECT COALESCE(SUM(record_count), 0) AS record_count
+            SELECT acquisition_start, record_count
             FROM execution_measurement_appends
             WHERE run_id = ?
+            ORDER BY acquisition_start DESC
+            LIMIT 1
             """,
             (run_id,),
         )
     )
-    assert row is not None
-    return _integer(row, "record_count")
+    return (
+        0
+        if row is None
+        else _integer(row, "acquisition_start") + _integer(row, "record_count")
+    )
+
+
+def _measurement_projected_record_count(
+    connection: sqlite3.Connection,
+    run_id: str,
+) -> int:
+    row = _one(
+        connection.execute(
+            """
+            SELECT projection_index
+            FROM execution_measurement_projection
+            WHERE run_id = ?
+            ORDER BY projection_index DESC
+            LIMIT 1
+            """,
+            (run_id,),
+        )
+    )
+    return 0 if row is None else _integer(row, "projection_index") + 1
+
+
+def _finalize_measurement_projection(
+    connection: sqlite3.Connection,
+    run_id: str,
+) -> None:
+    """Select the latest acquisition for points not fixed by recovery groups."""
+
+    projection_start = _measurement_projected_record_count(connection, run_id)
+    rows = _all(
+        connection.execute(
+            """
+            SELECT
+                record.point_index,
+                MAX(record.acquisition_index) AS acquisition_index
+            FROM execution_measurement_records AS record
+            LEFT JOIN execution_measurement_projection AS projection
+              ON projection.run_id = record.run_id
+             AND projection.point_index = record.point_index
+            WHERE record.run_id = ? AND projection.point_index IS NULL
+            GROUP BY record.point_index
+            ORDER BY record.point_index
+            """,
+            (run_id,),
+        )
+    )
+    connection.executemany(
+        """
+        INSERT INTO execution_measurement_projection(
+            run_id, point_index, projection_index,
+            acquisition_index, group_id
+        )
+        VALUES (?, ?, ?, ?, NULL)
+        """,
+        tuple(
+            (
+                run_id,
+                _integer(row, "point_index"),
+                projection_start + offset,
+                _integer(row, "acquisition_index"),
+            )
+            for offset, row in enumerate(rows)
+        ),
+    )
 
 
 def _store_model(runs: SQLiteRunRepository, model: BaseModel) -> StoredObject:

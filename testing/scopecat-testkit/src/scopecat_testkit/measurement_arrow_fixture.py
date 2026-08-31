@@ -129,7 +129,7 @@ def ui_measurement_arrow_fixture() -> bytes:
     append = MeasurementDatasetAppend(
         run_id=run_id,
         header_content_hash="sha256:ui-arrow-fixture",
-        start_index=7,
+        acquisition_start=7,
         records=(record,),
     )
     return encode_measurement_append(append, ui_measurement_arrow_fixture_schema())

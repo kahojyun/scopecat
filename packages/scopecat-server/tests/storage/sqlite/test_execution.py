@@ -30,6 +30,7 @@ from scopecat.records.execution import (
     DomainJobCheckpointTransition,
     DomainJobInvocationTransition,
     DomainJobTerminalTransition,
+    RecoveryGroupCompletion,
 )
 from scopecat.records.measurement import (
     MeasurementDatasetSchema,
@@ -53,6 +54,7 @@ from scopecat_server.storage.sqlite.execution import (
     ExecutionStateConflict,
     SQLiteDomainJobTransitions,
     SQLiteMeasurementDatasetRepository,
+    SQLiteRecoveryGroups,
     SQLiteRunPointLedger,
 )
 from scopecat_server.storage.sqlite.project_store import SQLiteProjectStore
@@ -630,12 +632,15 @@ def _append(
     header: MeasurementDatasetHeader,
     *,
     point_index: int = 0,
+    acquisition_start: int | None = None,
     value: float = 1,
 ) -> MeasurementDatasetAppend:
     return MeasurementDatasetAppend(
         run_id=header.run_id,
         header_content_hash=header.content_hash,
-        start_index=point_index,
+        acquisition_start=(
+            point_index if acquisition_start is None else acquisition_start
+        ),
         records=(
             MeasurementRecord(
                 run_id=header.run_id,
@@ -661,17 +666,45 @@ def _seal(
     return MeasurementDatasetSeal(
         run_id=append.run_id,
         header_content_hash=header.content_hash,
-        fragment_start_index=append.start_index,
-        point_count=append.start_index + len(append.records),
+        record_count=append.acquisition_start + len(append.records),
+        fragment_record_count=len(append.records),
         fragment_content_hash=measurement_fragment_content_hash(
             header_content_hash=header.content_hash,
-            start_index=append.start_index,
             record_content_hashes=append.record_content_hashes,
         ),
     )
 
 
 def _commit_append(
+    runs: SQLiteRunRepository,
+    repository: SQLiteMeasurementDatasetRepository,
+    append: MeasurementDatasetAppend,
+) -> None:
+    prepared = repository.prepare_append(append)
+    with _sqlite_transaction(runs) as connection:
+        repository.append_prepared_in_transaction(
+            connection,
+            prepared,
+            segment_id=_segment_id(append.run_id),
+        )
+        SQLiteRecoveryGroups(runs, run_id=append.run_id).append_in_transaction(
+            connection,
+            (
+                RecoveryGroupCompletion(
+                    schedule_fingerprint="test-measurement-schedule",
+                    group_id=f"test:{append.acquisition_start}",
+                    point_indices=tuple(
+                        record.point_index for record in append.records
+                    ),
+                    output_kind="measurement",
+                    record_content_hashes=append.record_content_hashes,
+                ),
+            ),
+            segment_id=_segment_id(append.run_id),
+        )
+
+
+def _commit_acquisition(
     runs: SQLiteRunRepository,
     repository: SQLiteMeasurementDatasetRepository,
     append: MeasurementDatasetAppend,
@@ -824,6 +857,19 @@ def test_in_transaction_primitives_report_created_and_replay_durable_values(
                 segment_id=_segment_id(run_id),
             )
         )
+        SQLiteRecoveryGroups(runs, run_id=run_id).append_in_transaction(
+            connection,
+            (
+                RecoveryGroupCompletion(
+                    schedule_fingerprint="test-measurement-schedule",
+                    group_id="test:0",
+                    point_indices=(0,),
+                    output_kind="measurement",
+                    record_content_hashes=append.record_content_hashes,
+                ),
+            ),
+            segment_id=_segment_id(run_id),
+        )
         seal_receipt, seal_created = measurements.seal_prepared_in_transaction(
             connection,
             prepared_seal,
@@ -885,6 +931,7 @@ def test_two_measurement_connections_replay_and_conflict_by_canonical_slot(
 
     assert len({receipt for receipt, _created in receipts}) == 1
     assert sorted(created for _receipt, created in receipts) == [False, True]
+    _commit_append(runs, first, append)
     assert len(first.measurements()) == 1
     with pytest.raises(ExecutionStateConflict):
         _commit_append(
@@ -936,6 +983,110 @@ def test_measurement_page_reads_intersecting_chunks_and_live_schema(
     assert current_snapshot_size == 3
     assert schema == header.dataset_schema
     assert later_schema is None
+
+
+def test_measurements_preserve_acquisition_order_and_project_logical_order(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    run_id = "run-acquisition-order"
+    repository = SQLiteMeasurementDatasetRepository(runs, run_id=run_id)
+    header = _header(run_id, point_count=3)
+    records = tuple(
+        _append(header, point_index=point_index, value=point_index).records[0]
+        for point_index in (2, 0, 1)
+    )
+    append = MeasurementDatasetAppend(
+        run_id=run_id,
+        header_content_hash=header.content_hash,
+        acquisition_start=0,
+        records=records,
+    )
+
+    _commit_header(runs, repository, header)
+    _commit_append(runs, repository, append)
+
+    with runs.sqlite.read_connection() as connection:
+        acquired = connection.execute(
+            """
+            SELECT point_index
+            FROM execution_measurement_records
+            WHERE run_id = ?
+            ORDER BY acquisition_index
+            """,
+            (run_id,),
+        ).fetchall()
+
+    assert [int(row["point_index"]) for row in acquired] == [2, 0, 1]
+    assert [record.point_index for record in repository.measurements()] == [0, 1, 2]
+    assert repository.acquisition_record_count() == 3
+    assert repository.measurement_record_count() == 3
+
+
+def test_seal_selects_completed_retry_without_rewriting_acquisition_log(
+    tmp_path: Path,
+) -> None:
+    runs = _runs(tmp_path)
+    run_id = "run-acquisition-retry"
+    repository = SQLiteMeasurementDatasetRepository(runs, run_id=run_id)
+    header = _header(run_id, point_count=2)
+    orphan = _append(
+        header,
+        point_index=1,
+        acquisition_start=0,
+        value=10,
+    )
+    retried_records = tuple(
+        _append(header, point_index=point_index, value=point_index + 1).records[0]
+        for point_index in (0, 1)
+    )
+    retry = MeasurementDatasetAppend(
+        run_id=run_id,
+        header_content_hash=header.content_hash,
+        acquisition_start=1,
+        records=retried_records,
+    )
+
+    _commit_header(runs, repository, header)
+    _commit_acquisition(runs, repository, orphan)
+    _commit_append(runs, repository, retry)
+    _commit_seal(
+        runs,
+        repository,
+        MeasurementDatasetSeal(
+            run_id=run_id,
+            header_content_hash=header.content_hash,
+            record_count=2,
+            fragment_record_count=3,
+            fragment_content_hash=measurement_fragment_content_hash(
+                header_content_hash=header.content_hash,
+                record_content_hashes=(
+                    *orphan.record_content_hashes,
+                    *retry.record_content_hashes,
+                ),
+            ),
+        ),
+    )
+
+    records = repository.measurements()
+    assert [record.point_index for record in records] == [0, 1]
+    assert [record.observables["signal"] for record in records] == [
+        MeasurementScalar.create(dtype="float64", value=1, unit="ratio"),
+        MeasurementScalar.create(dtype="float64", value=2, unit="ratio"),
+    ]
+    assert repository.acquisition_record_count() == 3
+    assert repository.measurement_record_count() == 2
+    with runs.sqlite.read_connection() as connection:
+        acquired = connection.execute(
+            """
+            SELECT point_index
+            FROM execution_measurement_records
+            WHERE run_id = ?
+            ORDER BY acquisition_index
+            """,
+            (run_id,),
+        ).fetchall()
+    assert [int(row["point_index"]) for row in acquired] == [1, 0, 1]
 
 
 def test_measurement_page_pushes_variable_selection_into_arrow_chunks(
@@ -1005,18 +1156,21 @@ def test_measurement_records_at_reads_only_selected_durable_points(
     repository = SQLiteMeasurementDatasetRepository(runs, run_id="run-selection")
     header = _header("run-selection", point_count=5)
     _commit_header(runs, repository, header)
-    for start_index in (0, 2):
+    for acquisition_start in (0, 2):
         append = MeasurementDatasetAppend(
             run_id=header.run_id,
             header_content_hash=header.content_hash,
-            start_index=start_index,
+            acquisition_start=acquisition_start,
             records=tuple(
                 _append(
                     header,
                     point_index=point_index,
                     value=point_index,
                 ).records[0]
-                for point_index in range(start_index, start_index + 2)
+                for point_index in range(
+                    acquisition_start,
+                    acquisition_start + 2,
+                )
             ),
         )
         _commit_append(runs, repository, append)
@@ -1038,11 +1192,10 @@ def test_measurement_header_makes_an_empty_dataset_readable(tmp_path: Path) -> N
     seal = MeasurementDatasetSeal(
         run_id=header.run_id,
         header_content_hash=header.content_hash,
-        fragment_start_index=0,
-        point_count=0,
+        record_count=0,
+        fragment_record_count=0,
         fragment_content_hash=measurement_fragment_content_hash(
             header_content_hash=header.content_hash,
-            start_index=0,
             record_content_hashes=(),
         ),
     )
@@ -1095,7 +1248,7 @@ def test_unavailable_measurement_round_trips_through_dataset_storage(
     append = MeasurementDatasetAppend(
         run_id="run-unavailable",
         header_content_hash=header.content_hash,
-        start_index=0,
+        acquisition_start=0,
         records=(
             MeasurementRecord(
                 run_id="run-unavailable",

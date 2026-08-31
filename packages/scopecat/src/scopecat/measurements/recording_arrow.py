@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
@@ -38,13 +38,13 @@ from scopecat.records.measurement import (
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
 from scopecat.records.metadata import JsonMetadata, validate_json_metadata
 
-MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v10"
+MEASUREMENT_APPEND_ARROW_FORMAT = "scopecat.measurement_append.arrow.v11"
 
 _FORMAT_KEY = b"scopecat.format"
 _RUN_ID_KEY = b"scopecat.run_id"
 _HEADER_CONTENT_HASH_KEY = b"scopecat.header_content_hash"
 _DATASET_SCHEMA_HASH_KEY = b"scopecat.dataset_schema_hash"
-_START_INDEX_KEY = b"scopecat.start_index"
+_ACQUISITION_START_KEY = b"scopecat.acquisition_start"
 _OPERATION_ID_KEY = b"scopecat.operation_id"
 _CONTENT_HASH_KEY = b"scopecat.content_hash"
 _RECORD_COUNT_KEY = b"scopecat.record_count"
@@ -70,7 +70,7 @@ class MeasurementArrowCodecError(ValueError):
 class _AppendIdentity:
     run_id: str
     header_content_hash: str
-    start_index: int
+    acquisition_start: int
     operation_id: str
     content_hash: str
     record_count: int
@@ -92,7 +92,7 @@ def encode_measurement_append(
             _DATASET_SCHEMA_HASH_KEY: (
                 dataset_schema_hash or measurement_dataset_schema_hash(dataset_schema)
             ).encode(),
-            _START_INDEX_KEY: str(append.start_index).encode(),
+            _ACQUISITION_START_KEY: str(append.acquisition_start).encode(),
             _OPERATION_ID_KEY: append.operation_id.encode(),
             _CONTENT_HASH_KEY: append.content_hash.encode(),
             _RECORD_COUNT_KEY: str(len(append.records)).encode(),
@@ -140,7 +140,7 @@ def decode_measurement_append(
         append = MeasurementDatasetAppend(
             run_id=identity.run_id,
             header_content_hash=identity.header_content_hash,
-            start_index=identity.start_index,
+            acquisition_start=identity.acquisition_start,
             records=records,
         )
     except ValueError as error:
@@ -182,13 +182,6 @@ def decode_measurement_record_slice(
         dataset_schema=dataset_schema,
         variable_ids=variable_ids,
     )
-    _validate_selected_point_indices(
-        records,
-        expected_indices=range(
-            identity.start_index + offset,
-            identity.start_index + offset + length,
-        ),
-    )
     return records
 
 
@@ -221,10 +214,6 @@ def decode_measurement_record_indices(
         run_id=identity.run_id,
         dataset_schema=dataset_schema,
         variable_ids=variable_ids,
-    )
-    _validate_selected_point_indices(
-        records,
-        expected_indices=(identity.start_index + index for index in selected),
     )
     return records
 
@@ -608,7 +597,7 @@ def _decode_identity(
         identity = _AppendIdentity(
             run_id=metadata[_RUN_ID_KEY].decode(),
             header_content_hash=metadata[_HEADER_CONTENT_HASH_KEY].decode(),
-            start_index=int(metadata[_START_INDEX_KEY]),
+            acquisition_start=int(metadata[_ACQUISITION_START_KEY]),
             operation_id=metadata[_OPERATION_ID_KEY].decode(),
             content_hash=metadata[_CONTENT_HASH_KEY].decode(),
             record_count=int(metadata[_RECORD_COUNT_KEY]),
@@ -628,7 +617,7 @@ def _decode_identity(
         raise MeasurementArrowCodecError(
             "measurement Arrow chunk does not match its registered dataset schema"
         )
-    if identity.start_index < 0 or identity.record_count < 0:
+    if identity.acquisition_start < 0 or identity.record_count < 0:
         raise MeasurementArrowCodecError(
             "measurement Arrow identity metadata cannot be negative"
         )
@@ -1227,17 +1216,6 @@ def _decode_array_values(
         values,
         valid,
     )
-
-
-def _validate_selected_point_indices(
-    records: Sequence[MeasurementRecord],
-    *,
-    expected_indices: Iterable[int],
-) -> None:
-    if tuple(record.point_index for record in records) != tuple(expected_indices):
-        raise MeasurementArrowCodecError(
-            "measurement Arrow row position does not match its point index"
-        )
 
 
 def _value_column(variable_id: str) -> str:
