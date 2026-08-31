@@ -22,12 +22,40 @@ entry ids and result mappings remain request-local.
 ## Keep continuous intent and sampled realization separate
 
 The canonical pulse scheduler retains requested boundaries as exact `Decimal`
-seconds. A sampled-output target should project those events through one
-`SampleGrid` instead of independently rounding durations or starts. Use
+seconds. `resolve_waveform_events(...)` applies logical `ShiftPhase` operations
+and returns exact, continuous-time `ResolvedWaveformEvent` values before any
+sample clock or output lane is chosen. It retains the authored envelope and the
+accumulated `frame_phase_radians` without duplicating phase state;
+`effective_phase_radians` derives their complete sum. A target using the latter
+must not add the envelope's authored phase a second time. A target with native
+envelopes, oscillators, or sequencer instructions can lower this layer directly
+instead of first manufacturing a dense sampled buffer.
+
+A sampled-output target should project events through one `SampleGrid` instead
+of independently rounding durations or starts. Use
 `realize_event_timings(...)` when the target keeps a device-specific waveform
-renderer, or `plan_sampled_waveforms(...)` when it can use the portable analytic
-envelope planner. Both expose `RealizedEventTiming` with requested and realized
-start, duration, sample counts, and signed timing errors.
+renderer, `plan_sampled_waveforms(...)` for one complete scheduled program, or
+`plan_sampled_waveform_window(...)` for one target-selected trigger or upload
+window. These expose `RealizedEventTiming` with requested and realized start,
+duration, sample counts, and signed timing errors.
+
+A window receives the complete resolved-event context plus the selected event
+instances. It uses the complete context for signal-first carrier references but
+quantizes only the selection. This lets independent output timing domains choose
+their own grids without an unrelated event producing a false strict-grid error;
+acquisition domains can use `realize_event_timings(...)` independently. Selection
+is by `ResolvedWaveformEvent` instance rather than authored event id because a
+real-time repeat may place the same authored id at several absolute times. The
+plan preserves those repeated occurrences:
+`timings_for(...)` returns all of them, while the single-value `timing_for(...)`
+reports an ambiguity instead of silently choosing one.
+
+`SampledWaveformPlan.time_origin_seconds` records the absolute realized boundary
+represented by local sample zero. Timing and carrier coordinates inside the plan
+are relative to that origin, and `RenderedWaveforms` retains it beside the
+buffers. Consequently rendering a window produces the same values as slicing
+the corresponding interval from a full-program render, including sub-sample
+continuous event origins and schedule-, signal-, or event-referenced carriers.
 
 Choose the timing policy deliberately. `strict` rejects a boundary the selected
 clock cannot express. `nearest` retains the quantization error and is suitable

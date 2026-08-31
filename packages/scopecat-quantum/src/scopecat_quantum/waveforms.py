@@ -1,10 +1,11 @@
-"""Deterministic sampled-output planning and reference rendering.
+"""Continuous waveform resolution, sampled planning, and reference rendering.
 
-The pulse scheduler retains exact continuous time.  This module owns the
-portable sampled-output semantics that begin after a laboratory has selected
-numeric output lanes and end before device-specific quantization or encoding.
-One plan belongs to one sample grid; targets with heterogeneous clocks build
-one plan per physical timing domain.
+The pulse scheduler retains exact continuous time.  This module first resolves
+logical phase frames without choosing a target representation, then owns the
+portable sampled-output semantics after a laboratory selects numeric output
+lanes and before device-specific quantization or encoding.  One sampled plan
+belongs to one grid; targets with heterogeneous clocks build one window per
+physical timing domain.
 """
 
 from __future__ import annotations
@@ -95,6 +96,24 @@ class SampledOutputBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedWaveformEvent:
+    """Continuous-time analytic output after logical frame resolution."""
+
+    event_id: PulseEventId
+    signal: PlaySignal
+    envelope: AnalyticEnvelope
+    start_seconds: Decimal
+    duration_seconds: Decimal
+    frame_phase_radians: float
+
+    @property
+    def effective_phase_radians(self) -> float:
+        """Return the complete authored-envelope plus logical-frame phase."""
+
+        return float(self.envelope.phase.value) + self.frame_phase_radians
+
+
+@dataclass(frozen=True, slots=True)
 class RealizedEventTiming:
     """Requested continuous timing and its deterministic sampled realization."""
 
@@ -140,21 +159,39 @@ class SampledRenderEvent:
 
 @dataclass(frozen=True, slots=True)
 class SampledWaveformPlan:
-    """Pure numeric work for one scheduled program and one sample grid."""
+    """Pure numeric work for one scheduled program and one sample-grid window.
+
+    Timing and carrier coordinates are local to ``time_origin_seconds``.  A
+    full-program plan uses zero; a window plan records the absolute realized
+    boundary represented by its sample zero.
+    """
 
     program_id: PulseProgramId
     semantics_id: SampledWaveformSemanticsId
     grid: SampleGrid
+    time_origin_seconds: Decimal
     sample_count: int
     lane_count: int
     event_timings: tuple[RealizedEventTiming, ...]
     render_events: tuple[SampledRenderEvent, ...]
 
     def timing_for(self, event_id: PulseEventId) -> RealizedEventTiming:
-        for timing in self.event_timings:
-            if timing.event_id == event_id:
-                return timing
-        raise KeyError(event_id)
+        timings = self.timings_for(event_id)
+        if not timings:
+            raise KeyError(event_id)
+        if len(timings) != 1:
+            raise ValueError(f"event {event_id.value!r} has repeated occurrences")
+        return timings[0]
+
+    def timings_for(
+        self,
+        event_id: PulseEventId,
+    ) -> tuple[RealizedEventTiming, ...]:
+        """Return every realized occurrence of one authored event id."""
+
+        return tuple(
+            timing for timing in self.event_timings if timing.event_id == event_id
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +221,7 @@ def factor_phase_parameterized_waveforms(
         if (
             candidate.semantics_id != reference.semantics_id
             or candidate.grid != reference.grid
+            or candidate.time_origin_seconds != reference.time_origin_seconds
             or candidate.sample_count != reference.sample_count
             or candidate.lane_count != reference.lane_count
             or not _same_render_structure(
@@ -236,6 +274,7 @@ class RenderedWaveforms:
 
     semantics_id: SampledWaveformSemanticsId
     sample_rate_hz: int
+    time_origin_seconds: Decimal
     buffers: tuple[NDArray[np.float64], ...]
     lane_peaks: tuple[float, ...]
 
@@ -296,6 +335,46 @@ def realize_event_timings(
     return timings
 
 
+def resolve_waveform_events(
+    events: tuple[ScheduledPulseEvent, ...],
+) -> tuple[ResolvedWaveformEvent, ...]:
+    """Resolve logical phase frames without choosing a sampled target.
+
+    The returned events retain exact continuous boundaries and analytic
+    envelopes.  Targets with native envelope or NCO support can consume this
+    layer without first pretending that their implementation is a dense DAC
+    renderer.
+    """
+
+    resolved: list[ResolvedWaveformEvent] = []
+    frame_phases: dict[FrameSignal, float] = {}
+    for event in events:
+        instruction = event.instruction
+        if isinstance(instruction, ShiftPhase):
+            frame_phases[instruction.signal] = frame_phases.get(
+                instruction.signal, 0.0
+            ) + float(instruction.phase.value)
+            continue
+        if not isinstance(instruction, Play):
+            continue
+        frame_phase = (
+            frame_phases.get(instruction.signal, 0.0)
+            if isinstance(instruction.signal, DriveSignal | ReadoutSignal)
+            else 0.0
+        )
+        resolved.append(
+            ResolvedWaveformEvent(
+                event_id=event.id,
+                signal=instruction.signal,
+                envelope=instruction.envelope,
+                start_seconds=event.start_seconds,
+                duration_seconds=event.duration_seconds,
+                frame_phase_radians=frame_phase,
+            )
+        )
+    return tuple(resolved)
+
+
 def plan_sampled_waveforms(
     program: ScheduledPulseProgram,
     *,
@@ -308,20 +387,9 @@ def plan_sampled_waveforms(
     share the same integer boundary and cannot acquire a rounding gap or overlap.
     """
 
+    resolved_events = resolve_waveform_events(program.events)
     issues: list[WaveformPlanningIssue] = []
-    binding_by_signal: dict[PlaySignal, SampledOutputBinding] = {}
-    for binding in bindings:
-        if binding.signal in binding_by_signal:
-            issues.append(
-                WaveformPlanningIssue(
-                    code="sampled_output_binding_duplicate",
-                    message=(
-                        f"logical output {binding.signal!r} is bound more than once"
-                    ),
-                )
-            )
-        else:
-            binding_by_signal[binding.signal] = binding
+    binding_by_signal = _resolve_bindings(bindings, resolved_events, issues=issues)
 
     boundaries = {Decimal(0), program.duration_seconds}
     for event in program.events:
@@ -356,109 +424,232 @@ def plan_sampled_waveforms(
         boundary_samples=boundary_samples,
         issues=issues,
     )
-    timings_by_id = {timing.event_id: timing for timing in timings}
-    first_play_start_by_signal: dict[PlaySignal, Decimal] = {}
-    for event in program.events:
-        timing = timings_by_id.get(event.id)
-        if (
-            isinstance(event.instruction, Play)
-            and timing is not None
-            and timing.sample_count > 0
-        ):
-            first_play_start_by_signal.setdefault(
-                event.instruction.signal,
-                event.start_seconds,
-            )
-    render_events: list[SampledRenderEvent] = []
-    frame_phases: dict[FrameSignal, float] = {}
-    for event in program.events:
-        timing = timings_by_id.get(event.id)
+    render_events = _plan_render_events(
+        resolved_events,
+        timings=timings,
+        binding_by_signal=binding_by_signal,
+        time_origin_seconds=Decimal(0),
+        first_play_start_by_signal=_first_play_starts(resolved_events),
+        issues=issues,
+    )
 
-        instruction = event.instruction
-        if isinstance(instruction, ShiftPhase):
-            frame_phases[instruction.signal] = frame_phases.get(
-                instruction.signal, 0.0
-            ) + float(instruction.phase.value)
-            continue
-        if not isinstance(instruction, Play):
-            continue
-        binding = binding_by_signal.get(instruction.signal)
-        if binding is None:
+    if issues:
+        raise WaveformPlanningError(tuple(issues))
+    assert program_end_sample is not None
+    return SampledWaveformPlan(
+        program_id=program.id,
+        semantics_id=_sampled_waveform_semantics_id(grid),
+        grid=grid,
+        time_origin_seconds=Decimal(0),
+        sample_count=program_end_sample,
+        lane_count=_lane_count(render_events),
+        event_timings=timings,
+        render_events=render_events,
+    )
+
+
+def plan_sampled_waveform_window(
+    context_events: tuple[ResolvedWaveformEvent, ...],
+    *,
+    program_id: PulseProgramId,
+    selected_events: tuple[ResolvedWaveformEvent, ...],
+    bindings: tuple[SampledOutputBinding, ...],
+    grid: SampleGrid,
+) -> SampledWaveformPlan:
+    """Plan selected plays in one minimal sample-grid window.
+
+    ``context_events`` supplies the complete continuous context for
+    frame-resolved plays and signal-first carrier references.  Each selected
+    event must be an instance from that context, which keeps repeated authored
+    ids unambiguous.  Only the selected plays are quantized and rendered, so an
+    unrelated timing domain cannot impose its grid on this window.
+    """
+
+    if not selected_events:
+        raise ValueError("a sampled waveform window requires at least one event")
+    context_identities = {id(event) for event in context_events}
+    if len(context_identities) != len(context_events):
+        raise ValueError(
+            "the complete waveform context must contain distinct event instances"
+        )
+    if any(id(selected) not in context_identities for selected in selected_events):
+        raise ValueError(
+            "selected waveform events must be instances from the complete context"
+        )
+    if len({id(event) for event in selected_events}) != len(selected_events):
+        raise ValueError("a waveform window may select each event instance only once")
+    issues: list[WaveformPlanningIssue] = []
+    binding_by_signal = _resolve_bindings(bindings, selected_events, issues=issues)
+    boundaries = {
+        boundary
+        for event in selected_events
+        for boundary in (
+            event.start_seconds,
+            event.start_seconds + event.duration_seconds,
+        )
+    }
+    boundary_samples = {
+        boundary: _quantize_boundary(boundary, grid) for boundary in boundaries
+    }
+    absolute_timings = _realize_resolved_event_timings(
+        selected_events,
+        grid=grid,
+        boundary_samples=boundary_samples,
+        issues=issues,
+    )
+    if not absolute_timings:
+        raise WaveformPlanningError(tuple(issues))
+
+    start_sample = min(timing.start_sample for timing in absolute_timings)
+    end_sample = max(timing.end_sample for timing in absolute_timings)
+    time_origin_seconds = _sample_seconds(start_sample, grid.sample_rate_hz)
+    timings = tuple(
+        replace(
+            timing,
+            requested_start_seconds=(
+                timing.requested_start_seconds - time_origin_seconds
+            ),
+            start_sample=timing.start_sample - start_sample,
+        )
+        for timing in absolute_timings
+    )
+    render_events = _plan_render_events(
+        selected_events,
+        timings=timings,
+        binding_by_signal=binding_by_signal,
+        time_origin_seconds=time_origin_seconds,
+        first_play_start_by_signal=_first_play_starts(context_events),
+        issues=issues,
+    )
+    if issues:
+        raise WaveformPlanningError(tuple(issues))
+    return SampledWaveformPlan(
+        program_id=program_id,
+        semantics_id=_sampled_waveform_semantics_id(grid),
+        grid=grid,
+        time_origin_seconds=time_origin_seconds,
+        sample_count=end_sample - start_sample,
+        lane_count=_lane_count(render_events),
+        event_timings=timings,
+        render_events=render_events,
+    )
+
+
+def _resolve_bindings(
+    bindings: tuple[SampledOutputBinding, ...],
+    events: tuple[ResolvedWaveformEvent, ...],
+    *,
+    issues: list[WaveformPlanningIssue],
+) -> dict[PlaySignal, SampledOutputBinding]:
+    binding_by_signal: dict[PlaySignal, SampledOutputBinding] = {}
+    for binding in bindings:
+        if binding.signal in binding_by_signal:
+            issues.append(
+                WaveformPlanningIssue(
+                    code="sampled_output_binding_duplicate",
+                    message=(
+                        f"logical output {binding.signal!r} is bound more than once"
+                    ),
+                )
+            )
+        else:
+            binding_by_signal[binding.signal] = binding
+    for event in events:
+        if event.signal not in binding_by_signal:
             issues.append(
                 WaveformPlanningIssue(
                     code="sampled_output_signal_unbound",
                     message=(
-                        f"event {event.id.value!r} output {instruction.signal!r} "
+                        f"event {event.event_id.value!r} output {event.signal!r} "
                         "has no sampled-output binding"
                     ),
-                    event_id=event.id,
+                    event_id=event.event_id,
                 )
             )
+    return binding_by_signal
+
+
+def _first_play_starts(
+    events: tuple[ResolvedWaveformEvent, ...],
+) -> dict[PlaySignal, Decimal]:
+    starts: dict[PlaySignal, Decimal] = {}
+    for event in events:
+        current = starts.get(event.signal)
+        if current is None or event.start_seconds < current:
+            starts[event.signal] = event.start_seconds
+    return starts
+
+
+def _plan_render_events(
+    events: tuple[ResolvedWaveformEvent, ...],
+    *,
+    timings: tuple[RealizedEventTiming, ...],
+    binding_by_signal: dict[PlaySignal, SampledOutputBinding],
+    time_origin_seconds: Decimal,
+    first_play_start_by_signal: dict[PlaySignal, Decimal],
+    issues: list[WaveformPlanningIssue],
+) -> tuple[SampledRenderEvent, ...]:
+    timings_by_id: dict[PulseEventId, list[RealizedEventTiming]] = {}
+    for timing in timings:
+        timings_by_id.setdefault(timing.event_id, []).append(timing)
+    timing_occurrences: dict[PulseEventId, int] = {}
+    render_events: list[SampledRenderEvent] = []
+    for event in events:
+        binding = binding_by_signal.get(event.signal)
+        occurrence = timing_occurrences.get(event.event_id, 0)
+        candidates = timings_by_id.get(event.event_id, [])
+        timing = candidates[occurrence] if occurrence < len(candidates) else None
+        timing_occurrences[event.event_id] = occurrence + 1
+        if binding is None or timing is None or timing.sample_count <= 0:
             continue
-        if timing is None or timing.sample_count <= 0:
-            continue
-        if isinstance(instruction.envelope, CosineFlatTop):
+        if isinstance(event.envelope, CosineFlatTop):
             edge_duration_seconds = Decimal(
-                str(instruction.envelope.rise_duration.to("s").value)
-            ) + Decimal(str(instruction.envelope.fall_duration.to("s").value))
+                str(event.envelope.rise_duration.to("s").value)
+            ) + Decimal(str(event.envelope.fall_duration.to("s").value))
             if edge_duration_seconds > timing.realized_duration_seconds:
                 issues.append(
                     WaveformPlanningIssue(
                         code="sampled_cosine_edges_exceed_realized_duration",
                         message=(
-                            f"event {event.id.value!r} cosine-flat-top edges exceed "
-                            "its realized duration"
+                            f"event {event.event_id.value!r} cosine-flat-top edges "
+                            "exceed its realized duration"
                         ),
-                        event_id=event.id,
+                        event_id=event.event_id,
                     )
                 )
-        frame_phase = (
-            frame_phases.get(instruction.signal, 0.0)
-            if isinstance(instruction.signal, DriveSignal | ReadoutSignal)
-            else 0.0
-        )
         carrier_phase_reference = binding.carrier_phase_reference
         if carrier_phase_reference == "schedule_origin":
-            carrier_origin_seconds = Decimal(0)
+            absolute_carrier_origin_seconds = Decimal(0)
         elif carrier_phase_reference == "signal_first_play":
-            carrier_origin_seconds = first_play_start_by_signal[instruction.signal]
+            absolute_carrier_origin_seconds = first_play_start_by_signal[event.signal]
         else:
-            carrier_origin_seconds = event.start_seconds
+            absolute_carrier_origin_seconds = event.start_seconds
         render_events.append(
             SampledRenderEvent(
-                event_id=event.id,
-                envelope=instruction.envelope,
+                event_id=event.event_id,
+                envelope=event.envelope,
                 timing=timing,
                 binding=binding,
-                effective_phase_radians=(
-                    float(instruction.envelope.phase.value) + frame_phase
+                effective_phase_radians=event.effective_phase_radians,
+                carrier_origin_seconds=(
+                    absolute_carrier_origin_seconds - time_origin_seconds
                 ),
-                carrier_origin_seconds=carrier_origin_seconds,
             )
         )
+    return tuple(render_events)
 
-    if issues:
-        raise WaveformPlanningError(tuple(issues))
-    assert program_end_sample is not None
-    lane_count = (
+
+def _lane_count(events: tuple[SampledRenderEvent, ...]) -> int:
+    return (
         max(
             (
                 lane
-                for event in render_events
+                for event in events
                 for lane in (event.binding.i_lane, event.binding.q_lane)
             ),
             default=-1,
         )
         + 1
-    )
-    return SampledWaveformPlan(
-        program_id=program.id,
-        semantics_id=_sampled_waveform_semantics_id(grid),
-        grid=grid,
-        sample_count=program_end_sample,
-        lane_count=lane_count,
-        event_timings=timings,
-        render_events=tuple(render_events),
     )
 
 
@@ -469,20 +660,55 @@ def _realize_event_timings(
     boundary_samples: dict[Decimal, int | None],
     issues: list[WaveformPlanningIssue],
 ) -> tuple[RealizedEventTiming, ...]:
+    return _realize_timing_rows(
+        tuple(
+            (event.id, event.start_seconds, event.duration_seconds) for event in events
+        ),
+        grid=grid,
+        boundary_samples=boundary_samples,
+        issues=issues,
+    )
+
+
+def _realize_resolved_event_timings(
+    events: tuple[ResolvedWaveformEvent, ...],
+    *,
+    grid: SampleGrid,
+    boundary_samples: dict[Decimal, int | None],
+    issues: list[WaveformPlanningIssue],
+) -> tuple[RealizedEventTiming, ...]:
+    return _realize_timing_rows(
+        tuple(
+            (event.event_id, event.start_seconds, event.duration_seconds)
+            for event in events
+        ),
+        grid=grid,
+        boundary_samples=boundary_samples,
+        issues=issues,
+    )
+
+
+def _realize_timing_rows(
+    events: tuple[tuple[PulseEventId, Decimal, Decimal], ...],
+    *,
+    grid: SampleGrid,
+    boundary_samples: dict[Decimal, int | None],
+    issues: list[WaveformPlanningIssue],
+) -> tuple[RealizedEventTiming, ...]:
     timings: list[RealizedEventTiming] = []
-    for event in events:
-        requested_end = event.start_seconds + event.duration_seconds
-        start_sample = boundary_samples[event.start_seconds]
+    for event_id, start_seconds, duration_seconds in events:
+        requested_end = start_seconds + duration_seconds
+        start_sample = boundary_samples[start_seconds]
         end_sample = boundary_samples[requested_end]
         if start_sample is None:
             issues.append(
                 WaveformPlanningIssue(
                     code="sampled_event_start_off_grid",
                     message=(
-                        f"event {event.id.value!r} start is not on the strict "
+                        f"event {event_id.value!r} start is not on the strict "
                         "sample grid"
                     ),
-                    event_id=event.id,
+                    event_id=event_id,
                 )
             )
         if end_sample is None:
@@ -490,28 +716,28 @@ def _realize_event_timings(
                 WaveformPlanningIssue(
                     code="sampled_event_end_off_grid",
                     message=(
-                        f"event {event.id.value!r} end is not on the strict sample grid"
+                        f"event {event_id.value!r} end is not on the strict sample grid"
                     ),
-                    event_id=event.id,
+                    event_id=event_id,
                 )
             )
         if start_sample is None or end_sample is None:
             continue
         timing = RealizedEventTiming(
-            event_id=event.id,
-            requested_start_seconds=event.start_seconds,
-            requested_duration_seconds=event.duration_seconds,
+            event_id=event_id,
+            requested_start_seconds=start_seconds,
+            requested_duration_seconds=duration_seconds,
             sample_rate_hz=grid.sample_rate_hz,
             start_sample=start_sample,
             sample_count=end_sample - start_sample,
         )
         timings.append(timing)
-        if event.duration_seconds > 0 and timing.sample_count <= 0:
+        if duration_seconds > 0 and timing.sample_count <= 0:
             issues.append(
                 WaveformPlanningIssue(
                     code="sampled_event_collapsed",
-                    message=(f"event {event.id.value!r} collapses to zero samples"),
-                    event_id=event.id,
+                    message=(f"event {event_id.value!r} collapses to zero samples"),
+                    event_id=event_id,
                 )
             )
     return tuple(timings)
@@ -570,6 +796,7 @@ class Float64ReferenceRenderer:
         return RenderedWaveforms(
             semantics_id=plan.semantics_id,
             sample_rate_hz=sample_rate_hz,
+            time_origin_seconds=plan.time_origin_seconds,
             buffers=buffers,
             lane_peaks=lane_peaks,
         )
@@ -660,6 +887,7 @@ __all__ = [
     "PhaseParameterizedSampledWaveforms",
     "RealizedEventTiming",
     "RenderedWaveforms",
+    "ResolvedWaveformEvent",
     "SampleGrid",
     "SampleLocation",
     "SampledOutputBinding",
@@ -671,6 +899,8 @@ __all__ = [
     "WaveformPlanningError",
     "WaveformPlanningIssue",
     "factor_phase_parameterized_waveforms",
+    "plan_sampled_waveform_window",
     "plan_sampled_waveforms",
     "realize_event_timings",
+    "resolve_waveform_events",
 ]
