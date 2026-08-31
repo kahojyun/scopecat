@@ -26,6 +26,7 @@ from ._construction import (
 from ._construction import (
     acquire,
     constant,
+    cosine_flat_top,
     coupler,
     delay,
     drag,
@@ -161,6 +162,7 @@ __all__ = [
     "acquire",
     "bind",
     "constant",
+    "cosine_flat_top",
     "coupler",
     "delay",
     "describe",

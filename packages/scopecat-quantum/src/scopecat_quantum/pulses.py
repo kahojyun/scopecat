@@ -86,6 +86,22 @@ class Gaussian:
 
 
 @dataclass(frozen=True, slots=True)
+class CosineFlatTop:
+    """A flat-top envelope joined to zero by half-cosine edges.
+
+    ``rise_duration`` and ``fall_duration`` name the complete duration of each
+    edge.  The remaining envelope duration is the plateau.  Either edge may be
+    zero to request an abrupt boundary.
+    """
+
+    duration: Quantity
+    amplitude: Quantity
+    rise_duration: Quantity
+    fall_duration: Quantity
+    phase: Quantity = field(default_factory=_zero_phase)
+
+
+@dataclass(frozen=True, slots=True)
 class DRAG:
     """A Gaussian envelope with a derivative quadrature correction.
 
@@ -100,7 +116,7 @@ class DRAG:
     phase: Quantity = field(default_factory=_zero_phase)
 
 
-type AnalyticEnvelope = Constant | Gaussian | DRAG
+type AnalyticEnvelope = Constant | Gaussian | CosineFlatTop | DRAG
 
 
 @dataclass(frozen=True, slots=True)
@@ -508,6 +524,8 @@ def _normalized_envelope(
     )
     sigma: Decimal | None = None
     beta: Decimal | None = None
+    rise_duration: Decimal | None = None
+    fall_duration: Decimal | None = None
     if isinstance(envelope, Gaussian | DRAG):
         sigma = _time_value(
             envelope.sigma,
@@ -534,6 +552,54 @@ def _normalized_envelope(
             path=path,
             positive=False,
         )
+    if isinstance(envelope, CosineFlatTop):
+        rise_duration = _time_value(
+            envelope.rise_duration,
+            name="cosine-flat-top rise duration",
+            issues=issues,
+            instruction_id=instruction_id,
+            path=path,
+            positive=False,
+        )
+        fall_duration = _time_value(
+            envelope.fall_duration,
+            name="cosine-flat-top fall duration",
+            issues=issues,
+            instruction_id=instruction_id,
+            path=path,
+            positive=False,
+        )
+        if rise_duration is not None and rise_duration < 0:
+            _issue(
+                issues,
+                "pulse_edge_duration_negative",
+                "cosine-flat-top rise duration cannot be negative",
+                instruction_id=instruction_id,
+                path=path,
+            )
+        if fall_duration is not None and fall_duration < 0:
+            _issue(
+                issues,
+                "pulse_edge_duration_negative",
+                "cosine-flat-top fall duration cannot be negative",
+                instruction_id=instruction_id,
+                path=path,
+            )
+        if (
+            duration is not None
+            and rise_duration is not None
+            and fall_duration is not None
+            and rise_duration >= 0
+            and fall_duration >= 0
+            and rise_duration + fall_duration > duration
+        ):
+            _issue(
+                issues,
+                "pulse_edge_durations_exceed_duration",
+                "cosine-flat-top edge durations cannot exceed the envelope duration",
+                instruction_id=instruction_id,
+                path=path,
+            )
     if duration is None or amplitude is None or phase is None:
         return None
     normalized_duration_value = _representable_quantity_seconds(
@@ -551,6 +617,39 @@ def _normalized_envelope(
             envelope,
             duration=normalized_duration,
             amplitude=amplitude,
+            phase=phase,
+        ), duration
+    if isinstance(envelope, CosineFlatTop):
+        if (
+            rise_duration is None
+            or fall_duration is None
+            or rise_duration < 0
+            or fall_duration < 0
+            or rise_duration + fall_duration > duration
+        ):
+            return None
+        normalized_rise_value = _representable_quantity_seconds(
+            rise_duration,
+            name="cosine-flat-top rise duration",
+            issues=issues,
+            instruction_id=instruction_id,
+            path=path,
+        )
+        normalized_fall_value = _representable_quantity_seconds(
+            fall_duration,
+            name="cosine-flat-top fall duration",
+            issues=issues,
+            instruction_id=instruction_id,
+            path=path,
+        )
+        if normalized_rise_value is None or normalized_fall_value is None:
+            return None
+        return replace(
+            envelope,
+            duration=normalized_duration,
+            amplitude=amplitude,
+            rise_duration=Quantity(value=normalized_rise_value, unit="s"),
+            fall_duration=Quantity(value=normalized_fall_value, unit="s"),
             phase=phase,
         ), duration
     if sigma is None:

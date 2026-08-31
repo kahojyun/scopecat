@@ -395,6 +395,26 @@ def gaussian(
     )
 
 
+def cosine_flat_top(
+    *,
+    duration: QuantumQuantity,
+    amplitude: QuantumQuantity,
+    rise_duration: QuantumQuantity,
+    fall_duration: QuantumQuantity,
+    phase: QuantumQuantity | None = None,
+) -> PulseEnvelope:
+    """Author a flat-top envelope with bindable half-cosine edges."""
+
+    return _pulse_envelope(
+        "cosine_flat_top",
+        duration=duration,
+        amplitude=amplitude,
+        rise_duration=rise_duration,
+        fall_duration=fall_duration,
+        phase=phase,
+    )
+
+
 def drag(
     *,
     duration: QuantumQuantity,

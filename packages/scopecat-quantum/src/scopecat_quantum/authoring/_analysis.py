@@ -108,6 +108,8 @@ def _pulse_envelope_parts(
     QuantumQuantity,
     QuantumQuantity | None,
     QuantumQuantity | None,
+    QuantumQuantity | None,
+    QuantumQuantity | None,
     QuantumQuantity,
 ]:
     return (
@@ -116,6 +118,8 @@ def _pulse_envelope_parts(
         value.amplitude,
         value.sigma,
         value.beta,
+        value.rise_duration,
+        value.fall_duration,
         value.phase,
     )
 
@@ -174,6 +178,8 @@ def _pulse_envelope(
     amplitude: QuantumQuantity,
     sigma: QuantumQuantity | None = None,
     beta: QuantumQuantity | None = None,
+    rise_duration: QuantumQuantity | None = None,
+    fall_duration: QuantumQuantity | None = None,
     phase: QuantumQuantity | None = None,
 ) -> PulseEnvelope:
     selected_phase = Quantity(0, "rad") if phase is None else phase
@@ -184,12 +190,26 @@ def _pulse_envelope(
         _require_quantity_expression(sigma, field="sigma", kind="time")
     if beta is not None:
         _require_quantity_expression(beta, field="beta", kind="time")
+    if rise_duration is not None:
+        _require_quantity_expression(
+            rise_duration,
+            field="rise_duration",
+            kind="time",
+        )
+    if fall_duration is not None:
+        _require_quantity_expression(
+            fall_duration,
+            field="fall_duration",
+            kind="time",
+        )
     return PulseEnvelope(
         kind=kind,
         duration=duration,
         amplitude=amplitude,
         sigma=sigma,
         beta=beta,
+        rise_duration=rise_duration,
+        fall_duration=fall_duration,
         phase=selected_phase,
     )
 
@@ -1000,7 +1020,16 @@ def _envelope_inputs(
 ) -> tuple[ProgramInput, ...]:
     if not isinstance(envelope, PulseEnvelope):
         return ()
-    _kind, duration, amplitude, sigma, beta, phase = _pulse_envelope_parts(envelope)
+    (
+        _kind,
+        duration,
+        amplitude,
+        sigma,
+        beta,
+        rise_duration,
+        fall_duration,
+        phase,
+    ) = _pulse_envelope_parts(envelope)
     return tuple(
         value
         for value in (
@@ -1008,6 +1037,8 @@ def _envelope_inputs(
             amplitude,
             sigma,
             beta,
+            rise_duration,
+            fall_duration,
             phase,
         )
         if isinstance(value, ProgramInput)

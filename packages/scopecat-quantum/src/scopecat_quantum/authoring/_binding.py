@@ -56,6 +56,7 @@ from scopecat_quantum.pulses import (
     AcquisitionSlot,
     AnalyticEnvelope,
     Constant,
+    CosineFlatTop,
     Delay,
     FrameSignal,
     Gaussian,
@@ -705,16 +706,37 @@ def _bind_envelope(
     envelope: PulseEnvelope | AnalyticEnvelope,
     bindings: Mapping[str, object],
 ) -> AnalyticEnvelope:
-    if isinstance(envelope, Constant | Gaussian | DRAG):
+    if isinstance(envelope, Constant | Gaussian | CosineFlatTop | DRAG):
         return envelope
-    kind, raw_duration, raw_amplitude, raw_sigma, raw_beta, raw_phase = (
-        _pulse_envelope_parts(envelope)
-    )
+    (
+        kind,
+        raw_duration,
+        raw_amplitude,
+        raw_sigma,
+        raw_beta,
+        raw_rise_duration,
+        raw_fall_duration,
+        raw_phase,
+    ) = _pulse_envelope_parts(envelope)
     duration = _bound_quantity(raw_duration, bindings)
     amplitude = _bound_quantity(raw_amplitude, bindings)
     phase = _bound_quantity(raw_phase, bindings)
     if kind == "constant":
         return Constant(duration=duration, amplitude=amplitude, phase=phase)
+    if kind == "cosine_flat_top":
+        return CosineFlatTop(
+            duration=duration,
+            amplitude=amplitude,
+            rise_duration=_bound_quantity(
+                cast("QuantumQuantity", raw_rise_duration),
+                bindings,
+            ),
+            fall_duration=_bound_quantity(
+                cast("QuantumQuantity", raw_fall_duration),
+                bindings,
+            ),
+            phase=phase,
+        )
     sigma = _bound_quantity(cast("QuantumQuantity", raw_sigma), bindings)
     if kind == "gaussian":
         return Gaussian(

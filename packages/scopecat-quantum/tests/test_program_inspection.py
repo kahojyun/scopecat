@@ -146,6 +146,29 @@ program inspection.example
     assert filtered.layers[1].nodes == ()
 
 
+def test_program_draw_exposes_cosine_flat_top_edge_durations() -> None:
+    q0 = authoring.qubit("q0")
+    declaration = authoring._close_program(
+        "cosine-inspection",
+        authoring.play(
+            authoring.drive(q0),
+            authoring.cosine_flat_top(
+                duration=Quantity(25, "ns"),
+                amplitude=Quantity(0.35, "arb"),
+                rise_duration=Quantity(12.5, "ns"),
+                fall_duration=Quantity(12.5, "ns"),
+            ),
+        ),
+    )
+
+    assert declaration.draw() == (
+        "program cosine-inspection\n"
+        "└─ play drive(q0) cosine_flat_top("
+        "duration=25 ns, amplitude=0.35 arb, "
+        "rise_duration=12.5 ns, fall_duration=12.5 ns)"
+    )
+
+
 def test_program_family_envelope_is_inspectable_before_point_expansion() -> None:
     x = authoring.single_qubit_gate("inspection.family.x")
     y = authoring.single_qubit_gate("inspection.family.y")

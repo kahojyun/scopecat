@@ -22,6 +22,7 @@ from scopecat_quantum.pulses import (
     DRAG,
     AnalyticEnvelope,
     Constant,
+    CosineFlatTop,
     DriveSignal,
     FrameSignal,
     Gaussian,
@@ -33,9 +34,21 @@ from scopecat_quantum.pulses import (
     ShiftPhase,
 )
 
-SAMPLED_WAVEFORM_SEMANTICS_ID = "scopecat.sampled.midpoint.v1"
+MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID = "scopecat.sampled.midpoint.v1"
+LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID = "scopecat.sampled.left-edge.v1"
+SAMPLED_WAVEFORM_SEMANTICS_ID = MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID
 
 type TimingQuantizationMode = Literal["strict", "nearest"]
+type SampleLocation = Literal["midpoint", "left_edge"]
+type CarrierPhaseReference = Literal[
+    "schedule_origin",
+    "signal_first_play",
+    "event_origin",
+]
+type SampledWaveformSemanticsId = Literal[
+    "scopecat.sampled.midpoint.v1",
+    "scopecat.sampled.left-edge.v1",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +65,7 @@ class SampleGrid:
 
     sample_rate_hz: int
     timing: TimingQuantizationPolicy = field(default_factory=TimingQuantizationPolicy)
+    sample_location: SampleLocation = "midpoint"
 
     def __post_init__(self) -> None:
         if self.sample_rate_hz <= 0:
@@ -77,6 +91,7 @@ class SampledOutputBinding:
     q_lane: int
     intermediate_frequency_hz: float
     mixer: IqMatrix
+    carrier_phase_reference: CarrierPhaseReference = "schedule_origin"
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +135,7 @@ class SampledRenderEvent:
     timing: RealizedEventTiming
     binding: SampledOutputBinding
     effective_phase_radians: float
+    carrier_origin_seconds: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,7 +143,7 @@ class SampledWaveformPlan:
     """Pure numeric work for one scheduled program and one sample grid."""
 
     program_id: PulseProgramId
-    semantics_id: Literal["scopecat.sampled.midpoint.v1"]
+    semantics_id: SampledWaveformSemanticsId
     grid: SampleGrid
     sample_count: int
     lane_count: int
@@ -199,6 +215,8 @@ def _same_render_structure(
         reference_event.binding == candidate_event.binding
         and reference_event.timing.start_sample == candidate_event.timing.start_sample
         and reference_event.timing.sample_count == candidate_event.timing.sample_count
+        and reference_event.carrier_origin_seconds
+        == candidate_event.carrier_origin_seconds
         and replace(
             candidate_event.envelope,
             phase=reference_event.envelope.phase,
@@ -216,7 +234,7 @@ def _same_render_structure(
 class RenderedWaveforms:
     """Read-only normalized physical-lane buffers and their final peaks."""
 
-    semantics_id: Literal["scopecat.sampled.midpoint.v1"]
+    semantics_id: SampledWaveformSemanticsId
     sample_rate_hz: int
     buffers: tuple[NDArray[np.float64], ...]
     lane_peaks: tuple[float, ...]
@@ -339,6 +357,18 @@ def plan_sampled_waveforms(
         issues=issues,
     )
     timings_by_id = {timing.event_id: timing for timing in timings}
+    first_play_start_by_signal: dict[PlaySignal, Decimal] = {}
+    for event in program.events:
+        timing = timings_by_id.get(event.id)
+        if (
+            isinstance(event.instruction, Play)
+            and timing is not None
+            and timing.sample_count > 0
+        ):
+            first_play_start_by_signal.setdefault(
+                event.instruction.signal,
+                event.start_seconds,
+            )
     render_events: list[SampledRenderEvent] = []
     frame_phases: dict[FrameSignal, float] = {}
     for event in program.events:
@@ -367,11 +397,33 @@ def plan_sampled_waveforms(
             continue
         if timing is None or timing.sample_count <= 0:
             continue
+        if isinstance(instruction.envelope, CosineFlatTop):
+            edge_duration_seconds = Decimal(
+                str(instruction.envelope.rise_duration.to("s").value)
+            ) + Decimal(str(instruction.envelope.fall_duration.to("s").value))
+            if edge_duration_seconds > timing.realized_duration_seconds:
+                issues.append(
+                    WaveformPlanningIssue(
+                        code="sampled_cosine_edges_exceed_realized_duration",
+                        message=(
+                            f"event {event.id.value!r} cosine-flat-top edges exceed "
+                            "its realized duration"
+                        ),
+                        event_id=event.id,
+                    )
+                )
         frame_phase = (
             frame_phases.get(instruction.signal, 0.0)
             if isinstance(instruction.signal, DriveSignal | ReadoutSignal)
             else 0.0
         )
+        carrier_phase_reference = binding.carrier_phase_reference
+        if carrier_phase_reference == "schedule_origin":
+            carrier_origin_seconds = Decimal(0)
+        elif carrier_phase_reference == "signal_first_play":
+            carrier_origin_seconds = first_play_start_by_signal[instruction.signal]
+        else:
+            carrier_origin_seconds = event.start_seconds
         render_events.append(
             SampledRenderEvent(
                 event_id=event.id,
@@ -381,6 +433,7 @@ def plan_sampled_waveforms(
                 effective_phase_radians=(
                     float(instruction.envelope.phase.value) + frame_phase
                 ),
+                carrier_origin_seconds=carrier_origin_seconds,
             )
         )
 
@@ -400,7 +453,7 @@ def plan_sampled_waveforms(
     )
     return SampledWaveformPlan(
         program_id=program.id,
-        semantics_id=SAMPLED_WAVEFORM_SEMANTICS_ID,
+        semantics_id=_sampled_waveform_semantics_id(grid),
         grid=grid,
         sample_count=program_end_sample,
         lane_count=lane_count,
@@ -474,28 +527,30 @@ class Float64ReferenceRenderer:
             for _ in range(plan.lane_count)
         )
         sample_rate_hz = plan.grid.sample_rate_hz
+        sample_offset = 0.5 if plan.grid.sample_location == "midpoint" else 0.0
         for event in plan.render_events:
             timing = event.timing
-            local_centers = (
-                np.arange(timing.sample_count, dtype=np.float64) + 0.5
+            local_positions = (
+                np.arange(timing.sample_count, dtype=np.float64) + sample_offset
             ) / sample_rate_hz
-            absolute_centers = (
+            absolute_positions = (
                 timing.start_sample
                 + np.arange(timing.sample_count, dtype=np.float64)
-                + 0.5
+                + sample_offset
             ) / sample_rate_hz
             envelope = _envelope_samples(
                 event.envelope,
-                local_centers=local_centers,
+                local_positions=local_positions,
                 realized_duration_seconds=timing.sample_count / sample_rate_hz,
             )
+            carrier_positions = absolute_positions - float(event.carrier_origin_seconds)
             carrier = np.exp(
                 1j
                 * (
                     event.effective_phase_radians
                     + math.tau
                     * event.binding.intermediate_frequency_hz
-                    * absolute_centers
+                    * carrier_positions
                 )
             )
             samples = envelope * carrier
@@ -523,15 +578,35 @@ class Float64ReferenceRenderer:
 def _envelope_samples(
     envelope: AnalyticEnvelope,
     *,
-    local_centers: np.ndarray[tuple[int], np.dtype[np.float64]],
+    local_positions: np.ndarray[tuple[int], np.dtype[np.float64]],
     realized_duration_seconds: float,
 ) -> np.ndarray[tuple[int], np.dtype[np.complex128]]:
     amplitude = float(envelope.amplitude.value)
     if isinstance(envelope, Constant):
-        return np.full(local_centers.shape, complex(amplitude), dtype=np.complex128)
+        return np.full(local_positions.shape, complex(amplitude), dtype=np.complex128)
+
+    if isinstance(envelope, CosineFlatTop):
+        samples = np.full(local_positions.shape, amplitude, dtype=np.float64)
+        rise_seconds = float(envelope.rise_duration.value)
+        if rise_seconds > 0:
+            rising = local_positions < rise_seconds
+            samples[rising] *= 0.5 * (
+                1.0 - np.cos(math.pi * local_positions[rising] / rise_seconds)
+            )
+        fall_seconds = float(envelope.fall_duration.value)
+        if fall_seconds > 0:
+            fall_start = realized_duration_seconds - fall_seconds
+            falling = local_positions >= fall_start
+            samples[falling] *= 0.5 * (
+                1.0
+                + np.cos(
+                    math.pi * (local_positions[falling] - fall_start) / fall_seconds
+                )
+            )
+        return samples.astype(np.complex128)
 
     sigma_seconds = float(envelope.sigma.value)
-    offsets = local_centers - realized_duration_seconds / 2.0
+    offsets = local_positions - realized_duration_seconds / 2.0
     gaussian = amplitude * np.exp(
         -(offsets * offsets) / (2.0 * sigma_seconds * sigma_seconds)
     )
@@ -542,6 +617,14 @@ def _envelope_samples(
     beta_seconds = float(envelope.beta.value)
     derivative = -offsets * gaussian / (sigma_seconds * sigma_seconds)
     return gaussian + 1j * beta_seconds * derivative
+
+
+def _sampled_waveform_semantics_id(
+    grid: SampleGrid,
+) -> SampledWaveformSemanticsId:
+    if grid.sample_location == "midpoint":
+        return MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID
+    return LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID
 
 
 def _quantize_boundary(seconds: Decimal, grid: SampleGrid) -> int | None:
@@ -568,16 +651,21 @@ def _issue_sort_key(issue: WaveformPlanningIssue) -> tuple[object, ...]:
 
 
 __all__ = [
+    "LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID",
+    "MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID",
     "SAMPLED_WAVEFORM_SEMANTICS_ID",
+    "CarrierPhaseReference",
     "Float64ReferenceRenderer",
     "IqMatrix",
     "PhaseParameterizedSampledWaveforms",
     "RealizedEventTiming",
     "RenderedWaveforms",
     "SampleGrid",
+    "SampleLocation",
     "SampledOutputBinding",
     "SampledRenderEvent",
     "SampledWaveformPlan",
+    "SampledWaveformSemanticsId",
     "TimingQuantizationMode",
     "TimingQuantizationPolicy",
     "WaveformPlanningError",
