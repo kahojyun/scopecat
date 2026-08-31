@@ -50,6 +50,7 @@ from scopecat.records.measurement_recording import (
 )
 from scopecat_testkit.domain import domain_execution_identity
 
+import scopecat_server.storage.sqlite.execution as sqlite_execution
 from scopecat_server.storage.sqlite.connection import SQLiteDatabase
 from scopecat_server.storage.sqlite.execution import (
     ExecutionStateConflict,
@@ -1390,6 +1391,56 @@ def test_measurement_page_reads_intersecting_chunks_and_live_schema(
     assert later_schema is None
 
 
+def test_measurement_count_and_deep_page_use_indexed_append_seeks(
+    tmp_path: Path,
+) -> None:
+    run_id = "run-deep-page"
+    runs = _runs(tmp_path)
+    repository = SQLiteMeasurementDatasetRepository(runs, run_id=run_id)
+    header = _header(run_id, point_count=5)
+    _commit_header(runs, repository, header)
+    for start_index, end_index in ((0, 3), (3, 5)):
+        _commit_append(
+            runs,
+            repository,
+            MeasurementDatasetAppend(
+                run_id=run_id,
+                header_content_hash=header.content_hash,
+                start_index=start_index,
+                records=tuple(
+                    _append(
+                        header,
+                        point_index=point_index,
+                        value=float(point_index),
+                    ).records[0]
+                    for point_index in range(start_index, end_index)
+                ),
+            ),
+        )
+
+    statements: list[str] = []
+    with runs.sqlite.read_connection() as connection:
+        connection.set_trace_callback(statements.append)
+        record_count = sqlite_execution._measurement_record_count(connection, run_id)
+        connection.set_trace_callback(None)
+    items, next_offset, _schema, snapshot_size = repository.measurement_page(
+        limit=2,
+        offset=2,
+    )
+
+    assert record_count == snapshot_size == 5
+    assert [record.point_index for record in items] == [2, 3]
+    assert next_offset == 4
+    [count_statement] = tuple(
+        statement
+        for statement in statements
+        if "FROM execution_measurement_appends" in statement
+    )
+    assert "SUM(" not in count_statement
+    assert "ORDER BY start_index DESC" in count_statement
+    assert "LIMIT 1" in count_statement
+
+
 def test_measurement_page_pushes_variable_selection_into_arrow_chunks(
     tmp_path: Path,
 ) -> None:
@@ -1480,6 +1531,40 @@ def test_measurement_records_at_reads_only_selected_durable_points(
         MeasurementScalar.create(dtype="float64", value=3, unit="ratio"),
         MeasurementScalar.create(dtype="float64", value=1, unit="ratio"),
     ]
+
+
+def test_sparse_measurement_index_seeks_only_selected_frames(tmp_path: Path) -> None:
+    run_id = "run-sparse-index-seek"
+    runs = _runs(tmp_path)
+    repository = SQLiteMeasurementDatasetRepository(runs, run_id=run_id)
+    header = _header(run_id, point_count=10)
+    _commit_header(runs, repository, header)
+    for point_index in range(10):
+        _commit_append(
+            runs,
+            repository,
+            _append(header, point_index=point_index, value=float(point_index)),
+        )
+
+    statements: list[str] = []
+    with runs.sqlite.read_connection() as connection:
+        connection.set_trace_callback(statements.append)
+        rows = sqlite_execution._measurement_rows_at_indices(
+            connection,
+            run_id,
+            (0, 9),
+            require_all=True,
+        )
+        connection.set_trace_callback(None)
+
+    assert tuple(cast("int", row["start_index"]) for row in rows) == (0, 9)
+    assert (
+        sum(
+            "FROM execution_measurement_appends" in statement
+            for statement in statements
+        )
+        == 2
+    )
 
 
 def test_measurement_header_makes_an_empty_dataset_readable(tmp_path: Path) -> None:

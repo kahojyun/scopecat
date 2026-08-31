@@ -592,16 +592,13 @@ class ExecutorService:
                     "measurement_fragment_initialized",
                     lease.segment_id,
                 )
-        fragment = next(
-            fragment
-            for fragment in repository.measurement_fragments()
-            if fragment.segment_id == lease.segment_id
-        )
         try:
             self._active_measurements.initialize(
                 command.header,
                 segment_id=lease.segment_id,
-                start_index=fragment.start_index,
+                start_index=repository.measurement_fragment_start_index(
+                    lease.segment_id
+                ),
             )
         except ActiveMeasurementConflict as error:
             raise BackendConflict(str(error)) from error

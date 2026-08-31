@@ -150,6 +150,7 @@ from scopecat.records.measurement import (
 from scopecat.records.measurement_recording import (
     MeasurementDatasetAppend,
     MeasurementDatasetBatch,
+    MeasurementDatasetFragment,
     MeasurementDatasetHeader,
     MeasurementDatasetSeal,
     MeasurementRecoveryGroupStage,
@@ -4785,7 +4786,25 @@ def test_restart_quarantines_executor_until_operator_reconciles(
 
 def test_continuation_appends_measurements_in_a_new_segment_fragment(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    original_measurement_fragments = (
+        SQLiteMeasurementDatasetRepository.measurement_fragments
+    )
+    fragment_list_reads = 0
+
+    def counted_measurement_fragments(
+        repository: SQLiteMeasurementDatasetRepository,
+    ) -> tuple[MeasurementDatasetFragment, ...]:
+        nonlocal fragment_list_reads
+        fragment_list_reads += 1
+        return original_measurement_fragments(repository)
+
+    monkeypatch.setattr(
+        SQLiteMeasurementDatasetRepository,
+        "measurement_fragments",
+        counted_measurement_fragments,
+    )
     with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         submission = _submission("measurement-fragments", point_count=2)
         admission = runtime.application.submit_run(submission)
@@ -4945,6 +4964,7 @@ def test_continuation_appends_measurements_in_a_new_segment_fragment(
             _run_repository(tmp_path),
             run_id=run_id,
         ).measurement_fragments()
+        assert fragment_list_reads == 1
         assert [fragment.segment_id for fragment in fragments] == [
             first_lease.segment_id,
             second_lease.segment_id,

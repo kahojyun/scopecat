@@ -404,25 +404,13 @@ class SQLiteRecoveryGroups:
 
         selected = tuple(sorted(set(point_indices)))
         hashes_by_point: dict[int, str] = {}
-        selected_offset = 0
-        while selected_offset < len(selected):
-            point_index = selected[selected_offset]
-            row = _one(
-                connection.execute(
-                    """
-                    SELECT start_index, record_count, record_content_hashes_json
-                    FROM execution_measurement_appends
-                    WHERE run_id = ? AND start_index <= ?
-                    ORDER BY start_index DESC
-                    LIMIT 1
-                    """,
-                    (self._run_id, point_index),
-                )
-            )
-            if row is None:
-                raise ExecutionStateConflict(
-                    "recovery group measurements are not durably published"
-                )
+        rows = _measurement_rows_at_indices(
+            connection,
+            self._run_id,
+            selected,
+            require_all=True,
+        )
+        for row in rows:
             start_index = _integer(row, "start_index")
             record_count = _integer(row, "record_count")
             record_hashes = _string_tuple(row, "record_content_hashes_json")
@@ -431,19 +419,12 @@ class SQLiteRecoveryGroups:
                     "measurement append record hashes are inconsistent"
                 )
             end_index = start_index + record_count
-            if point_index >= end_index:
-                raise ExecutionStateConflict(
-                    "recovery group measurements are not durably published"
-                )
-            while (
-                selected_offset < len(selected)
-                and selected[selected_offset] < end_index
-            ):
-                selected_point = selected[selected_offset]
+            first = bisect_left(selected, start_index)
+            last = bisect_left(selected, end_index)
+            for selected_point in selected[first:last]:
                 hashes_by_point[selected_point] = record_hashes[
                     selected_point - start_index
                 ]
-                selected_offset += 1
         return hashes_by_point
 
     def _validate_staged_output_in_transaction(
@@ -2123,7 +2104,11 @@ class SQLiteMeasurementDatasetRepository:
                     )
                 fragment_record_hashes = tuple(
                     record_hash
-                    for row in _measurement_fragment_rows(connection, segment_id)
+                    for row in _measurement_rows_from(
+                        connection,
+                        self._run_id,
+                        start_index=fragment_start_index,
+                    )
                     for record_hash in cast(
                         "list[str]",
                         json.loads(_text(row, "record_content_hashes_json")),
@@ -2221,24 +2206,32 @@ class SQLiteMeasurementDatasetRepository:
                         (self._run_id,),
                     )
                 )
+                append_rows = _all(
+                    connection.execute(
+                        """
+                        SELECT segment_id, record_content_hashes_json
+                        FROM execution_measurement_appends
+                        WHERE run_id = ?
+                        ORDER BY start_index
+                        """,
+                        (self._run_id,),
+                    )
+                )
+                hashes_by_segment: dict[str, list[str]] = {}
+                for row in append_rows:
+                    hashes_by_segment.setdefault(
+                        _text(row, "segment_id"),
+                        [],
+                    ).extend(_string_tuple(row, "record_content_hashes_json"))
                 result: list[MeasurementDatasetFragment] = []
                 for fragment in fragments:
-                    record_hashes = tuple(
-                        record_hash
-                        for row in _measurement_fragment_rows(
-                            connection,
-                            _text(fragment, "segment_id"),
-                        )
-                        for record_hash in cast(
-                            "list[str]",
-                            json.loads(_text(row, "record_content_hashes_json")),
-                        )
-                    )
+                    segment_id = _text(fragment, "segment_id")
+                    record_hashes = tuple(hashes_by_segment.get(segment_id, ()))
                     start_index = _integer(fragment, "start_index")
                     header_content_hash = _text(fragment, "header_content_hash")
                     result.append(
                         MeasurementDatasetFragment(
-                            segment_id=_text(fragment, "segment_id"),
+                            segment_id=segment_id,
                             run_id=self._run_id,
                             header_content_hash=header_content_hash,
                             start_index=start_index,
@@ -2259,6 +2252,24 @@ class SQLiteMeasurementDatasetRepository:
         except Exception as error:
             raise ExecutionStateError(
                 f"failed to read measurement fragments: {error}"
+            ) from error
+
+    def measurement_fragment_start_index(self, segment_id: str) -> int:
+        """Read one segment's canonical start without rebuilding its fragments."""
+
+        try:
+            with self._runs.sqlite.read_connection() as connection:
+                fragment = _measurement_fragment_row(connection, segment_id)
+            if fragment is None or _text(fragment, "run_id") != self._run_id:
+                raise ExecutionStateConflict(
+                    "measurement fragment does not belong to the requested run"
+                )
+            return _integer(fragment, "start_index")
+        except ExecutionStateError:
+            raise
+        except Exception as error:
+            raise ExecutionStateError(
+                f"failed to read measurement fragment start: {error}"
             ) from error
 
     def measurement_schema(self) -> MeasurementDatasetSchema | None:
@@ -2322,19 +2333,45 @@ class SQLiteMeasurementDatasetRepository:
                 if offset > selected_size:
                     raise ValueError("measurement page offset exceeds its snapshot")
                 page_end = min(offset + limit, selected_size)
-                rows = _all(
-                    connection.execute(
-                        """
-                        SELECT start_index, record_count, ref
-                        FROM execution_measurement_appends
-                        WHERE run_id = ?
-                          AND start_index < ?
-                          AND start_index + record_count > ?
-                        ORDER BY start_index
-                        """,
-                        (self._run_id, page_end, offset),
+                rows: list[sqlite3.Row] = []
+                if offset < page_end:
+                    first = _one(
+                        connection.execute(
+                            """
+                            SELECT start_index, record_count, ref
+                            FROM execution_measurement_appends
+                            WHERE run_id = ? AND start_index <= ?
+                            ORDER BY start_index DESC
+                            LIMIT 1
+                            """,
+                            (self._run_id, offset),
+                        )
                     )
-                )
+                    if first is None:
+                        raise ExecutionStateError(
+                            "measurement append index does not cover its dataset"
+                        )
+                    first_start = _integer(first, "start_index")
+                    if first_start + _integer(first, "record_count") <= offset:
+                        raise ExecutionStateError(
+                            "measurement append index does not cover its dataset"
+                        )
+                    rows.append(first)
+                    rows.extend(
+                        _all(
+                            connection.execute(
+                                """
+                                SELECT start_index, record_count, ref
+                                FROM execution_measurement_appends
+                                WHERE run_id = ?
+                                  AND start_index > ?
+                                  AND start_index < ?
+                                ORDER BY start_index
+                                """,
+                                (self._run_id, first_start, page_end),
+                            )
+                        )
+                    )
             schema_assets = self._measurement_schema_assets()
             if schema_assets is None:
                 return (), None, None, selected_size
@@ -2359,6 +2396,10 @@ class SQLiteMeasurementDatasetRepository:
                         variable_ids=variable_ids,
                         dataset_schema_hash=dataset_schema_hash,
                     )
+                )
+            if len(items) != page_end - offset:
+                raise ExecutionStateError(
+                    "measurement append index does not cover its dataset"
                 )
             next_offset = (
                 offset + len(items) if offset + len(items) < selected_size else None
@@ -2402,18 +2443,11 @@ class SQLiteMeasurementDatasetRepository:
             return ()
         try:
             with self._runs.sqlite.read_connection() as connection:
-                rows = _all(
-                    connection.execute(
-                        """
-                        SELECT start_index, record_count, ref
-                        FROM execution_measurement_appends
-                        WHERE run_id = ?
-                          AND start_index < ?
-                          AND start_index + record_count > ?
-                        ORDER BY start_index
-                        """,
-                        (self._run_id, selected[-1] + 1, selected[0]),
-                    )
+                rows = _measurement_rows_at_indices(
+                    connection,
+                    self._run_id,
+                    selected,
+                    require_all=False,
                 )
             schema_assets = self._measurement_schema_assets()
             if schema_assets is None:
@@ -2541,18 +2575,63 @@ def _measurement_rows(
     )
 
 
-def _measurement_fragment_rows(
+def _measurement_rows_at_indices(
     connection: sqlite3.Connection,
-    segment_id: str,
+    run_id: str,
+    point_indices: Sequence[int],
+    *,
+    require_all: bool,
+) -> tuple[sqlite3.Row, ...]:
+    """Seek directly to each distinct append containing selected point indices."""
+
+    selected = tuple(sorted(set(point_indices)))
+    rows: list[sqlite3.Row] = []
+    selected_offset = 0
+    while selected_offset < len(selected):
+        point_index = selected[selected_offset]
+        row = _one(
+            connection.execute(
+                """
+                SELECT start_index, record_count, ref,
+                       record_content_hashes_json
+                FROM execution_measurement_appends
+                WHERE run_id = ? AND start_index <= ?
+                ORDER BY start_index DESC
+                LIMIT 1
+                """,
+                (run_id, point_index),
+            )
+        )
+        if row is None or point_index >= (
+            _integer(row, "start_index") + _integer(row, "record_count")
+        ):
+            if require_all:
+                raise ExecutionStateConflict(
+                    "recovery group measurements are not durably published"
+                )
+            selected_offset += 1
+            continue
+        rows.append(row)
+        end_index = _integer(row, "start_index") + _integer(row, "record_count")
+        while selected_offset < len(selected) and selected[selected_offset] < end_index:
+            selected_offset += 1
+    return tuple(rows)
+
+
+def _measurement_rows_from(
+    connection: sqlite3.Connection,
+    run_id: str,
+    *,
+    start_index: int,
 ) -> list[sqlite3.Row]:
     return _all(
         connection.execute(
             """
             SELECT * FROM execution_measurement_appends
-            WHERE segment_id = ?
+            WHERE run_id = ? AND start_index >= ?
             ORDER BY start_index
             """,
-            (segment_id,),
+            (run_id, start_index),
         )
     )
 
@@ -2642,15 +2721,20 @@ def _measurement_record_count(
     row = _one(
         connection.execute(
             """
-            SELECT COALESCE(SUM(record_count), 0) AS record_count
+            SELECT start_index, record_count
             FROM execution_measurement_appends
             WHERE run_id = ?
+            ORDER BY start_index DESC
+            LIMIT 1
             """,
             (run_id,),
         )
     )
-    assert row is not None
-    return _integer(row, "record_count")
+    return (
+        0
+        if row is None
+        else _integer(row, "start_index") + _integer(row, "record_count")
+    )
 
 
 def _store_model(runs: SQLiteRunRepository, model: BaseModel) -> StoredObject:
