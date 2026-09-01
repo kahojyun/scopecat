@@ -24,6 +24,8 @@ from scopecat_quantum.pulses import (
     schedule,
 )
 from scopecat_quantum.waveforms import (
+    CONTINUOUS_LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID,
+    CONTINUOUS_MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID,
     LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID,
     MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID,
     CarrierPhaseReference,
@@ -180,6 +182,68 @@ def test_timing_only_planner_retains_nearest_grid_error() -> None:
     assert timing.sample_count == 2
     assert timing.requested_duration_seconds == Decimal("2.4e-9")
     assert timing.duration_error_seconds == Decimal("-4e-10")
+
+
+def test_continuous_timing_selects_sample_locations_inside_requested_interval() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("timing-continuous"),
+            Sequence(
+                (
+                    Delay(PulseEventId("initial"), DRIVE_Q0, Quantity(1.2, "ns")),
+                    Play(
+                        PulseEventId("play"),
+                        DRIVE_Q0,
+                        Constant(Quantity(4, "ns"), Quantity(1, "arb")),
+                    ),
+                )
+            ),
+        )
+    )
+
+    timings = realize_event_timings(
+        program.events,
+        grid=SampleGrid(
+            1_000_000_000,
+            TimingQuantizationPolicy(mode="continuous"),
+        ),
+    )
+
+    initial, play = timings
+    assert (initial.start_sample, initial.sample_count) == (0, 1)
+    assert (play.start_sample, play.sample_count) == (1, 4)
+    assert play.requested_start_seconds == Decimal("1.2e-9")
+    assert play.start_error_seconds == Decimal("-2e-10")
+
+
+def test_continuous_timing_allows_a_delay_with_no_sample_location() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("subsample-delay"),
+            Sequence(
+                (
+                    Delay(PulseEventId("delay"), DRIVE_Q0, Quantity(0.2, "ns")),
+                    Play(
+                        PulseEventId("play"),
+                        DRIVE_Q0,
+                        Constant(Quantity(2, "ns"), Quantity(1, "arb")),
+                    ),
+                )
+            ),
+        )
+    )
+
+    delay, play = realize_event_timings(
+        program.events,
+        grid=SampleGrid(
+            1_000_000_000,
+            TimingQuantizationPolicy(mode="continuous"),
+        ),
+    )
+
+    assert delay.sample_count == 0
+    assert play.requested_start_seconds == Decimal("2e-10")
+    assert play.sample_count == 2
 
 
 def test_timing_only_planner_preserves_structured_strict_grid_errors() -> None:
@@ -613,6 +677,145 @@ def test_gaussian_uses_midpoints_over_the_realized_span() -> None:
 
     np.testing.assert_allclose(rendered.buffers[0], expected)
     np.testing.assert_allclose(rendered.buffers[1], (0.0,) * 4)
+
+
+def test_continuous_sampling_makes_fractional_envelope_origins_observable() -> None:
+    def render(initial_delay_ns: float) -> tuple[SampledWaveformPlan, np.ndarray]:
+        program = schedule(
+            PulseProgram(
+                PulseProgramId(f"continuous-gaussian-{initial_delay_ns}"),
+                Sequence(
+                    (
+                        Delay(
+                            PulseEventId("initial"),
+                            DRIVE_Q0,
+                            Quantity(initial_delay_ns, "ns"),
+                        ),
+                        Play(
+                            PulseEventId("play"),
+                            DRIVE_Q0,
+                            Gaussian(
+                                duration=Quantity(4, "ns"),
+                                amplitude=Quantity(0.2, "arb"),
+                                sigma=Quantity(1, "ns"),
+                            ),
+                        ),
+                    )
+                ),
+            )
+        )
+        plan = plan_sampled_waveforms(
+            program,
+            bindings=(_binding(DRIVE_Q0),),
+            grid=SampleGrid(
+                1_000_000_000,
+                TimingQuantizationPolicy(mode="continuous"),
+            ),
+        )
+        return plan, Float64ReferenceRenderer().render(plan).buffers[0]
+
+    aligned_plan, aligned = render(1.0)
+    shifted_plan, shifted = render(1.2)
+    aligned_offsets = np.array((-1.5, -0.5, 0.5, 1.5))
+    shifted_offsets = np.array((-1.7, -0.7, 0.3, 1.3))
+
+    assert aligned_plan.semantics_id == (
+        CONTINUOUS_MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID
+    )
+    assert shifted_plan.timing_for(PulseEventId("play")).start_sample == 1
+    np.testing.assert_allclose(
+        aligned[1:5],
+        0.2 * np.exp(-(aligned_offsets * aligned_offsets) / 2.0),
+    )
+    np.testing.assert_allclose(
+        shifted[1:5],
+        0.2 * np.exp(-(shifted_offsets * shifted_offsets) / 2.0),
+    )
+    assert not np.array_equal(aligned, shifted)
+    assert factor_phase_parameterized_waveforms((aligned_plan, shifted_plan)) is None
+
+
+def test_nearest_phase_factorization_ignores_non_rendered_requested_origins() -> None:
+    def plan(initial_delay_ns: float, phase: float) -> SampledWaveformPlan:
+        return plan_sampled_waveforms(
+            schedule(
+                PulseProgram(
+                    PulseProgramId(f"nearest-factor-{initial_delay_ns}-{phase}"),
+                    Sequence(
+                        (
+                            Delay(
+                                PulseEventId("initial"),
+                                DRIVE_Q0,
+                                Quantity(initial_delay_ns, "ns"),
+                            ),
+                            Play(
+                                PulseEventId("play"),
+                                DRIVE_Q0,
+                                Gaussian(
+                                    duration=Quantity(4, "ns"),
+                                    amplitude=Quantity(0.2, "arb"),
+                                    sigma=Quantity(1, "ns"),
+                                    phase=Quantity(phase, "rad"),
+                                ),
+                            ),
+                        )
+                    ),
+                )
+            ),
+            bindings=(_binding(DRIVE_Q0),),
+            grid=SampleGrid(
+                1_000_000_000,
+                TimingQuantizationPolicy(mode="nearest"),
+            ),
+        )
+
+    factored = factor_phase_parameterized_waveforms(
+        (plan(0.1, 0.0), plan(0.2, math.pi / 2))
+    )
+
+    assert factored is not None
+    assert factored.phase_rows == ((0.0,), (math.pi / 2,))
+
+
+def test_continuous_window_records_the_first_in_interval_left_edge_sample() -> None:
+    program = schedule(
+        PulseProgram(
+            PulseProgramId("continuous-left-edge-window"),
+            Sequence(
+                (
+                    Delay(PulseEventId("initial"), DRIVE_Q0, Quantity(0.25, "ns")),
+                    Play(
+                        PulseEventId("play"),
+                        DRIVE_Q0,
+                        Gaussian(
+                            duration=Quantity(2, "ns"),
+                            amplitude=Quantity(0.2, "arb"),
+                            sigma=Quantity(0.5, "ns"),
+                        ),
+                    ),
+                )
+            ),
+        )
+    )
+    [play] = resolve_waveform_events(program.events)
+    plan = plan_sampled_waveform_window(
+        (play,),
+        program_id=program.id,
+        selected_events=(play,),
+        bindings=(_binding(DRIVE_Q0),),
+        grid=SampleGrid(
+            2_000_000_000,
+            TimingQuantizationPolicy(mode="continuous"),
+            sample_location="left_edge",
+        ),
+    )
+
+    [timing] = plan.event_timings
+    assert plan.semantics_id == CONTINUOUS_LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID
+    assert plan.time_origin_seconds == Decimal("5e-10")
+    assert timing.requested_start_seconds == Decimal("-2.5e-10")
+    assert timing.start_sample == 0
+    assert timing.sample_count == 4
 
 
 def test_left_edge_cosine_flat_top_matches_legacy_periodic_hann() -> None:

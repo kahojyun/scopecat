@@ -58,19 +58,26 @@ the corresponding interval from a full-program render, including sub-sample
 continuous event origins and schedule-, signal-, or event-referenced carriers.
 
 Choose the timing policy deliberately. `strict` rejects a boundary the selected
-clock cannot express. `nearest` retains the quantization error and is suitable
-only when that approximation is part of the reviewed target contract. Device
-trigger ticks, transfer blocks, waveform padding, and channel packing remain a
-later target-specific layer; they must not be presented as the scientific time
-coordinate itself.
+clock cannot express. `nearest` moves the instruction and its local envelope to
+half-even rounded boundaries; it retains the quantization error and is suitable
+only when that approximation is part of the reviewed target contract.
+`continuous` instead selects the hardware sample locations inside each requested
+half-open interval and evaluates the analytic envelope relative to its exact
+requested origin. Smooth envelopes can therefore produce different device
+samples for fractional-sample shifts even when their selected sample count is
+unchanged. Constant or otherwise aliased waveforms may still collapse to the
+same physical values. Device trigger ticks, transfer blocks, waveform padding,
+and channel packing remain a later target-specific layer; they must not be
+presented as the scientific time coordinate itself.
 
 Boundary quantization and analytic-function evaluation are separate choices.
 `SampleGrid.sample_location` defaults to `"midpoint"`; select `"left_edge"`
 only when a device or established waveform contract evaluates each sample at
-the beginning of its half-open interval. The selected convention is reflected
-in the waveform semantics id. Do not emulate left-edge evaluation by shifting
-pulse starts or phases, because that changes scheduling intent and obscures the
-experimentally relevant half-sample offset.
+the beginning of its half-open interval. The selected convention and
+continuous-time sampling mode are reflected in the waveform semantics id. Do
+not emulate left-edge evaluation by shifting pulse starts or phases, because
+that changes scheduling intent and obscures the experimentally relevant
+half-sample offset.
 
 Use an explicit analytic envelope whenever the target knows the pulse shape.
 `CosineFlatTop` and `authoring.cosine_flat_top(...)` expose independent rise and

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field, replace
-from decimal import ROUND_HALF_EVEN, Decimal, localcontext
+from decimal import ROUND_CEILING, ROUND_HALF_EVEN, Decimal, localcontext
 from typing import Literal, cast
 
 import numpy as np
@@ -37,9 +37,15 @@ from scopecat_quantum.pulses import (
 
 MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID = "scopecat.sampled.midpoint.v1"
 LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID = "scopecat.sampled.left-edge.v1"
+CONTINUOUS_MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID = (
+    "scopecat.sampled.continuous-time.midpoint.v1"
+)
+CONTINUOUS_LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID = (
+    "scopecat.sampled.continuous-time.left-edge.v1"
+)
 SAMPLED_WAVEFORM_SEMANTICS_ID = MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID
 
-type TimingQuantizationMode = Literal["strict", "nearest"]
+type TimingQuantizationMode = Literal["strict", "nearest", "continuous"]
 type SampleLocation = Literal["midpoint", "left_edge"]
 type CarrierPhaseReference = Literal[
     "schedule_origin",
@@ -49,12 +55,20 @@ type CarrierPhaseReference = Literal[
 type SampledWaveformSemanticsId = Literal[
     "scopecat.sampled.midpoint.v1",
     "scopecat.sampled.left-edge.v1",
+    "scopecat.sampled.continuous-time.midpoint.v1",
+    "scopecat.sampled.continuous-time.left-edge.v1",
 ]
 
 
 @dataclass(frozen=True, slots=True)
 class TimingQuantizationPolicy:
-    """How exact continuous boundaries are projected onto one sample grid."""
+    """How exact continuous boundaries are realized on one sample grid.
+
+    ``strict`` requires exact boundary samples. ``nearest`` moves an
+    instruction and its local envelope to half-even rounded boundaries.
+    ``continuous`` retains the requested analytic origin and selects the sample
+    locations inside its half-open continuous interval.
+    """
 
     mode: TimingQuantizationMode = "nearest"
     boundary_rounding: Literal["half_even"] = "half_even"
@@ -227,6 +241,9 @@ def factor_phase_parameterized_waveforms(
             or not _same_render_structure(
                 reference.render_events,
                 candidate.render_events,
+                requested_timing_affects_render=(
+                    reference.grid.timing.mode == "continuous"
+                ),
             )
         ):
             return None
@@ -248,9 +265,20 @@ def factor_phase_parameterized_waveforms(
 def _same_render_structure(
     reference: tuple[SampledRenderEvent, ...],
     candidate: tuple[SampledRenderEvent, ...],
+    *,
+    requested_timing_affects_render: bool,
 ) -> bool:
     return len(reference) == len(candidate) and all(
         reference_event.binding == candidate_event.binding
+        and (
+            not requested_timing_affects_render
+            or (
+                reference_event.timing.requested_start_seconds
+                == candidate_event.timing.requested_start_seconds
+                and reference_event.timing.requested_duration_seconds
+                == candidate_event.timing.requested_duration_seconds
+            )
+        )
         and reference_event.timing.start_sample == candidate_event.timing.start_sample
         and reference_event.timing.sample_count == candidate_event.timing.sample_count
         and reference_event.carrier_origin_seconds
@@ -309,7 +337,8 @@ def realize_event_timings(
 
     This timing-only entry point lets device targets reuse the same continuous
     schedule semantics even when their waveform encoding or renderer remains
-    device-specific.  Every shared boundary is quantized once.
+    device-specific.  Every shared boundary is realized once. A non-output
+    delay may contain no sample location; a positive play may not collapse.
     """
 
     boundaries = {
@@ -426,6 +455,7 @@ def plan_sampled_waveforms(
     )
     render_events = _plan_render_events(
         resolved_events,
+        grid=grid,
         timings=timings,
         binding_by_signal=binding_by_signal,
         time_origin_seconds=Decimal(0),
@@ -515,6 +545,7 @@ def plan_sampled_waveform_window(
     )
     render_events = _plan_render_events(
         selected_events,
+        grid=grid,
         timings=timings,
         binding_by_signal=binding_by_signal,
         time_origin_seconds=time_origin_seconds,
@@ -583,6 +614,7 @@ def _first_play_starts(
 def _plan_render_events(
     events: tuple[ResolvedWaveformEvent, ...],
     *,
+    grid: SampleGrid,
     timings: tuple[RealizedEventTiming, ...],
     binding_by_signal: dict[PlaySignal, SampledOutputBinding],
     time_origin_seconds: Decimal,
@@ -606,13 +638,13 @@ def _plan_render_events(
             edge_duration_seconds = Decimal(
                 str(event.envelope.rise_duration.to("s").value)
             ) + Decimal(str(event.envelope.fall_duration.to("s").value))
-            if edge_duration_seconds > timing.realized_duration_seconds:
+            if edge_duration_seconds > _envelope_duration_seconds(timing, grid):
                 issues.append(
                     WaveformPlanningIssue(
                         code="sampled_cosine_edges_exceed_realized_duration",
                         message=(
                             f"event {event.event_id.value!r} cosine-flat-top edges "
-                            "exceed its realized duration"
+                            "exceed its envelope duration"
                         ),
                         event_id=event.event_id,
                     )
@@ -662,7 +694,13 @@ def _realize_event_timings(
 ) -> tuple[RealizedEventTiming, ...]:
     return _realize_timing_rows(
         tuple(
-            (event.id, event.start_seconds, event.duration_seconds) for event in events
+            (
+                event.id,
+                event.start_seconds,
+                event.duration_seconds,
+                isinstance(event.instruction, Play),
+            )
+            for event in events
         ),
         grid=grid,
         boundary_samples=boundary_samples,
@@ -679,7 +717,7 @@ def _realize_resolved_event_timings(
 ) -> tuple[RealizedEventTiming, ...]:
     return _realize_timing_rows(
         tuple(
-            (event.event_id, event.start_seconds, event.duration_seconds)
+            (event.event_id, event.start_seconds, event.duration_seconds, True)
             for event in events
         ),
         grid=grid,
@@ -689,14 +727,14 @@ def _realize_resolved_event_timings(
 
 
 def _realize_timing_rows(
-    events: tuple[tuple[PulseEventId, Decimal, Decimal], ...],
+    events: tuple[tuple[PulseEventId, Decimal, Decimal, bool], ...],
     *,
     grid: SampleGrid,
     boundary_samples: dict[Decimal, int | None],
     issues: list[WaveformPlanningIssue],
 ) -> tuple[RealizedEventTiming, ...]:
     timings: list[RealizedEventTiming] = []
-    for event_id, start_seconds, duration_seconds in events:
+    for event_id, start_seconds, duration_seconds, requires_samples in events:
         requested_end = start_seconds + duration_seconds
         start_sample = boundary_samples[start_seconds]
         end_sample = boundary_samples[requested_end]
@@ -732,7 +770,7 @@ def _realize_timing_rows(
             sample_count=end_sample - start_sample,
         )
         timings.append(timing)
-        if duration_seconds > 0 and timing.sample_count <= 0:
+        if requires_samples and duration_seconds > 0 and timing.sample_count <= 0:
             issues.append(
                 WaveformPlanningIssue(
                     code="sampled_event_collapsed",
@@ -756,18 +794,25 @@ class Float64ReferenceRenderer:
         sample_offset = 0.5 if plan.grid.sample_location == "midpoint" else 0.0
         for event in plan.render_events:
             timing = event.timing
-            local_positions = (
-                np.arange(timing.sample_count, dtype=np.float64) + sample_offset
-            ) / sample_rate_hz
             absolute_positions = (
                 timing.start_sample
                 + np.arange(timing.sample_count, dtype=np.float64)
                 + sample_offset
             ) / sample_rate_hz
+            if plan.grid.timing.mode == "continuous":
+                local_positions = absolute_positions - float(
+                    timing.requested_start_seconds
+                )
+                envelope_duration_seconds = float(timing.requested_duration_seconds)
+            else:
+                local_positions = (
+                    np.arange(timing.sample_count, dtype=np.float64) + sample_offset
+                ) / sample_rate_hz
+                envelope_duration_seconds = timing.sample_count / sample_rate_hz
             envelope = _envelope_samples(
                 event.envelope,
                 local_positions=local_positions,
-                realized_duration_seconds=timing.sample_count / sample_rate_hz,
+                envelope_duration_seconds=envelope_duration_seconds,
             )
             carrier_positions = absolute_positions - float(event.carrier_origin_seconds)
             carrier = np.exp(
@@ -806,7 +851,7 @@ def _envelope_samples(
     envelope: AnalyticEnvelope,
     *,
     local_positions: np.ndarray[tuple[int], np.dtype[np.float64]],
-    realized_duration_seconds: float,
+    envelope_duration_seconds: float,
 ) -> np.ndarray[tuple[int], np.dtype[np.complex128]]:
     amplitude = float(envelope.amplitude.value)
     if isinstance(envelope, Constant):
@@ -822,7 +867,7 @@ def _envelope_samples(
             )
         fall_seconds = float(envelope.fall_duration.value)
         if fall_seconds > 0:
-            fall_start = realized_duration_seconds - fall_seconds
+            fall_start = envelope_duration_seconds - fall_seconds
             falling = local_positions >= fall_start
             samples[falling] *= 0.5 * (
                 1.0
@@ -833,7 +878,7 @@ def _envelope_samples(
         return samples.astype(np.complex128)
 
     sigma_seconds = float(envelope.sigma.value)
-    offsets = local_positions - realized_duration_seconds / 2.0
+    offsets = local_positions - envelope_duration_seconds / 2.0
     gaussian = amplitude * np.exp(
         -(offsets * offsets) / (2.0 * sigma_seconds * sigma_seconds)
     )
@@ -849,13 +894,31 @@ def _envelope_samples(
 def _sampled_waveform_semantics_id(
     grid: SampleGrid,
 ) -> SampledWaveformSemanticsId:
+    if grid.timing.mode == "continuous":
+        if grid.sample_location == "midpoint":
+            return CONTINUOUS_MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID
+        return CONTINUOUS_LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID
     if grid.sample_location == "midpoint":
         return MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID
     return LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID
 
 
+def _envelope_duration_seconds(
+    timing: RealizedEventTiming,
+    grid: SampleGrid,
+) -> Decimal:
+    if grid.timing.mode == "continuous":
+        return timing.requested_duration_seconds
+    return timing.realized_duration_seconds
+
+
 def _quantize_boundary(seconds: Decimal, grid: SampleGrid) -> int | None:
     scaled = seconds * Decimal(grid.sample_rate_hz)
+    if grid.timing.mode == "continuous":
+        sample_offset = (
+            Decimal("0.5") if grid.sample_location == "midpoint" else Decimal(0)
+        )
+        return int((scaled - sample_offset).to_integral_value(rounding=ROUND_CEILING))
     integral = scaled.to_integral_value(rounding=ROUND_HALF_EVEN)
     if grid.timing.mode == "strict" and scaled != integral:
         return None
@@ -878,6 +941,8 @@ def _issue_sort_key(issue: WaveformPlanningIssue) -> tuple[object, ...]:
 
 
 __all__ = [
+    "CONTINUOUS_LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID",
+    "CONTINUOUS_MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID",
     "LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID",
     "MIDPOINT_SAMPLED_WAVEFORM_SEMANTICS_ID",
     "SAMPLED_WAVEFORM_SEMANTICS_ID",
