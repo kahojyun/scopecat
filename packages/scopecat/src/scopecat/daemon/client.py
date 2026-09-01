@@ -46,6 +46,10 @@ from scopecat.automation import (
     ProcedureStepCompleteReceipt,
     ProcedureStepFailCommand,
     ProcedureStepFailReceipt,
+    ProcedureStepInputSubmitCommand,
+    ProcedureStepInputSubmitReceipt,
+    ProcedureStepInputWaitCommand,
+    ProcedureStepInputWaitReceipt,
     ProcedureSubmitCommand,
     ProcedureSubmitReceipt,
     ProcedureWorkerLeaseAcquireCommand,
@@ -723,6 +727,26 @@ class DaemonClient:
             self._procedure_step_path(command, "attention"),
             command,
             ProcedureStepAttentionReceipt,
+        )
+
+    def wait_procedure_step_input(
+        self,
+        command: ProcedureStepInputWaitCommand,
+    ) -> ProcedureStepInputWaitReceipt:
+        return self._post_idempotent_model(
+            self._procedure_step_path(command, "input/wait"),
+            command,
+            ProcedureStepInputWaitReceipt,
+        )
+
+    def submit_procedure_step_input(
+        self,
+        command: ProcedureStepInputSubmitCommand,
+    ) -> ProcedureStepInputSubmitReceipt:
+        return self._post_idempotent_model(
+            self._procedure_step_path(command, "input"),
+            command,
+            ProcedureStepInputSubmitReceipt,
         )
 
     def retry_procedure_step_attention(
@@ -2097,7 +2121,9 @@ class DaemonClient:
         command: ProcedureStepCompleteCommand
         | ProcedureStepFailCommand
         | ProcedureStepAttentionCommand
-        | ProcedureStepAttentionRetryCommand,
+        | ProcedureStepAttentionRetryCommand
+        | ProcedureStepInputWaitCommand
+        | ProcedureStepInputSubmitCommand,
         suffix: str,
     ) -> str:
         return (

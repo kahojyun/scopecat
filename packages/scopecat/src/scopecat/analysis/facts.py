@@ -43,6 +43,12 @@ def _schema_hash(schema: JsonValue) -> str:
     return f"sha256:{stable_content_hash(identity)}"
 
 
+def analysis_fact_structure_hash(structure: JsonValue) -> str:
+    """Return the stable identity of one durable fact structure."""
+
+    return _schema_hash(structure)
+
+
 _SCALAR_ADAPTER: TypeAdapter[ScalarFactValue] = TypeAdapter(
     ScalarFactValue,
     config=ConfigDict(strict=True),
@@ -390,6 +396,18 @@ def _validate_fact_json(  # noqa: C901 - compact interpreter for the closed sche
     _require_fact_json(valid, path, schema_type)
 
 
+def validate_analysis_fact_json(value: JsonValue, structure: JsonValue) -> None:
+    """Validate durable JSON against one first-party fact structure.
+
+    Analysis publication normally validates through a local
+    :class:`AnalysisFactSchema`. Control-plane consumers such as interactive
+    procedure inputs retain only the durable structure, so they use this
+    function without importing the user's Python response type.
+    """
+
+    _validate_fact_json(value, structure, path="$fact")
+
+
 def _matches_fact_json(value: JsonValue, schema: JsonValue, *, path: str) -> bool:
     try:
         _validate_fact_json(value, schema, path=path)
@@ -425,4 +443,6 @@ __all__ = [
     "SCALAR_FACT_SCHEMA_ID",
     "AnalysisFactSchema",
     "ScalarFactValue",
+    "analysis_fact_structure_hash",
+    "validate_analysis_fact_json",
 ]

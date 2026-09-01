@@ -10,12 +10,14 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict
+from scopecat.analysis.facts import AnalysisFactSchema
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._remote import RemoteRunOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.procedures import LabProcedureContext, ProcedureLabSession
 from scopecat.automation import (
     ConfigActivationOutputRef,
+    InterpretationRequest,
     ProcedureCloseCommand,
     ProcedureContext,
     ProcedureControlError,
@@ -30,6 +32,8 @@ from scopecat.automation import (
     ProcedureStepBeginCommand,
     ProcedureStepCompleteCommand,
     ProcedureStepFailCommand,
+    ProcedureStepInputSubmitCommand,
+    ProcedureStepInputWaitCommand,
     ProcedureSubmitCommand,
     ProcedureWorker,
     ProcedureWorkerLeaseAcquireCommand,
@@ -68,6 +72,11 @@ class _TwoStepWorkerIntent(BaseModel):
 
     first_run_id: str
     second_run_id: str
+
+
+@dataclass(frozen=True)
+class _ResonatorSelection:
+    resonator: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,6 +328,76 @@ def test_procedure_http_round_trip_persists_pages_and_fences(
                     lease_token=acquired.lease.lease_token,
                 )
             )
+
+
+def test_procedure_http_round_trips_interpretation_input(tmp_path: Path) -> None:
+    with (
+        LocalDaemonRuntime(tmp_path) as runtime,
+        TestClient(runtime.app()) as transport,
+        _daemon_client(transport) as client,
+    ):
+        submitted = _submit(client, "interpretation")
+        acquired = client.acquire_procedure_worker_lease(
+            ProcedureWorkerLeaseAcquireCommand(
+                procedure_run_id=submitted.procedure_run_id,
+                worker_id="worker-1",
+                expected_run_revision=submitted.revision,
+            )
+        )
+        schema = AnalysisFactSchema(
+            "tests.resonator-selection.v1",
+            _ResonatorSelection,
+        )
+        request = InterpretationRequest(
+            title="Select resonator",
+            instructions="Return the selected resonator.",
+            schema_id=schema.id,
+            schema_hash=schema.schema_hash,
+            structure=schema.structure,
+            response_template={"resonator": "replace after reviewing the trace"},
+        )
+        begun = client.begin_procedure_step(
+            ProcedureStepBeginCommand(
+                procedure_run_id=submitted.procedure_run_id,
+                lease_token=acquired.lease.lease_token,
+                expected_run_revision=acquired.run.revision,
+                step_key="select-resonator",
+                operation="interpretation",
+                intent_hash=request.request_hash,
+            )
+        )
+        waiting = client.wait_procedure_step_input(
+            ProcedureStepInputWaitCommand(
+                procedure_run_id=submitted.procedure_run_id,
+                lease_token=acquired.lease.lease_token,
+                expected_run_revision=begun.run.revision,
+                step_key=begun.step.step_key,
+                attempt=begun.step.attempt,
+                expected_step_revision=begun.step.revision,
+                request=request,
+            )
+        )
+        assert waiting.run.state == "waiting_for_input"
+        assert waiting.step.interpretation_request == request
+
+        answered = client.submit_procedure_step_input(
+            ProcedureStepInputSubmitCommand(
+                procedure_run_id=submitted.procedure_run_id,
+                expected_run_revision=waiting.run.revision,
+                step_key=waiting.step.step_key,
+                attempt=waiting.step.attempt,
+                expected_step_revision=waiting.step.revision,
+                request_hash=waiting.step.intent_hash,
+                actor="operator@example.test",
+                actor_kind="human",
+                value=schema.encode(_ResonatorSelection(resonator="r2")),
+            )
+        )
+
+        assert answered.run.state == "ready"
+        assert schema.decode(answered.output.response.value) == _ResonatorSelection(
+            resonator="r2"
+        )
 
 
 def test_procedure_http_exposes_worker_state_transitions(tmp_path: Path) -> None:

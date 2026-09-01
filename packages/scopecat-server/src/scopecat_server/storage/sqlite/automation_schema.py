@@ -11,7 +11,9 @@ CREATE TABLE IF NOT EXISTS procedure_runs (
     intent_hash TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK (revision >= 1),
     state TEXT NOT NULL CHECK (
-        state IN ('ready', 'leased', 'attention_required', 'closed')
+        state IN (
+            'ready', 'leased', 'waiting_for_input', 'attention_required', 'closed'
+        )
     ),
     closure_status TEXT CHECK (
         closure_status IS NULL
@@ -55,12 +57,18 @@ CREATE TABLE IF NOT EXISTS procedure_step_attempts (
     step_key TEXT NOT NULL,
     attempt INTEGER NOT NULL CHECK (attempt >= 1),
     operation TEXT NOT NULL CHECK (
-        operation IN ('run', 'analysis', 'config_activation', 'config_publish')
+        operation IN (
+            'run', 'analysis', 'config_activation', 'config_publish',
+            'interpretation'
+        )
     ),
     intent_hash TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK (revision >= 1),
     state TEXT NOT NULL CHECK (
-        state IN ('running', 'succeeded', 'failed', 'attention_required')
+        state IN (
+            'running', 'succeeded', 'failed', 'waiting_for_input',
+            'attention_required'
+        )
     ),
     started_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,

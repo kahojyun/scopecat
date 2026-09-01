@@ -8,7 +8,9 @@ from threading import Event, Lock, Thread
 from typing import Protocol, cast
 
 from scopecat.automation.definition import ProcedureRegistry, RegisteredProcedure
+from scopecat.automation.interpretations import InterpretationRequest
 from scopecat.automation.models import (
+    InterpretationOutputRef,
     ProcedureCloseStatus,
     ProcedureRun,
     ProcedureStepOperation,
@@ -27,6 +29,8 @@ from scopecat.automation.wire import (
     ProcedureStepCompleteReceipt,
     ProcedureStepFailCommand,
     ProcedureStepFailReceipt,
+    ProcedureStepInputWaitCommand,
+    ProcedureStepInputWaitReceipt,
     ProcedureSubmitCommand,
     ProcedureSubmitReceipt,
     ProcedureWorkerLease,
@@ -86,6 +90,11 @@ class ProcedureControl(Protocol):
         command: ProcedureStepAttentionCommand,
     ) -> ProcedureStepAttentionReceipt: ...
 
+    def wait_procedure_step_input(
+        self,
+        command: ProcedureStepInputWaitCommand,
+    ) -> ProcedureStepInputWaitReceipt: ...
+
     def require_procedure_run_attention(
         self,
         command: ProcedureRunAttentionCommand,
@@ -139,6 +148,16 @@ class _ProcedureAttentionRecorded(Exception):
     def __init__(self, run: ProcedureRun) -> None:
         self.run = run
         super().__init__(run.attention_reason)
+
+
+class _ProcedureInputRecorded(Exception):
+    __slots__ = ("run",)
+
+    run: ProcedureRun
+
+    def __init__(self, run: ProcedureRun) -> None:
+        self.run = run
+        super().__init__("procedure is waiting for interpretation input")
 
 
 class _ProcedureYieldRequested(BaseException):
@@ -242,6 +261,57 @@ class ProcedureContext:
         if durable_output is None:
             raise RuntimeError("completed procedure step has no output")
         return cast("OutputT", durable_output)
+
+    def interpret(
+        self,
+        step_key: str,
+        *,
+        request: InterpretationRequest,
+        inputs: tuple[ProcedureStepOutputRef, ...] = (),
+    ) -> InterpretationOutputRef:
+        """Replay a typed response or durably wait without retaining the lease."""
+
+        if self._should_yield is not None and self._should_yield():
+            raise _ProcedureYieldRequested
+        begun = self._authority.fenced_call(
+            "begin_interpretation",
+            lambda run, lease: self._control.begin_procedure_step(
+                ProcedureStepBeginCommand(
+                    procedure_run_id=run.procedure_run_id,
+                    lease_token=lease.lease_token,
+                    expected_run_revision=run.revision,
+                    step_key=step_key,
+                    operation="interpretation",
+                    intent_hash=request.request_hash,
+                    inputs=inputs,
+                )
+            ),
+        )
+        if begun.step.state == "succeeded":
+            output = begun.step.output
+            if not isinstance(output, InterpretationOutputRef):
+                raise RuntimeError("successful interpretation has no typed output")
+            return output
+        if begun.step.state != "running":
+            raise RuntimeError(
+                f"interpretation step {step_key!r} cannot execute from "
+                f"state {begun.step.state!r}"
+            )
+        receipt = self._authority.fenced_call(
+            "wait_for_input",
+            lambda run, lease: self._control.wait_procedure_step_input(
+                ProcedureStepInputWaitCommand(
+                    procedure_run_id=run.procedure_run_id,
+                    lease_token=lease.lease_token,
+                    expected_run_revision=run.revision,
+                    step_key=begun.step.step_key,
+                    attempt=begun.step.attempt,
+                    expected_step_revision=begun.step.revision,
+                    request=request,
+                )
+            ),
+        )
+        raise _ProcedureInputRecorded(receipt.run)
 
     def _record_step_failure(
         self,
@@ -410,6 +480,8 @@ class ProcedureWorker:
                 return self._release(authority)
             except _ProcedureAttentionRecorded as recorded:
                 return recorded.run
+            except _ProcedureInputRecorded as recorded:
+                return recorded.run
             except ProcedureNeedsAttention as error:
                 return self._require_run_attention(authority, error.reason)
             except ProcedureControlError, ProcedureLeaseLostError:
@@ -508,6 +580,7 @@ type _FencedReceipt = (
     | ProcedureStepCompleteReceipt
     | ProcedureStepFailReceipt
     | ProcedureStepAttentionReceipt
+    | ProcedureStepInputWaitReceipt
     | ProcedureRunAttentionReceipt
     | ProcedureCloseReceipt
     | ProcedureWorkerLeaseReleaseReceipt

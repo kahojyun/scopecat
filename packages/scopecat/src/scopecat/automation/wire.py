@@ -5,10 +5,22 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
 
 from scopecat.automation.definition import MAX_PROCEDURE_REGISTRY_SIZE
+from scopecat.automation.interpretations import (
+    InterpretationActorKind,
+    InterpretationRequest,
+)
 from scopecat.automation.models import (
+    InterpretationOutputRef,
     ProcedureCloseStatus,
     ProcedureDefinitionRef,
     ProcedureIntent,
@@ -373,6 +385,62 @@ class ProcedureStepAttentionReceipt(_WireModel):
             raise ValueError(
                 "procedure step attention receipt requires attention states"
             )
+        return self
+
+
+class ProcedureStepInputWaitCommand(_FencedProcedureStepCommand):
+    """Publish a typed request and release the worker while input is pending."""
+
+    request: InterpretationRequest
+
+
+class ProcedureStepInputWaitReceipt(_WireModel):
+    run: ProcedureRun
+    step: ProcedureStepAttempt
+
+    @model_validator(mode="after")
+    def validate_result(self) -> ProcedureStepInputWaitReceipt:
+        _validate_step_receipt_alignment(self.run, self.step)
+        if (
+            self.run.state != "waiting_for_input"
+            or self.step.state != "waiting_for_input"
+        ):
+            raise ValueError("procedure input wait receipt requires waiting states")
+        return self
+
+
+class ProcedureStepInputSubmitCommand(_WireModel):
+    """Answer one exact waiting request without holding a worker lease."""
+
+    procedure_run_id: _NonEmptyText
+    expected_run_revision: int = Field(ge=1)
+    step_key: _NonEmptyText
+    attempt: int = Field(ge=1)
+    expected_step_revision: int = Field(ge=1)
+    request_hash: Sha256ContentHash
+    actor: _NonEmptyText
+    actor_kind: InterpretationActorKind
+    value: JsonValue
+    note: str = ""
+
+    @field_validator("actor")
+    @classmethod
+    def validate_actor(cls, value: str) -> str:
+        return _non_blank(value, field_name="interpretation actor")
+
+
+class ProcedureStepInputSubmitReceipt(_WireModel):
+    run: ProcedureRun
+    step: ProcedureStepAttempt
+    output: InterpretationOutputRef
+
+    @model_validator(mode="after")
+    def validate_result(self) -> ProcedureStepInputSubmitReceipt:
+        _validate_step_receipt_alignment(self.run, self.step)
+        if self.step.state != "succeeded":
+            raise ValueError("procedure input submission requires a successful step")
+        if self.step.output != self.output:
+            raise ValueError("procedure input receipt output must match its step")
         return self
 
 
