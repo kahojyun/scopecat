@@ -6,6 +6,7 @@ task:
 - [Control configured instruments](control-instruments.md)
 - [Resume an interrupted static run](resume-interrupted-runs.md)
 - [Use measurement data](use-measurement-data.md)
+- [Record a human or AI experiment decision](record-experiment-decisions.md)
 - [Review and publish project configuration](manage-configuration.md)
 
 For a guided first experience, use the [tutorials](../tutorials/index.md).

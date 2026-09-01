@@ -514,6 +514,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/procedures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Procedures */
+        get: operations["list_procedures_api_v1_procedures_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/procedures/{procedure_run_id}/steps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Procedure Step Attempts */
+        get: operations["list_procedure_step_attempts_api_v1_procedures__procedure_run_id__steps_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/procedures/{procedure_run_id}/steps/{step_key}/attempts/{attempt}/input": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Procedure Step Input */
+        post: operations["submit_procedure_step_input_api_v1_procedures__procedure_run_id__steps__step_key__attempts__attempt__input_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reviews": {
         parameters: {
             query?: never;
@@ -1565,6 +1616,19 @@ export interface components {
             record_ref: components["schemas"]["_NonEmptyText"];
         };
         /**
+         * AnalysisPublicationOutputRef
+         * @description Exact analysis publication produced by a procedure step.
+         */
+        AnalysisPublicationOutputRef: {
+            analysis_record_id: components["schemas"]["_NonEmptyText"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "analysis";
+            subject: components["schemas"]["AnalysisSubject"];
+        };
+        /**
          * AnalysisPublishedOutputReference
          * @description Exact output revision consumed from a run or project analysis.
          */
@@ -2181,6 +2245,21 @@ export interface components {
             recorded_at?: string;
         };
         /**
+         * ConfigActivationOutputRef
+         * @description Exact configuration-registry activation produced by a procedure step.
+         */
+        ConfigActivationOutputRef: {
+            entry_content_hash: components["schemas"]["ConfigContentHash"];
+            entry_id: components["schemas"]["_NonEmptyText"];
+            /** Generation */
+            generation: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "config_activation";
+        };
+        /**
          * ConfigActivationPage
          * @description Newest-first page of default configuration changes.
          */
@@ -2343,6 +2422,21 @@ export interface components {
              */
             recorded_at?: string;
             source_intent_hash: components["schemas"]["Sha256ContentHash"];
+        };
+        /**
+         * ConfigPublishOutputRef
+         * @description Exact configuration revision published and activated by a procedure step.
+         */
+        ConfigPublishOutputRef: {
+            entry_content_hash: components["schemas"]["ConfigContentHash"];
+            entry_id: components["schemas"]["_NonEmptyText"];
+            /** Generation */
+            generation: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "config_publish";
         };
         /** ConfigPublishReceipt */
         ConfigPublishReceipt: {
@@ -3322,6 +3416,61 @@ export interface components {
              */
             kind: "interface";
             property_id: components["schemas"]["_NonEmptyId"];
+        };
+        /** @enum {string} */
+        InterpretationActorKind: "human" | "ai" | "service";
+        /**
+         * InterpretationOutputRef
+         * @description Exact typed judgment supplied for one durable interpretation step.
+         */
+        InterpretationOutputRef: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "interpretation";
+            procedure_run_id: components["schemas"]["_NonEmptyText"];
+            request_hash: components["schemas"]["Sha256ContentHash"];
+            response: components["schemas"]["InterpretationResponse"];
+            step_key: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * InterpretationRequest
+         * @description One durable prompt whose response follows a stable structural schema.
+         */
+        InterpretationRequest: {
+            instructions: components["schemas"]["_NonEmptyText"];
+            metadata?: components["schemas"]["JsonMetadata"];
+            response_template?: components["schemas"]["pydantic__types__JsonValue"] | null;
+            /**
+             * Schema Codec
+             * @default scopecat.analysis-fact-schema.v1
+             * @constant
+             */
+            schema_codec: "scopecat.analysis-fact-schema.v1";
+            schema_hash: components["schemas"]["Sha256ContentHash"];
+            schema_id: components["schemas"]["_NonEmptyText"];
+            structure: components["schemas"]["pydantic__types__JsonValue"];
+            title: components["schemas"]["_NonEmptyText"];
+        };
+        /**
+         * InterpretationResponse
+         * @description Immutable structured judgment supplied by one identified actor.
+         */
+        InterpretationResponse: {
+            actor: components["schemas"]["_NonEmptyText"];
+            actor_kind: components["schemas"]["InterpretationActorKind"];
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Submitted At
+             * Format: date-time
+             */
+            submitted_at: string;
+            value: components["schemas"]["pydantic__types__JsonValue"];
         };
         /** InvokeCommand */
         InvokeCommand: {
@@ -4365,6 +4514,167 @@ export interface components {
          * @enum {string}
          */
         ProblemPhase: "definition" | "authoring" | "configuration" | "planning" | "provider_preflight" | "execution" | "persistence" | "analysis";
+        /** @enum {string} */
+        ProcedureCloseStatus: "succeeded" | "failed" | "cancelled";
+        /**
+         * ProcedureClosure
+         * @description Terminal result of a procedure run.
+         */
+        ProcedureClosure: {
+            /**
+             * Closed At
+             * Format: date-time
+             */
+            closed_at?: string;
+            /** Reason */
+            reason?: string | null;
+            status: components["schemas"]["ProcedureCloseStatus"];
+        };
+        /**
+         * ProcedureDefinitionRef
+         * @description Versioned executable definition pinned by its implementation fingerprint.
+         */
+        ProcedureDefinitionRef: {
+            fingerprint: components["schemas"]["Sha256ContentHash"];
+            id: components["schemas"]["_NonEmptyText"];
+            version: components["schemas"]["_NonEmptyText"];
+        };
+        "ProcedureIntent-Output": {
+            [key: string]: components["schemas"]["pydantic__types__JsonValue"];
+        };
+        /**
+         * ProcedureRun
+         * @description Current durable state of one version-pinned procedure invocation.
+         */
+        ProcedureRun: {
+            /** Attention Reason */
+            attention_reason?: string | null;
+            closure?: components["schemas"]["ProcedureClosure"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            definition: components["schemas"]["ProcedureDefinitionRef"];
+            intent: components["schemas"]["ProcedureIntent-Output"];
+            intent_hash: components["schemas"]["Sha256ContentHash"];
+            procedure_run_id: components["schemas"]["_NonEmptyText"];
+            request_key: components["schemas"]["_NonEmptyText"];
+            /** Revision */
+            revision: number;
+            /**
+             * Samples
+             * @default []
+             */
+            samples: components["schemas"]["SampleSelector"][];
+            state: components["schemas"]["ProcedureRunState"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+        };
+        /**
+         * ProcedureRunPage
+         * @description One newest-first page of procedure run snapshots.
+         */
+        ProcedureRunPage: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["ProcedureRun"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+        };
+        /** @enum {string} */
+        ProcedureRunState: "ready" | "leased" | "waiting_for_input" | "attention_required" | "closed";
+        /**
+         * ProcedureStepAttempt
+         * @description One revisioned attempt at a stable, intent-identified procedure step.
+         */
+        ProcedureStepAttempt: {
+            /** Attempt */
+            attempt: number;
+            /** Attention Reason */
+            attention_reason?: string | null;
+            /** Failure Reason */
+            failure_reason?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /**
+             * Inputs
+             * @default []
+             */
+            inputs: components["schemas"]["ProcedureStepOutputRef"][];
+            intent_hash: components["schemas"]["Sha256ContentHash"];
+            interpretation_request?: components["schemas"]["InterpretationRequest"] | null;
+            operation: components["schemas"]["ProcedureStepOperation"];
+            output?: components["schemas"]["ProcedureStepOutputRef"] | null;
+            procedure_run_id: components["schemas"]["_NonEmptyText"];
+            /** Revision */
+            revision: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at?: string;
+            state: components["schemas"]["ProcedureStepAttemptState"];
+            step_key: components["schemas"]["_NonEmptyText"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+        };
+        /**
+         * ProcedureStepAttemptPage
+         * @description One newest-first page of exact attempts for one procedure run.
+         */
+        ProcedureStepAttemptPage: {
+            /**
+             * Items
+             * @default []
+             */
+            items: components["schemas"]["ProcedureStepAttempt"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+            procedure_run_id: components["schemas"]["_NonEmptyText"];
+        };
+        /** @enum {string} */
+        ProcedureStepAttemptState: "running" | "succeeded" | "failed" | "waiting_for_input" | "attention_required";
+        /**
+         * ProcedureStepInputSubmitCommand
+         * @description Answer one exact waiting request without holding a worker lease.
+         */
+        ProcedureStepInputSubmitCommand: {
+            actor: components["schemas"]["_NonEmptyText"];
+            actor_kind: components["schemas"]["InterpretationActorKind"];
+            /** Attempt */
+            attempt: number;
+            /** Expected Run Revision */
+            expected_run_revision: number;
+            /** Expected Step Revision */
+            expected_step_revision: number;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            procedure_run_id: components["schemas"]["_NonEmptyText"];
+            request_hash: components["schemas"]["Sha256ContentHash"];
+            step_key: components["schemas"]["_NonEmptyText"];
+            value: components["schemas"]["pydantic__types__JsonValue"];
+        };
+        /** ProcedureStepInputSubmitReceipt */
+        ProcedureStepInputSubmitReceipt: {
+            output: components["schemas"]["InterpretationOutputRef"];
+            run: components["schemas"]["ProcedureRun"];
+            step: components["schemas"]["ProcedureStepAttempt"];
+        };
+        /** @enum {string} */
+        ProcedureStepOperation: "run" | "analysis" | "config_activation" | "config_publish" | "interpretation";
+        ProcedureStepOutputRef: components["schemas"]["RunOutputRef"] | components["schemas"]["AnalysisPublicationOutputRef"] | components["schemas"]["ConfigActivationOutputRef"] | components["schemas"]["ConfigPublishOutputRef"] | components["schemas"]["InterpretationOutputRef"];
         /**
          * ProjectAnalysisDecisionReference
          * @description One exact typed fact interpreted as a project-level decision.
@@ -5208,6 +5518,18 @@ export interface components {
             run_id: string;
         };
         /**
+         * RunOutputRef
+         * @description Exact child run produced by a procedure step.
+         */
+        RunOutputRef: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "run";
+            run_id: components["schemas"]["_NonEmptyText"];
+        };
+        /**
          * RunPlanView
          * @description Experiment facts without scheduler or backend identities.
          */
@@ -5630,6 +5952,18 @@ export interface components {
             items: components["schemas"]["SampleRevision"][];
             /** Next Cursor */
             next_cursor?: number | null;
+            sample_id: components["schemas"]["SampleId"];
+        };
+        /**
+         * SampleSelector
+         * @description Operator intent selecting one sample revision for a run role.
+         */
+        SampleSelector: {
+            context_id?: components["schemas"]["_NonEmptyText"] | null;
+            /** Revision */
+            revision?: number | null;
+            /** @default subject */
+            role: components["schemas"]["_NonEmptyText"];
             sample_id: components["schemas"]["SampleId"];
         };
         /**
@@ -6946,6 +7280,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InstrumentView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_procedures_api_v1_procedures_get: {
+        parameters: {
+            query?: {
+                cursor?: number | null;
+                limit?: number;
+                state?: components["schemas"]["ProcedureRunState"] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcedureRunPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_procedure_step_attempts_api_v1_procedures__procedure_run_id__steps_get: {
+        parameters: {
+            query?: {
+                cursor?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                procedure_run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcedureStepAttemptPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_procedure_step_input_api_v1_procedures__procedure_run_id__steps__step_key__attempts__attempt__input_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attempt: number;
+                procedure_run_id: string;
+                step_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProcedureStepInputSubmitCommand"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcedureStepInputSubmitReceipt"];
                 };
             };
             /** @description Validation Error */

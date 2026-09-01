@@ -83,9 +83,11 @@ and security boundaries.
 
 ## Project-store compatibility
 
-This early implementation uses project-store schema version 59 and does not
-perform implicit migrations. A daemon built from this revision refuses an
-older `.scopecat/control.sqlite3` instead of partially reading or rewriting it.
+This early implementation uses an explicitly versioned project store and does
+not perform implicit migrations. The current version is defined by
+`PROJECT_SCHEMA_VERSION` in `scopecat_server.storage.sqlite.schema`. A daemon
+built from this revision refuses an older `.scopecat/control.sqlite3` instead
+of partially reading or rewriting it.
 Before switching revisions, stop the daemon and back up the complete
 `.scopecat/` directory. If stored runs or configuration history matter, inspect
 or export them with the revision that created the store. Rebuilding means

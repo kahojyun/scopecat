@@ -30,6 +30,15 @@ _OPERATIONS = {
     ("/api/v1/instrument-drivers/probe", "post"),
     ("/api/v1/instruments", "get"),
     ("/api/v1/instruments/{instrument_id}", "get"),
+    ("/api/v1/procedures", "get"),
+    ("/api/v1/procedures/{procedure_run_id}/steps", "get"),
+    (
+        (
+            "/api/v1/procedures/{procedure_run_id}/steps/{step_key}/"
+            "attempts/{attempt}/input"
+        ),
+        "post",
+    ),
     ("/api/v1/reviews", "get"),
     ("/api/v1/reviews/{session_id}", "get"),
     ("/api/v1/reviews/{session_id}/compile", "post"),

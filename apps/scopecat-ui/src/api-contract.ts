@@ -130,6 +130,14 @@ export type ParameterValueDelta = Omit<
   after: StoredParameterValue;
 };
 export type ParameterValueType = components["schemas"]["PersistableValueType"];
+export type ProcedureRunPage = GetResponse<"/api/v1/procedures">;
+export type ProcedureRun = ProcedureRunPage["items"][number];
+export type ProcedureStepAttemptPage = GetResponse<"/api/v1/procedures/{procedure_run_id}/steps">;
+export type ProcedureStepAttempt = ProcedureStepAttemptPage["items"][number];
+export type ProcedureStepInputSubmitCommand =
+  components["schemas"]["ProcedureStepInputSubmitCommand"];
+export type ProcedureStepInputSubmitReceipt =
+  PostResponse<"/api/v1/procedures/{procedure_run_id}/steps/{step_key}/attempts/{attempt}/input">;
 export type Quantity = components["schemas"]["scopecat__kernel__quantity__Quantity"];
 export type ReviewCompileCommand = components["schemas"]["ReviewCompileCommand"];
 export type ProgramInspectionQuery = components["schemas"]["CompiledProgramInspectionQuery"];

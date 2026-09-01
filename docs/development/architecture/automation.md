@@ -38,7 +38,8 @@ lease-fenced ProcedureContext
         +-- run step ----------> RunOutputRef
         +-- analysis step -----> AnalysisPublicationOutputRef
         +-- config publish ----> ConfigPublishOutputRef
-        `-- config activation -> ConfigActivationOutputRef
+        +-- config activation -> ConfigActivationOutputRef
+        `-- interpretation ---> InterpretationOutputRef
                  |
                  v
       existing authoritative services
@@ -84,6 +85,27 @@ An expired worker may be replaced, but it cannot checkpoint late work. The
 notebook client therefore uses a process-local worker identity by default;
 another process waits for lease expiry or supplies its own operator-managed
 identity rather than impersonating the previous worker.
+
+An interpretation step is a normal, declared pause for scientific judgment,
+not an execution fault. The procedure publishes a title, instructions, exact
+upstream output references, open JSON metadata, and an `AnalysisFactSchema`-
+compatible structural response contract, plus an optional schema-valid editor
+template. The daemon atomically moves both the step and procedure to
+`waiting_for_input` and releases the worker lease. A
+human, AI agent, or service submits one identified structured response. The
+daemon checks it against the retained structure, records the response and its
+server timestamp in an `InterpretationOutputRef`, and returns the procedure to
+`ready`. Replay decodes the same response into the local Python type.
+
+Submitting a judgment does not execute the next step in the same control-plane
+request. It returns the procedure to `ready`: a notebook may resume it
+explicitly, while a configured resident project worker may claim it on its next
+poll. Labs that run a resident worker should therefore treat recording the
+judgment as authorizing the declared continuation. The response reference can
+be an input of later run, analysis, or configuration steps.
+`waiting_for_input` is distinct from `attention_required`: the former is
+expected experimental work; the latter quarantines an unknown or unsafe
+execution outcome.
 
 A known failure inside a step records a failed attempt and closes the procedure
 as failed; a rejected verification therefore fails the candidate-publication
