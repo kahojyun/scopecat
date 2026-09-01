@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
 
 import scopecat as sc
 from scopecat.kernel.entity import EntityRef
@@ -52,13 +51,10 @@ def _physical_bias_profile(
     return sc.PerEntity(
         (
             qubit,
-            cast(
-                "sc.ValueRef[sc.Quantity]",
-                profile_rows[qubit][LOGICAL_BIAS].ref
-                * calibrations[qubit][FLUX_GAIN].ref
-                * calibrations[qubit][FLUX_POLARITY].ref
-                + calibrations[qubit][FLUX_OFFSET].ref,
-            ),
+            profile_rows[qubit][LOGICAL_BIAS].ref
+            * calibrations[qubit][FLUX_GAIN].ref
+            * calibrations[qubit][FLUX_POLARITY].ref
+            + calibrations[qubit][FLUX_OFFSET].ref,
         )
         for qubit in QUBIT_SELECTION
     )

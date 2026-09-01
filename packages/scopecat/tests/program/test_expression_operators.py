@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import cast
+import math
+from typing import assert_type, cast
 
 import pytest
 from scopecat_testkit.expressions import evaluate_scalar
@@ -59,6 +60,114 @@ def test_arithmetic_supports_literal_operands_on_either_side() -> None:
         )
         for expression in expressions
     ] == [4, 4, 0, 3, 4, 4, 1.0, 3.0]
+
+
+def test_quantity_arithmetic_reduces_inverse_units_to_plain_numbers() -> None:
+    frequency_type = sc.ScalarType(sc.QuantityType(dimension="frequency"))
+    delay_type = sc.ScalarType(sc.QuantityType(dimension="time"))
+    frequency = program_input("frequency", frequency_type)
+    delay = program_input("delay", delay_type)
+    cycles = frequency * delay
+    phase = cycles * sc.Quantity(math.tau, "rad")
+
+    assert cycles.value_type == sc.ScalarType(sc.FloatType())
+    assert phase.value_type == sc.ScalarType(sc.QuantityType(unit="rad"))
+    assert evaluate_scalar(
+        internal_lower_scalar_value_ref(cycles),
+        EvalContext(
+            inputs={
+                "frequency": sc.Quantity(5.0, "GHz"),
+                "delay": sc.Quantity(20.0, "ns"),
+            }
+        ),
+        bindings=_input_bindings(
+            frequency=frequency_type,
+            delay=delay_type,
+        ),
+    ) == pytest.approx(100.0)
+    assert evaluate_scalar(
+        internal_lower_scalar_value_ref(phase),
+        EvalContext(
+            inputs={
+                "frequency": sc.Quantity(5.0, "GHz"),
+                "delay": sc.Quantity(20.0, "ns"),
+            }
+        ),
+        bindings=_input_bindings(
+            frequency=frequency_type,
+            delay=delay_type,
+        ),
+    ) == sc.Quantity(100.0 * math.tau, "rad")
+
+
+def test_quantity_arithmetic_normalizes_linear_ratios() -> None:
+    frequency_type = sc.ScalarType(sc.QuantityType(dimension="frequency"))
+    measured = program_input("measured", frequency_type)
+    reference = program_input("reference", frequency_type)
+    ratio = measured / reference
+
+    assert ratio.value_type == sc.ScalarType(sc.FloatType())
+    assert (
+        evaluate_scalar(
+            internal_lower_scalar_value_ref(ratio),
+            EvalContext(
+                inputs={
+                    "measured": sc.Quantity(5_000.0, "MHz"),
+                    "reference": sc.Quantity(5.0, "GHz"),
+                }
+            ),
+            bindings=_input_bindings(
+                measured=frequency_type,
+                reference=frequency_type,
+            ),
+        )
+        == 1.0
+    )
+
+
+def test_quantity_arithmetic_exposes_dimension_reducing_static_types() -> None:
+    frequency = sc.coordinate("frequency", sc.QuantityType(unit="GHz"))
+    delay = sc.coordinate("delay", sc.QuantityType(unit="ns"))
+    scale = sc.coordinate("scale", sc.FloatType())
+    phase = frequency * delay * sc.Quantity(math.tau, "rad")
+
+    assert_type(frequency * delay, sc.ValueRef[float])
+    assert_type(phase, sc.ValueRef[sc.Quantity])
+    assert_type(frequency / sc.Quantity(1.0, "GHz"), sc.ValueRef[float])
+    assert_type(frequency * 2.0, sc.ValueRef[sc.Quantity])
+    assert_type(frequency * scale, sc.ValueRef[sc.Quantity])
+    assert_type(frequency / scale, sc.ValueRef[sc.Quantity])
+
+
+def test_quantity_arithmetic_rejects_non_reducing_or_nonlinear_units() -> None:
+    voltage = program_input(
+        "voltage",
+        sc.ScalarType(sc.QuantityType(dimension="voltage")),
+    )
+    duration = program_input(
+        "duration",
+        sc.ScalarType(sc.QuantityType(dimension="time")),
+    )
+    logarithmic_power = program_input(
+        "power",
+        sc.ScalarType(sc.QuantityType(unit="dBm")),
+    )
+    linear_power = program_input(
+        "linear_power",
+        sc.ScalarType(sc.QuantityType(unit="W")),
+    )
+    generic_power = program_input(
+        "generic_power",
+        sc.ScalarType(sc.QuantityType(dimension="power")),
+    )
+
+    assert (linear_power / linear_power).value_type == sc.ScalarType(sc.FloatType())
+    with pytest.raises(TypeError, match="must cancel to a dimensionless value"):
+        _ = voltage * duration
+    with pytest.raises(TypeError, match="shared linearly scaled dimension"):
+        _ = logarithmic_power / logarithmic_power
+    with pytest.raises(TypeError, match="shared linearly scaled dimension"):
+        _ = generic_power / generic_power
 
 
 def test_integer_arithmetic_preserves_affine_bounds() -> None:
