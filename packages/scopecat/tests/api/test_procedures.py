@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from scopecat_testkit.workflow_fixtures import load_config, load_invocation
 
 import scopecat.api.procedures as procedures_module
+from scopecat.analysis.facts import AnalysisFactSchema
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._runner import _DaemonRunner
 from scopecat.api.analysis import Analysis, AnalysisContext, AnalysisStep
@@ -25,6 +26,9 @@ from scopecat.automation import (
     AnalysisPublicationOutputRef,
     ConfigActivationOutputRef,
     ConfigPublishOutputRef,
+    InterpretationOutputRef,
+    InterpretationRequest,
+    InterpretationResponse,
     ProcedureContext,
     ProcedureStepOperation,
     ProcedureStepOutputRef,
@@ -168,6 +172,42 @@ class _SucceededStepProcedureContext:
         del effect
         assert _StepCall(step_key, operation, intent_hash, inputs) == self.existing
         return self.output
+
+
+class _InterpretationProcedureContext:
+    procedure_run_id = "procedure-test"
+
+    def __init__(self) -> None:
+        self.request: InterpretationRequest | None = None
+        self.inputs: tuple[ProcedureStepOutputRef, ...] = ()
+
+    def interpret(
+        self,
+        step_key: str,
+        *,
+        request: InterpretationRequest,
+        inputs: tuple[ProcedureStepOutputRef, ...] = (),
+    ) -> InterpretationOutputRef:
+        self.request = request
+        self.inputs = inputs
+        return InterpretationOutputRef(
+            procedure_run_id=self.procedure_run_id,
+            step_key=step_key,
+            request_hash=request.request_hash,
+            response=InterpretationResponse(
+                actor="analysis-agent",
+                actor_kind="ai",
+                value={"resonator": "r2", "confidence": 0.84},
+                note="isolated dip and expected bias response",
+                submitted_at=datetime.now(UTC),
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class _ResonatorSelection:
+    resonator: str
+    confidence: float
 
 
 class _UnavailableAnalysisSession:
@@ -467,6 +507,46 @@ def test_analysis_transport_with_no_confirmed_r1_requires_attention() -> None:
             _TestAnalysisStep(),
             inputs=(),
         )
+
+
+def test_interpretation_decodes_typed_response_and_retains_exact_reference() -> None:
+    durable = _InterpretationProcedureContext()
+    context = LabProcedureContext(
+        cast("ProcedureContext", cast("object", durable)),
+        runner=cast("_DaemonRunner", object()),
+        config=cast("LabConfigOperations", object()),
+        session=cast("ProcedureLabSession", object()),
+    )
+    schema = AnalysisFactSchema(
+        "tests.resonator-selection.v1",
+        _ResonatorSelection,
+    )
+    survey = RunOutputRef(run_id="readout-s21-survey")
+
+    result = context.interpret(
+        "select-resonator",
+        title="Select readout resonator",
+        instructions="Use the S21 trace and bias response.",
+        schema=schema,
+        inputs=(survey,),
+        response_template=_ResonatorSelection(
+            resonator="replace after reviewing the trace",
+            confidence=0.0,
+        ),
+        metadata={"figure": "readout-s21"},
+    )
+
+    assert result.value == _ResonatorSelection(resonator="r2", confidence=0.84)
+    assert result.ref.response.actor_kind == "ai"
+    assert result.ref.response.note.startswith("isolated dip")
+    assert durable.inputs == (survey,)
+    assert durable.request is not None
+    assert durable.request.schema_hash == schema.schema_hash
+    assert durable.request.response_template == {
+        "resonator": "replace after reviewing the trace",
+        "confidence": 0.0,
+    }
+    assert durable.request.metadata == {"figure": "readout-s21"}
 
 
 def test_run_analysis_rejects_durable_upstream_mismatch() -> None:

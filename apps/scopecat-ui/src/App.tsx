@@ -8,6 +8,7 @@ import {
   GitCompareArrows,
   LayoutDashboard,
   LoaderCircle,
+  MessageSquareText,
   RefreshCw,
   Settings2,
   Unplug,
@@ -18,7 +19,14 @@ import { RunsWorkspace } from "./features/runs/RunsWorkspace";
 import { titleCase } from "./lib/presentation";
 import { classes, iconButton } from "./ui/styles";
 
-type ProjectView = "runs" | "samples" | "analyses" | "reviews" | "instruments" | "configuration";
+type ProjectView =
+  | "runs"
+  | "samples"
+  | "analyses"
+  | "decisions"
+  | "reviews"
+  | "instruments"
+  | "configuration";
 
 const AnalysesWorkspace = lazy(async () => {
   const module = await import("./features/analyses/AnalysesWorkspace");
@@ -43,6 +51,11 @@ const InstrumentsWorkspace = lazy(async () => {
 const ReviewWorkspace = lazy(async () => {
   const module = await import("./features/reviews/ReviewWorkspace");
   return { default: module.ReviewWorkspace };
+});
+
+const DecisionWorkspace = lazy(async () => {
+  const module = await import("./features/decisions/DecisionWorkspace");
+  return { default: module.DecisionWorkspace };
 });
 
 export default function App() {
@@ -109,6 +122,8 @@ export default function App() {
       void queryClient.invalidateQueries({ queryKey: ["instruments"] });
       void queryClient.invalidateQueries({ queryKey: ["reviews"] });
       void queryClient.invalidateQueries({ queryKey: ["review"] });
+      void queryClient.invalidateQueries({ queryKey: ["procedure-decisions"] });
+      void queryClient.invalidateQueries({ queryKey: ["procedure-decision-steps"] });
       void queryClient.invalidateQueries({
         queryKey: parameterProposalKeys.all,
       });
@@ -222,7 +237,7 @@ export default function App() {
           </span>
         </a>
         <nav
-          className="absolute left-1/2 flex -translate-x-1/2 gap-4 max-[880px]:static max-[880px]:ml-auto max-[880px]:translate-x-0 max-[680px]:order-3 max-[680px]:w-full"
+          className="absolute left-1/2 flex -translate-x-1/2 gap-4 max-[880px]:static max-[880px]:ml-auto max-[880px]:translate-x-0 max-[680px]:order-3 max-[680px]:w-full max-[680px]:overflow-x-auto"
           aria-label="Project sections"
         >
           <button
@@ -251,6 +266,15 @@ export default function App() {
           >
             <GitCompareArrows size={15} aria-hidden="true" />
             Analyses
+          </button>
+          <button
+            type="button"
+            className={navigationClass(view === "decisions")}
+            aria-current={view === "decisions" ? "page" : undefined}
+            onClick={() => selectView("decisions")}
+          >
+            <MessageSquareText size={15} aria-hidden="true" />
+            Decisions
           </button>
           <button
             type="button"
@@ -388,6 +412,18 @@ export default function App() {
               selectedAnalysisId={selectedAnalysisId}
             />
           </Suspense>
+        ) : view === "decisions" ? (
+          <Suspense
+            fallback={
+              <DetailEmpty
+                icon={<LoaderCircle className="animate-spin" />}
+                title="Loading decisions"
+                detail="The experiment interpretation queue is being prepared."
+              />
+            }
+          >
+            <DecisionWorkspace daemonUnavailable={daemonUnavailable} />
+          </Suspense>
         ) : view === "reviews" ? (
           <Suspense
             fallback={
@@ -517,6 +553,7 @@ function projectViewFromLocation(): ProjectView {
   if (window.location.hash === "#instruments") return "instruments";
   if (window.location.hash === "#analyses") return "analyses";
   if (window.location.hash === "#samples") return "samples";
+  if (window.location.hash === "#decisions") return "decisions";
   if (window.location.hash.startsWith("#reviews")) return "reviews";
   return "runs";
 }
@@ -560,9 +597,11 @@ function replaceNavigation(
           ? "analyses"
           : view === "samples"
             ? "samples"
-            : view === "reviews"
-              ? "reviews"
-              : "";
+            : view === "decisions"
+              ? "decisions"
+              : view === "reviews"
+                ? "reviews"
+                : "";
   window.history.replaceState(null, "", `${location.pathname}${location.search}${location.hash}`);
 }
 

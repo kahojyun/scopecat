@@ -9,7 +9,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+from scopecat.analysis.facts import validate_analysis_fact_json
 from scopecat.automation import (
+    InterpretationOutputRef,
+    InterpretationRequest,
+    InterpretationResponse,
     ProcedureCloseCommand,
     ProcedureCloseReceipt,
     ProcedureCloseStatus,
@@ -38,6 +42,10 @@ from scopecat.automation import (
     ProcedureStepCompleteReceipt,
     ProcedureStepFailCommand,
     ProcedureStepFailReceipt,
+    ProcedureStepInputSubmitCommand,
+    ProcedureStepInputSubmitReceipt,
+    ProcedureStepInputWaitCommand,
+    ProcedureStepInputWaitReceipt,
     ProcedureStepOperation,
     ProcedureStepOutputRef,
     ProcedureSubmitCommand,
@@ -235,6 +243,38 @@ class AutomationService:
         return ProcedureStepFailReceipt(
             run=transition.run,
             step=transition.attempt,
+        )
+
+    def wait_step_input(
+        self,
+        command: ProcedureStepInputWaitCommand,
+    ) -> ProcedureStepInputWaitReceipt:
+        transition = self._wait_step_input(
+            command.procedure_run_id,
+            token=command.lease_token,
+            expected_run_revision=command.expected_run_revision,
+            step_key=command.step_key,
+            attempt=command.attempt,
+            expected_attempt_revision=command.expected_step_revision,
+            request=command.request,
+        )
+        return ProcedureStepInputWaitReceipt(
+            run=transition.run,
+            step=transition.attempt,
+        )
+
+    def submit_step_input(
+        self,
+        command: ProcedureStepInputSubmitCommand,
+    ) -> ProcedureStepInputSubmitReceipt:
+        transition = self._submit_step_input(command)
+        output = transition.attempt.output
+        if not isinstance(output, InterpretationOutputRef):
+            raise RuntimeError("submitted interpretation has no durable output")
+        return ProcedureStepInputSubmitReceipt(
+            run=transition.run,
+            step=transition.attempt,
+            output=output,
         )
 
     def require_step_attention(
@@ -650,6 +690,10 @@ class AutomationService:
             self._require_attempt_revision(current, expected_attempt_revision)
             if current.state != "running":
                 raise AutomationConflict("only a running procedure step can complete")
+            if current.operation == "interpretation":
+                raise AutomationConflict(
+                    "interpretation steps complete through typed input submission"
+                )
             updated_attempt = _attempt_state(
                 current,
                 state="succeeded",
@@ -671,6 +715,181 @@ class AutomationService:
                 run=updated_run,
                 attempt=updated_attempt,
             )
+
+    def _wait_step_input(
+        self,
+        procedure_run_id: str,
+        *,
+        token: str,
+        expected_run_revision: int,
+        step_key: str,
+        attempt: int,
+        expected_attempt_revision: int,
+        request: InterpretationRequest,
+    ) -> ProcedureStepTransition:
+        """Publish one expected interpretation and release the worker lease."""
+
+        now = self._now()
+        with (
+            _translate_store_errors(),
+            self._store.write_transaction() as connection,
+        ):
+            run = self._store.read_run_in_transaction(connection, procedure_run_id)
+            current = self._store.read_step_attempt_in_transaction(
+                connection,
+                procedure_run_id,
+                step_key,
+                attempt,
+            )
+            lease = self._store.read_lease_in_transaction(
+                connection,
+                procedure_run_id,
+            )
+            if (
+                run.state == "waiting_for_input"
+                and current.state == "waiting_for_input"
+                and current.interpretation_request == request
+                and lease is None
+            ):
+                return ProcedureStepTransition(run=run, attempt=current)
+            self._require_revision(run, expected_run_revision)
+            self._require_attempt_revision(current, expected_attempt_revision)
+            if (
+                run.state != "leased"
+                or current.state != "running"
+                or current.operation != "interpretation"
+            ):
+                raise AutomationConflict(
+                    "procedure input wait requires a leased interpretation step"
+                )
+            self._require_live_lease(connection, procedure_run_id, token, now)
+            updated_attempt = _attempt_state(
+                current,
+                state="waiting_for_input",
+                at=now,
+                interpretation_request=request,
+            )
+            updated_run = _run_state(run, state="waiting_for_input", at=now)
+            self._store.replace_step_attempt_in_transaction(
+                connection,
+                updated_attempt,
+                expected_revision=expected_attempt_revision,
+            )
+            self._store.replace_run_in_transaction(
+                connection,
+                updated_run,
+                expected_revision=expected_run_revision,
+            )
+            self._store.delete_lease_in_transaction(
+                connection,
+                procedure_run_id,
+                token=token,
+            )
+            return ProcedureStepTransition(run=updated_run, attempt=updated_attempt)
+
+    def _submit_step_input(
+        self,
+        command: ProcedureStepInputSubmitCommand,
+    ) -> ProcedureStepTransition:
+        """Validate and atomically commit one answer to the exact waiting request."""
+
+        now = self._now()
+        with (
+            _translate_store_errors(),
+            self._store.write_transaction() as connection,
+        ):
+            run = self._store.read_run_in_transaction(
+                connection,
+                command.procedure_run_id,
+            )
+            current = self._store.read_step_attempt_in_transaction(
+                connection,
+                command.procedure_run_id,
+                command.step_key,
+                command.attempt,
+            )
+            lease = self._store.read_lease_in_transaction(
+                connection,
+                command.procedure_run_id,
+            )
+            if current.state == "succeeded":
+                output = current.output
+                if (
+                    isinstance(output, InterpretationOutputRef)
+                    and output.request_hash == command.request_hash
+                    and output.response.actor == command.actor
+                    and output.response.actor_kind == command.actor_kind
+                    and output.response.value == command.value
+                    and output.response.note == command.note
+                ):
+                    return ProcedureStepTransition(run=run, attempt=current)
+                raise AutomationConflict(
+                    "procedure interpretation already has a different response"
+                )
+            self._require_revision(run, command.expected_run_revision)
+            self._require_attempt_revision(current, command.expected_step_revision)
+            if (
+                run.state != "waiting_for_input"
+                or current.state != "waiting_for_input"
+                or current.operation != "interpretation"
+            ):
+                raise AutomationConflict(
+                    "procedure input submission requires a waiting interpretation"
+                )
+            latest = self._store.latest_step_attempt_in_transaction(
+                connection,
+                command.procedure_run_id,
+                command.step_key,
+            )
+            if latest != current:
+                raise AutomationConflict(
+                    "procedure input submission must target the latest attempt"
+                )
+            if lease is not None:
+                raise AutomationConflict(
+                    "waiting procedure input cannot retain a worker lease"
+                )
+            request = current.interpretation_request
+            if request is None or request.request_hash != command.request_hash:
+                raise AutomationConflict("procedure interpretation request changed")
+            try:
+                validate_analysis_fact_json(command.value, request.structure)
+            except TypeError as error:
+                raise AutomationConflict(
+                    "procedure interpretation response does not match its schema"
+                ) from error
+            response = InterpretationResponse(
+                actor=command.actor,
+                actor_kind=command.actor_kind,
+                value=command.value,
+                note=command.note,
+                submitted_at=now,
+            )
+            output = InterpretationOutputRef(
+                procedure_run_id=command.procedure_run_id,
+                step_key=command.step_key,
+                request_hash=request.request_hash,
+                response=response,
+            )
+            updated_attempt = _attempt_state(
+                current,
+                state="succeeded",
+                at=now,
+                output=output,
+                interpretation_request=request,
+            )
+            updated_run = _run_state(run, state="ready", at=now)
+            self._store.replace_step_attempt_in_transaction(
+                connection,
+                updated_attempt,
+                expected_revision=command.expected_step_revision,
+            )
+            self._store.replace_run_in_transaction(
+                connection,
+                updated_run,
+                expected_revision=command.expected_run_revision,
+            )
+            return ProcedureStepTransition(run=updated_run, attempt=updated_attempt)
 
     def _require_run_attention(
         self,
@@ -1093,6 +1312,7 @@ def _attempt_state(
     state: ProcedureStepAttemptState,
     at: datetime,
     output: ProcedureStepOutputRef | None = None,
+    interpretation_request: InterpretationRequest | None = None,
     failure_reason: str | None = None,
     attention_reason: str | None = None,
 ) -> ProcedureStepAttempt:
@@ -1104,6 +1324,7 @@ def _attempt_state(
             "updated_at": at,
             "finished_at": at if state in {"succeeded", "failed"} else None,
             "output": output,
+            "interpretation_request": interpretation_request,
             "failure_reason": failure_reason,
             "attention_reason": attention_reason,
         }

@@ -17,6 +17,10 @@ from pydantic import (
     model_validator,
 )
 
+from scopecat.automation.interpretations import (
+    InterpretationRequest,
+    InterpretationResponse,
+)
 from scopecat.kernel.content_identity import stable_content_hash
 from scopecat.kernel.frozen import freeze_json_mapping, thaw_json_value
 from scopecat.kernel.run_outcome import utc_now
@@ -48,6 +52,7 @@ type ProcedureIntent = Annotated[
 type ProcedureRunState = Literal[
     "ready",
     "leased",
+    "waiting_for_input",
     "attention_required",
     "closed",
 ]
@@ -56,11 +61,13 @@ type ProcedureStepOperation = Literal[
     "analysis",
     "config_activation",
     "config_publish",
+    "interpretation",
 ]
 type ProcedureStepAttemptState = Literal[
     "running",
     "succeeded",
     "failed",
+    "waiting_for_input",
     "attention_required",
 ]
 type ProcedureCloseStatus = Literal["succeeded", "failed", "cancelled"]
@@ -151,11 +158,22 @@ class ConfigPublishOutputRef(_ProcedureModel):
     entry_content_hash: ConfigContentHash
 
 
+class InterpretationOutputRef(_ProcedureModel):
+    """Exact typed judgment supplied for one durable interpretation step."""
+
+    kind: Literal["interpretation"] = "interpretation"
+    procedure_run_id: _NonEmptyText
+    step_key: _NonEmptyText
+    request_hash: Sha256ContentHash
+    response: InterpretationResponse
+
+
 type ProcedureStepOutputRef = Annotated[
     RunOutputRef
     | AnalysisPublicationOutputRef
     | ConfigActivationOutputRef
-    | ConfigPublishOutputRef,
+    | ConfigPublishOutputRef
+    | InterpretationOutputRef,
     Field(discriminator="kind"),
 ]
 
@@ -239,6 +257,7 @@ class ProcedureStepAttempt(_ProcedureModel):
     updated_at: datetime = Field(default_factory=utc_now)
     finished_at: datetime | None = None
     output: ProcedureStepOutputRef | None = None
+    interpretation_request: InterpretationRequest | None = None
     failure_reason: str | None = None
     attention_reason: str | None = None
 
@@ -265,6 +284,13 @@ class ProcedureStepAttempt(_ProcedureModel):
         if self.state == "running":
             if self.finished_at is not None:
                 raise ValueError("running procedure step cannot be finished")
+        elif self.state == "waiting_for_input":
+            if self.finished_at is not None:
+                raise ValueError("waiting procedure step cannot be finished")
+            if self.interpretation_request is None:
+                raise ValueError(
+                    "waiting procedure step requires an interpretation request"
+                )
         elif self.state == "succeeded":
             if self.finished_at is None or self.output is None:
                 raise ValueError(
@@ -292,4 +318,35 @@ class ProcedureStepAttempt(_ProcedureModel):
             )
         if self.output is not None and self.output.kind != self.operation:
             raise ValueError("procedure step output kind must match its operation")
+        self._validate_interpretation()
         return self
+
+    def _validate_interpretation(self) -> None:
+        if self.operation == "interpretation":
+            request = self.interpretation_request
+            if self.state in {"waiting_for_input", "succeeded"} and request is None:
+                raise ValueError("durable interpretation step requires its request")
+            if request is not None and self.intent_hash != request.request_hash:
+                raise ValueError(
+                    "interpretation step intent must identify its durable request"
+                )
+            if self.output is not None:
+                if not isinstance(self.output, InterpretationOutputRef):
+                    raise ValueError(
+                        "interpretation step requires an interpretation output"
+                    )
+                if (
+                    self.output.procedure_run_id != self.procedure_run_id
+                    or self.output.step_key != self.step_key
+                ):
+                    raise ValueError(
+                        "interpretation output must belong to its procedure step"
+                    )
+                if request is None or self.output.request_hash != request.request_hash:
+                    raise ValueError(
+                        "interpretation output must answer the durable request"
+                    )
+        elif self.interpretation_request is not None:
+            raise ValueError(
+                "interpretation request is only valid for an interpretation step"
+            )

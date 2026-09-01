@@ -41,7 +41,9 @@ JOIN calibration_cohorts AS cohorts
 JOIN procedure_runs AS runs
   ON runs.procedure_run_id = members.procedure_run_id
 WHERE cohorts.fanout_scope = ?
-  AND runs.state IN ('ready', 'leased', 'attention_required')
+  AND runs.state IN (
+      'ready', 'leased', 'waiting_for_input', 'attention_required'
+  )
 """
 
 

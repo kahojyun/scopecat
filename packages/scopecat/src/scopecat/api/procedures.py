@@ -9,8 +9,9 @@ from typing import Protocol
 from uuid import uuid4
 
 import httpx2
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
+from scopecat.analysis.facts import AnalysisFactSchema
 from scopecat.api._config import LabConfigOperations
 from scopecat.api._runner import _DaemonRunner, _prepare_run_submission
 from scopecat.api.analysis import AnalysisInvocation, AnalysisStep
@@ -26,6 +27,9 @@ from scopecat.automation import (
     AnalysisPublicationOutputRef,
     ConfigActivationOutputRef,
     ConfigPublishOutputRef,
+    InterpretationActorKind,
+    InterpretationOutputRef,
+    InterpretationRequest,
     ProcedureContext,
     ProcedureRegistry,
     ProcedureRun,
@@ -47,6 +51,7 @@ from scopecat.automation import (
     ProcedureStepAttemptListQuery,
     ProcedureStepAttemptPage,
     ProcedureStepAttentionRetryCommand,
+    ProcedureStepInputSubmitCommand,
     ProcedureStepOperation,
     ProcedureStepOutputRef,
     ProcedureSubmitCommand,
@@ -131,6 +136,14 @@ class ProcedureHandlePage:
 
 
 @dataclass(frozen=True, slots=True)
+class InterpretationResult[ValueT]:
+    """Typed judgment together with its exact durable procedure reference."""
+
+    value: ValueT
+    ref: InterpretationOutputRef
+
+
+@dataclass(frozen=True, slots=True)
 class ProcedureHandle:
     """Reopenable handle for one daemon-owned procedure invocation."""
 
@@ -180,6 +193,28 @@ class ProcedureHandle:
 
         return self.operations.retry_attention(self, worker_id=worker_id)
 
+    def respond[ValueT](
+        self,
+        step_key: str,
+        value: ValueT,
+        *,
+        schema: AnalysisFactSchema[ValueT],
+        actor: str,
+        actor_kind: InterpretationActorKind = "human",
+        note: str = "",
+    ) -> ProcedureHandle:
+        """Submit one typed judgment; call ``resume`` explicitly to continue."""
+
+        return self.operations.respond(
+            self,
+            step_key,
+            value,
+            schema=schema,
+            actor=actor,
+            actor_kind=actor_kind,
+            note=note,
+        )
+
 
 class LabProcedureContext:
     """Lab effects layered over one lease-fenced durable procedure context."""
@@ -220,6 +255,41 @@ class LabProcedureContext:
             intent_hash=intent_hash,
             effect=effect,
             inputs=inputs,
+        )
+
+    def interpret[ValueT](
+        self,
+        step_key: str,
+        *,
+        title: str,
+        instructions: str,
+        schema: AnalysisFactSchema[ValueT],
+        inputs: tuple[ProcedureStepOutputRef, ...] = (),
+        response_template: ValueT | None = None,
+        metadata: Mapping[str, JsonValue] | None = None,
+    ) -> InterpretationResult[ValueT]:
+        """Wait for and replay a schema-validated human, AI, or service judgment."""
+
+        request = InterpretationRequest(
+            title=title,
+            instructions=instructions,
+            schema_id=schema.id,
+            schema_codec=schema.schema_codec,
+            schema_hash=schema.schema_hash,
+            structure=schema.structure,
+            response_template=(
+                None if response_template is None else schema.encode(response_template)
+            ),
+            metadata={} if metadata is None else dict(metadata),
+        )
+        ref = self._durable.interpret(
+            step_key,
+            request=request,
+            inputs=inputs,
+        )
+        return InterpretationResult(
+            value=schema.decode(ref.response.value),
+            ref=ref,
         )
 
     def run(
@@ -741,6 +811,52 @@ class LabProcedureOperations:
         )
         return ProcedureHandle(self, resumed.procedure_run_id)
 
+    def respond[ValueT](
+        self,
+        procedure: str | ProcedureHandle,
+        step_key: str,
+        value: ValueT,
+        *,
+        schema: AnalysisFactSchema[ValueT],
+        actor: str,
+        actor_kind: InterpretationActorKind = "human",
+        note: str = "",
+    ) -> ProcedureHandle:
+        """Validate and commit one answer without implicitly resuming hardware work."""
+
+        procedure_run_id = (
+            procedure.id if isinstance(procedure, ProcedureHandle) else procedure
+        )
+        run = self._client.get_procedure(procedure_run_id)
+        if run.state != "waiting_for_input":
+            raise ValueError("procedure is not waiting for interpretation input")
+        step = self._waiting_step(procedure_run_id, step_key=step_key)
+        request = step.interpretation_request
+        if request is None:
+            raise RuntimeError("waiting interpretation has no durable request")
+        if (
+            request.schema_id != schema.id
+            or request.schema_codec != schema.schema_codec
+            or request.schema_hash != schema.schema_hash
+            or request.structure != schema.structure
+        ):
+            raise ValueError("local response schema does not match the durable request")
+        receipt = self._client.submit_procedure_step_input(
+            ProcedureStepInputSubmitCommand(
+                procedure_run_id=procedure_run_id,
+                expected_run_revision=run.revision,
+                step_key=step.step_key,
+                attempt=step.attempt,
+                expected_step_revision=step.revision,
+                request_hash=request.request_hash,
+                actor=actor,
+                actor_kind=actor_kind,
+                value=schema.encode(value),
+                note=note,
+            )
+        )
+        return ProcedureHandle(self, receipt.run.procedure_run_id)
+
     def resume_snapshot(
         self,
         run: ProcedureRun,
@@ -786,6 +902,27 @@ class LabProcedureOperations:
             if page.next_cursor is None:
                 raise ValueError(
                     "procedure attention is not owned by a retryable step attempt"
+                )
+            cursor = page.next_cursor
+
+    def _waiting_step(
+        self,
+        procedure_run_id: str,
+        *,
+        step_key: str,
+    ) -> ProcedureStepAttempt:
+        cursor: int | None = None
+        while True:
+            page = self.steps(procedure_run_id, limit=200, before=cursor)
+            for attempt in page.items:
+                if (
+                    attempt.step_key == step_key
+                    and attempt.state == "waiting_for_input"
+                ):
+                    return attempt
+            if page.next_cursor is None:
+                raise ValueError(
+                    f"procedure has no waiting interpretation step {step_key!r}"
                 )
             cursor = page.next_cursor
 
@@ -1268,6 +1405,7 @@ def _procedure_sample_selectors(
 
 
 __all__ = [
+    "InterpretationResult",
     "LabProcedureContext",
     "LabProcedureOperations",
     "ProcedureHandle",

@@ -5,9 +5,13 @@ from datetime import UTC, datetime, timedelta
 from threading import Event, RLock
 
 import pytest
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, JsonValue
 
+from scopecat.analysis.facts import analysis_fact_structure_hash
 from scopecat.automation import (
+    InterpretationOutputRef,
+    InterpretationRequest,
+    InterpretationResponse,
     ProcedureClosure,
     ProcedureRegistry,
     ProcedureRun,
@@ -33,6 +37,8 @@ from scopecat.automation.wire import (
     ProcedureStepCompleteReceipt,
     ProcedureStepFailCommand,
     ProcedureStepFailReceipt,
+    ProcedureStepInputWaitCommand,
+    ProcedureStepInputWaitReceipt,
     ProcedureWorkerLeaseAcquireCommand,
     ProcedureWorkerLeaseAcquireReceipt,
     ProcedureWorkerLeaseHeartbeatCommand,
@@ -63,6 +69,20 @@ class SimulatedWorkerCrash(BaseException):
 
 _EFFECTS: dict[str, Callable[[str], RunOutputRef]] = {}
 _OUTPUTS: dict[str, RunOutputRef] = {}
+_INTERPRETATION_OUTPUTS: dict[str, InterpretationOutputRef] = {}
+
+
+_INTERPRETATION_STRUCTURE: JsonValue = {
+    "type": "object",
+    "fields": {"resonator": {"type": "string"}},
+}
+_INTERPRETATION_REQUEST = InterpretationRequest(
+    title="Choose the resonator",
+    instructions="Return one resonator label.",
+    schema_id="tests.resonator-selection.v1",
+    schema_hash=analysis_fact_structure_hash(_INTERPRETATION_STRUCTURE),
+    structure=_INTERPRETATION_STRUCTURE,
+)
 
 
 def run_one_step(context: ProcedureContext, intent: WorkerIntent) -> None:
@@ -94,6 +114,13 @@ def run_two_steps(context: ProcedureContext, intent: WorkerIntent) -> None:
         inputs=(first,),
     )
     _OUTPUTS[f"{intent.case}:second"] = second
+
+
+def run_interpretation(context: ProcedureContext, intent: WorkerIntent) -> None:
+    _INTERPRETATION_OUTPUTS[intent.case] = context.interpret(
+        "select-resonator",
+        request=_INTERPRETATION_REQUEST,
+    )
 
 
 class WrappedProcedureContext:
@@ -130,6 +157,11 @@ TWO_STEPS = procedure(
     version="1",
     intent=WorkerIntent,
 )(run_two_steps)
+INTERPRETATION = procedure(
+    id="tests.interpretation-worker",
+    version="1",
+    intent=WorkerIntent,
+)(run_interpretation)
 
 
 class MemoryProcedureControl:
@@ -371,6 +403,62 @@ class MemoryProcedureControl:
                 run=updated_run,
                 step=updated_step,
             )
+
+    def wait_procedure_step_input(
+        self,
+        command: ProcedureStepInputWaitCommand,
+    ) -> ProcedureStepInputWaitReceipt:
+        with self._lock:
+            run, _ = self._leased(command.procedure_run_id, command.lease_token)
+            assert run.revision == command.expected_run_revision
+            key = (run.procedure_run_id, command.step_key)
+            step = self._steps[key]
+            assert step.revision == command.expected_step_revision
+            updated_step = _step_state(
+                step,
+                state="waiting_for_input",
+                interpretation_request=command.request,
+            )
+            updated_run = _run_state(run, state="waiting_for_input")
+            self._steps[key] = updated_step
+            self._runs[run.procedure_run_id] = updated_run
+            del self._leases[run.procedure_run_id]
+            return ProcedureStepInputWaitReceipt(
+                run=updated_run,
+                step=updated_step,
+            )
+
+    def answer_interpretation(
+        self,
+        procedure_run_id: str,
+        step_key: str,
+        *,
+        value: JsonValue,
+    ) -> None:
+        with self._lock:
+            run = self._runs[procedure_run_id]
+            step = self._steps[(procedure_run_id, step_key)]
+            request = step.interpretation_request
+            assert run.state == "waiting_for_input"
+            assert step.state == "waiting_for_input" and request is not None
+            output = InterpretationOutputRef(
+                procedure_run_id=procedure_run_id,
+                step_key=step_key,
+                request_hash=request.request_hash,
+                response=InterpretationResponse(
+                    actor="operator@example.test",
+                    actor_kind="human",
+                    value=value,
+                    submitted_at=datetime.now(UTC),
+                ),
+            )
+            self._steps[(procedure_run_id, step_key)] = _step_state(
+                step,
+                state="succeeded",
+                output=output,
+                interpretation_request=request,
+            )
+            self._runs[procedure_run_id] = _run_state(run, state="ready")
 
     def require_procedure_run_attention(
         self,
@@ -723,6 +811,38 @@ def test_worker_records_atomic_step_attention_without_closing() -> None:
     assert control.run_attention_calls == 0
 
 
+def test_worker_waits_for_typed_input_without_a_lease_then_replays_it() -> None:
+    control = MemoryProcedureControl()
+    worker = ProcedureWorker(
+        control,
+        ProcedureRegistry((INTERPRETATION,)),
+    )
+
+    waiting = worker.execute(
+        INTERPRETATION,
+        {"case": "human-review"},
+        "request-interpretation",
+        "worker-1",
+    )
+
+    assert waiting.state == "waiting_for_input"
+    step = control.step(waiting.procedure_run_id, "select-resonator")
+    assert step.state == "waiting_for_input"
+    assert step.interpretation_request == _INTERPRETATION_REQUEST
+    assert control.close_calls == 0
+
+    control.answer_interpretation(
+        waiting.procedure_run_id,
+        "select-resonator",
+        value={"resonator": "r2"},
+    )
+    completed = worker.resume(waiting.procedure_run_id, worker_id="worker-2")
+
+    assert completed.state == "closed"
+    output = _INTERPRETATION_OUTPUTS["human-review"]
+    assert output.response.value == {"resonator": "r2"}
+
+
 def test_worker_fences_completion_after_background_heartbeat_loses_lease() -> None:
     control = MemoryProcedureControl(heartbeat_interval=0.001)
     failure = RuntimeError("lease token is stale")
@@ -808,6 +928,7 @@ def _step_state(
     *,
     state: str,
     output: ProcedureStepOutputRef | None = None,
+    interpretation_request: InterpretationRequest | None = None,
     failure_reason: str | None = None,
     attention_reason: str | None = None,
 ) -> ProcedureStepAttempt:
@@ -820,6 +941,7 @@ def _step_state(
             "updated_at": updated_at,
             "finished_at": (updated_at if state in {"succeeded", "failed"} else None),
             "output": output,
+            "interpretation_request": interpretation_request,
             "failure_reason": failure_reason,
             "attention_reason": attention_reason,
         }

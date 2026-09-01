@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
@@ -5,10 +6,14 @@ import pytest
 from pydantic import JsonValue, ValidationError
 from scopecat_testkit.records import assert_model_round_trip
 
+from scopecat.analysis.facts import AnalysisFactSchema
 from scopecat.automation import (
     AnalysisPublicationOutputRef,
     ConfigActivationOutputRef,
     ConfigPublishOutputRef,
+    InterpretationOutputRef,
+    InterpretationRequest,
+    InterpretationResponse,
     ProcedureClosure,
     ProcedureDefinitionRef,
     ProcedureRun,
@@ -25,6 +30,11 @@ _OTHER_HASH = "sha256:" + "2" * 64
 _START = datetime(2026, 8, 18, tzinfo=UTC)
 _END = _START + timedelta(seconds=1)
 _INTENT: dict[str, JsonValue] = {"target_ids": ["q0"]}
+
+
+@dataclass(frozen=True)
+class _ResonatorSelection:
+    resonator: str
 
 
 def _definition() -> ProcedureDefinitionRef:
@@ -201,6 +211,72 @@ def test_step_attempt_rejects_output_from_another_operation() -> None:
                 subject=ProjectAnalysisSubject(),
                 analysis_record_id="analysis-fit-r1",
             ),
+        )
+
+
+def test_interpretation_attempt_retains_exact_typed_request_and_response() -> None:
+    schema = AnalysisFactSchema(
+        "tests.resonator-selection.v1",
+        _ResonatorSelection,
+    )
+    request = InterpretationRequest(
+        title="Select resonator",
+        instructions="Return the selected resonator.",
+        schema_id=schema.id,
+        schema_hash=schema.schema_hash,
+        structure=schema.structure,
+        response_template={"resonator": "replace after reviewing the trace"},
+    )
+    waiting = ProcedureStepAttempt(
+        procedure_run_id="procedure-1",
+        step_key="select-resonator",
+        attempt=1,
+        operation="interpretation",
+        intent_hash=request.request_hash,
+        revision=2,
+        state="waiting_for_input",
+        started_at=_START,
+        updated_at=_END,
+        interpretation_request=request,
+    )
+    output = InterpretationOutputRef(
+        procedure_run_id=waiting.procedure_run_id,
+        step_key=waiting.step_key,
+        request_hash=request.request_hash,
+        response=InterpretationResponse(
+            actor="operator@example.test",
+            actor_kind="human",
+            value={"resonator": "r2"},
+            submitted_at=_END,
+        ),
+    )
+    succeeded = waiting.model_copy(
+        update={
+            "revision": 3,
+            "state": "succeeded",
+            "finished_at": _END,
+            "output": output,
+        }
+    )
+
+    assert assert_model_round_trip(waiting) == waiting
+    assert assert_model_round_trip(succeeded).output == output
+    with pytest.raises(ValidationError, match="response template"):
+        InterpretationRequest(
+            title=request.title,
+            instructions=request.instructions,
+            schema_id=request.schema_id,
+            schema_hash=request.schema_hash,
+            structure=request.structure,
+            response_template={"resonator": 2},
+        )
+    with pytest.raises(ValidationError, match="schema hash"):
+        InterpretationRequest(
+            title=request.title,
+            instructions=request.instructions,
+            schema_id=request.schema_id,
+            schema_hash=_HASH,
+            structure=request.structure,
         )
 
 

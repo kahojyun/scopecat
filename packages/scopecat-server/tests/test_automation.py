@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from scopecat.analysis.facts import AnalysisFactSchema
 from scopecat.automation import (
+    InterpretationRequest,
     ProcedureCloseCommand,
     ProcedureDefinitionRef,
     ProcedureRunAttentionCommand,
@@ -15,6 +18,8 @@ from scopecat.automation import (
     ProcedureStepBeginCommand,
     ProcedureStepCompleteCommand,
     ProcedureStepFailCommand,
+    ProcedureStepInputSubmitCommand,
+    ProcedureStepInputWaitCommand,
     ProcedureSubmitCommand,
     ProcedureWorkerLeaseAcquireCommand,
     ProcedureWorkerLeaseHeartbeatCommand,
@@ -32,6 +37,11 @@ _START = datetime(2026, 8, 18, 9, tzinfo=UTC)
 _DEFINITION_HASH = "sha256:" + "1" * 64
 _STEP_HASH = "sha256:" + "2" * 64
 _OTHER_STEP_HASH = "sha256:" + "3" * 64
+
+
+@dataclass(frozen=True)
+class _ResonatorSelection:
+    resonator: str
 
 
 def _definition() -> ProcedureDefinitionRef:
@@ -122,6 +132,118 @@ def test_runnable_discovery_uses_exact_capabilities_and_server_lease_clock(
     assert service.runnable(query).items == (second,)
     now[0] = acquired.lease.expires_at.astimezone(timezone(timedelta(hours=8)))
     assert service.runnable(query).items == (acquired.run, second)
+
+
+def test_interpretation_waits_without_a_lease_and_resumes_after_typed_input(
+    tmp_path: Path,
+) -> None:
+    service, _ = _service(tmp_path)
+    submitted = _submit(service)
+    acquired = service.acquire_lease(
+        ProcedureWorkerLeaseAcquireCommand(
+            procedure_run_id=submitted.procedure_run_id,
+            worker_id="worker-1",
+            expected_run_revision=submitted.revision,
+        )
+    )
+    schema = AnalysisFactSchema(
+        "lab.resonator-selection.v1",
+        _ResonatorSelection,
+    )
+    request = InterpretationRequest(
+        title="Choose the readout resonator",
+        instructions="Return the selected resonator label.",
+        schema_id=schema.id,
+        schema_hash=schema.schema_hash,
+        structure=schema.structure,
+        response_template={"resonator": "replace after reviewing the trace"},
+    )
+    begun = service.begin_step(
+        ProcedureStepBeginCommand(
+            procedure_run_id=submitted.procedure_run_id,
+            lease_token=acquired.lease.lease_token,
+            expected_run_revision=acquired.run.revision,
+            step_key="select-resonator",
+            operation="interpretation",
+            intent_hash=request.request_hash,
+        )
+    )
+    waiting = service.wait_step_input(
+        ProcedureStepInputWaitCommand(
+            procedure_run_id=submitted.procedure_run_id,
+            lease_token=acquired.lease.lease_token,
+            expected_run_revision=begun.run.revision,
+            step_key=begun.step.step_key,
+            attempt=begun.step.attempt,
+            expected_step_revision=begun.step.revision,
+            request=request,
+        )
+    )
+
+    assert waiting.run.state == "waiting_for_input"
+    durable_request = waiting.step.interpretation_request
+    assert durable_request is not None
+    assert durable_request == request
+    assert durable_request.response_template == {
+        "resonator": "replace after reviewing the trace"
+    }
+    assert (
+        service.runnable(ProcedureRunnableQuery(definitions=(_definition(),))).items
+        == ()
+    )
+
+    with pytest.raises(BackendConflict, match="does not match its schema"):
+        service.submit_step_input(
+            ProcedureStepInputSubmitCommand(
+                procedure_run_id=submitted.procedure_run_id,
+                expected_run_revision=waiting.run.revision,
+                step_key=waiting.step.step_key,
+                attempt=waiting.step.attempt,
+                expected_step_revision=waiting.step.revision,
+                request_hash=request.request_hash,
+                actor="operator@example.test",
+                actor_kind="human",
+                value={"resonator": 2},
+            )
+        )
+
+    answer_command = ProcedureStepInputSubmitCommand(
+        procedure_run_id=submitted.procedure_run_id,
+        expected_run_revision=waiting.run.revision,
+        step_key=waiting.step.step_key,
+        attempt=waiting.step.attempt,
+        expected_step_revision=waiting.step.revision,
+        request_hash=request.request_hash,
+        actor="operator@example.test",
+        actor_kind="human",
+        value={"resonator": "r2"},
+        note="clearest isolated dip",
+    )
+    answered = service.submit_step_input(answer_command)
+
+    assert answered.run.state == "ready"
+    assert answered.output.response.value == {"resonator": "r2"}
+    assert service.runnable(
+        ProcedureRunnableQuery(definitions=(_definition(),))
+    ).items == (answered.run,)
+    assert service.submit_step_input(answer_command) == answered
+    resumed = service.acquire_lease(
+        ProcedureWorkerLeaseAcquireCommand(
+            procedure_run_id=submitted.procedure_run_id,
+            worker_id="worker-2",
+            expected_run_revision=answered.run.revision,
+        )
+    )
+    closed = service.close(
+        ProcedureCloseCommand(
+            procedure_run_id=submitted.procedure_run_id,
+            lease_token=resumed.lease.lease_token,
+            expected_run_revision=resumed.run.revision,
+            status="succeeded",
+        )
+    ).run
+
+    assert service.submit_step_input(answer_command).run == closed
 
 
 def test_runtime_reopens_durable_procedure_state(tmp_path: Path) -> None:
