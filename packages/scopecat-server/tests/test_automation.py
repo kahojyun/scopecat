@@ -181,8 +181,10 @@ def test_interpretation_waits_without_a_lease_and_resumes_after_typed_input(
     )
 
     assert waiting.run.state == "waiting_for_input"
-    assert waiting.step.interpretation_request == request
-    assert waiting.step.interpretation_request.response_template == {
+    durable_request = waiting.step.interpretation_request
+    assert durable_request is not None
+    assert durable_request == request
+    assert durable_request.response_template == {
         "resonator": "replace after reviewing the trace"
     }
     assert (
