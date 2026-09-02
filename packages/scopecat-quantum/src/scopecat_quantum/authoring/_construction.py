@@ -6,6 +6,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Mapping
 from collections.abc import Sequence as SequenceCollection
+from dataclasses import replace
 from typing import (
     Literal,
     cast,
@@ -423,16 +424,35 @@ def drag(
     beta: QuantumQuantity,
     phase: QuantumQuantity | None = None,
 ) -> PulseEnvelope:
-    """Author a DRAG envelope with a bindable derivative coefficient."""
+    """Author Gaussian DRAG as a convenience composition."""
 
-    return _pulse_envelope(
-        "drag",
-        duration=duration,
-        amplitude=amplitude,
-        sigma=sigma,
+    return derivative_quadrature(
+        gaussian(
+            duration=duration,
+            amplitude=amplitude,
+            sigma=sigma,
+            phase=phase,
+        ),
         beta=beta,
-        phase=phase,
     )
+
+
+def derivative_quadrature(
+    envelope: PulseEnvelope,
+    /,
+    *,
+    beta: QuantumQuantity,
+) -> PulseEnvelope:
+    """Add ``i * beta * d(envelope) / dt`` to a smooth base envelope."""
+
+    if envelope.kind not in {"gaussian", "cosine_flat_top"}:
+        raise TypeError(
+            "derivative quadrature requires a Gaussian or cosine-flat-top envelope"
+        )
+    if envelope.derivative_beta is not None:
+        raise ValueError("envelope already has a derivative-quadrature correction")
+    _require_quantity_expression(beta, field="beta", kind="time")
+    return replace(envelope, derivative_beta=beta)
 
 
 def play(

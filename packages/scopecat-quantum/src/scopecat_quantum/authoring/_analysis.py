@@ -117,7 +117,7 @@ def _pulse_envelope_parts(
         value.duration,
         value.amplitude,
         value.sigma,
-        value.beta,
+        value.derivative_beta,
         value.rise_duration,
         value.fall_duration,
         value.phase,
@@ -177,7 +177,7 @@ def _pulse_envelope(
     duration: QuantumQuantity,
     amplitude: QuantumQuantity,
     sigma: QuantumQuantity | None = None,
-    beta: QuantumQuantity | None = None,
+    derivative_beta: QuantumQuantity | None = None,
     rise_duration: QuantumQuantity | None = None,
     fall_duration: QuantumQuantity | None = None,
     phase: QuantumQuantity | None = None,
@@ -188,8 +188,12 @@ def _pulse_envelope(
     _require_quantity_expression(selected_phase, field="phase", kind="phase")
     if sigma is not None:
         _require_quantity_expression(sigma, field="sigma", kind="time")
-    if beta is not None:
-        _require_quantity_expression(beta, field="beta", kind="time")
+    if derivative_beta is not None:
+        _require_quantity_expression(
+            derivative_beta,
+            field="derivative_beta",
+            kind="time",
+        )
     if rise_duration is not None:
         _require_quantity_expression(
             rise_duration,
@@ -207,7 +211,7 @@ def _pulse_envelope(
         duration=duration,
         amplitude=amplitude,
         sigma=sigma,
-        beta=beta,
+        derivative_beta=derivative_beta,
         rise_duration=rise_duration,
         fall_duration=fall_duration,
         phase=selected_phase,
@@ -1025,7 +1029,7 @@ def _envelope_inputs(
         duration,
         amplitude,
         sigma,
-        beta,
+        derivative_beta,
         rise_duration,
         fall_duration,
         phase,
@@ -1036,7 +1040,7 @@ def _envelope_inputs(
             duration,
             amplitude,
             sigma,
-            beta,
+            derivative_beta,
             rise_duration,
             fall_duration,
             phase,

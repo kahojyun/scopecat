@@ -17,13 +17,13 @@ from scopecat_quantum._ids import (
 )
 from scopecat_quantum.acquisitions import INTEGRATED_IQ_RESULT
 from scopecat_quantum.pulses import (
-    DRAG,
     Acquire,
     AcquireSignal,
     AcquisitionSlot,
     Constant,
     CosineFlatTop,
     Delay,
+    DerivativeQuadrature,
     DriveSignal,
     Gaussian,
     Parallel,
@@ -577,7 +577,7 @@ def test_invalid_units_and_durations_are_aggregated() -> None:
     } <= _issue_codes(raised.value)
 
 
-def test_gaussian_and_drag_shape_parameters_are_validated() -> None:
+def test_gaussian_and_derivative_shape_parameters_are_validated() -> None:
     gaussian = Play(
         PulseEventId("gaussian"),
         DRIVE_Q0,
@@ -590,10 +590,12 @@ def test_gaussian_and_drag_shape_parameters_are_validated() -> None:
     drag = Play(
         PulseEventId("drag"),
         DRIVE_Q1,
-        DRAG(
-            duration=Quantity(20, "ns"),
-            amplitude=Quantity(0.2, "arb"),
-            sigma=Quantity(5, "ns"),
+        DerivativeQuadrature(
+            envelope=Gaussian(
+                duration=Quantity(20, "ns"),
+                amplitude=Quantity(0.2, "arb"),
+                sigma=Quantity(5, "ns"),
+            ),
             beta=Quantity(2, "MHz"),
         ),
     )

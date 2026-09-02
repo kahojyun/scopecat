@@ -412,7 +412,7 @@ class PulseEnvelope:
     duration: QuantumQuantity
     amplitude: QuantumQuantity
     sigma: QuantumQuantity | None
-    beta: QuantumQuantity | None
+    derivative_beta: QuantumQuantity | None
     phase: QuantumQuantity
     rise_duration: QuantumQuantity | None = None
     fall_duration: QuantumQuantity | None = None

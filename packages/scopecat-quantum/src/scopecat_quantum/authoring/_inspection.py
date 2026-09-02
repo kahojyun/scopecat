@@ -24,7 +24,7 @@ from scopecat_quantum.pulses import (
     AcquireSignal,
     AnalyticEnvelope,
     Constant,
-    CosineFlatTop,
+    DerivativeQuadrature,
     DriveSignal,
     Gaussian,
     LogicalSignal,
@@ -304,51 +304,46 @@ def _inspection_envelope(envelope: PulseEnvelope | AnalyticEnvelope) -> str:
             duration,
             amplitude,
             sigma,
-            beta,
+            derivative_beta,
             rise_duration,
             fall_duration,
             phase,
         ) = _pulse_envelope_parts(envelope)
-    elif isinstance(envelope, Constant):
-        kind = "constant"
-        duration, amplitude = envelope.duration, envelope.amplitude
-        sigma, beta = None, None
-        rise_duration, fall_duration, phase = None, None, envelope.phase
-    elif isinstance(envelope, Gaussian):
-        kind = "gaussian"
-        duration, amplitude, sigma = (
-            envelope.duration,
-            envelope.amplitude,
-            envelope.sigma,
-        )
-        beta = None
-        rise_duration, fall_duration, phase = None, None, envelope.phase
-    elif isinstance(envelope, CosineFlatTop):
-        kind = "cosine_flat_top"
-        duration, amplitude = envelope.duration, envelope.amplitude
-        sigma, beta = None, None
-        rise_duration, fall_duration, phase = (
-            envelope.rise_duration,
-            envelope.fall_duration,
-            envelope.phase,
-        )
     else:
-        kind = "drag"
-        duration, amplitude, sigma, beta = (
-            envelope.duration,
-            envelope.amplitude,
-            envelope.sigma,
-            envelope.beta,
-        )
-        rise_duration, fall_duration, phase = None, None, envelope.phase
+        derivative_beta = None
+        if isinstance(envelope, DerivativeQuadrature):
+            derivative_beta = envelope.beta
+            envelope = envelope.envelope
+        if isinstance(envelope, Constant):
+            kind = "constant"
+            duration, amplitude = envelope.duration, envelope.amplitude
+            sigma = None
+            rise_duration, fall_duration, phase = None, None, envelope.phase
+        elif isinstance(envelope, Gaussian):
+            kind = "gaussian"
+            duration, amplitude, sigma = (
+                envelope.duration,
+                envelope.amplitude,
+                envelope.sigma,
+            )
+            rise_duration, fall_duration, phase = None, None, envelope.phase
+        else:
+            kind = "cosine_flat_top"
+            duration, amplitude = envelope.duration, envelope.amplitude
+            sigma = None
+            rise_duration, fall_duration, phase = (
+                envelope.rise_duration,
+                envelope.fall_duration,
+                envelope.phase,
+            )
     fields = [
         f"duration={_inspection_value(duration)}",
         f"amplitude={_inspection_value(amplitude)}",
     ]
     if sigma is not None:
         fields.append(f"sigma={_inspection_value(sigma)}")
-    if beta is not None:
-        fields.append(f"beta={_inspection_value(beta)}")
+    if derivative_beta is not None:
+        fields.append(f"derivative_beta={_inspection_value(derivative_beta)}")
     if rise_duration is not None:
         fields.append(f"rise_duration={_inspection_value(rise_duration)}")
     if fall_duration is not None:

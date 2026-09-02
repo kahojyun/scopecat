@@ -50,7 +50,6 @@ from scopecat_quantum.programs import (
 )
 from scopecat_quantum.programs import Sequence as IrQuantumSequence
 from scopecat_quantum.pulses import (
-    DRAG,
     Acquire,
     AcquireSignal,
     AcquisitionSlot,
@@ -58,6 +57,7 @@ from scopecat_quantum.pulses import (
     Constant,
     CosineFlatTop,
     Delay,
+    DerivativeQuadrature,
     FrameSignal,
     Gaussian,
     Play,
@@ -706,14 +706,14 @@ def _bind_envelope(
     envelope: PulseEnvelope | AnalyticEnvelope,
     bindings: Mapping[str, object],
 ) -> AnalyticEnvelope:
-    if isinstance(envelope, Constant | Gaussian | CosineFlatTop | DRAG):
+    if isinstance(envelope, Constant | Gaussian | CosineFlatTop | DerivativeQuadrature):
         return envelope
     (
         kind,
         raw_duration,
         raw_amplitude,
         raw_sigma,
-        raw_beta,
+        raw_derivative_beta,
         raw_rise_duration,
         raw_fall_duration,
         raw_phase,
@@ -722,9 +722,16 @@ def _bind_envelope(
     amplitude = _bound_quantity(raw_amplitude, bindings)
     phase = _bound_quantity(raw_phase, bindings)
     if kind == "constant":
-        return Constant(duration=duration, amplitude=amplitude, phase=phase)
+        base: Constant | Gaussian | CosineFlatTop = Constant(
+            duration=duration,
+            amplitude=amplitude,
+            phase=phase,
+        )
+        if raw_derivative_beta is not None:
+            raise AssertionError("verified constant envelope cannot have a derivative")
+        return base
     if kind == "cosine_flat_top":
-        return CosineFlatTop(
+        base = CosineFlatTop(
             duration=duration,
             amplitude=amplitude,
             rise_duration=_bound_quantity(
@@ -737,21 +744,21 @@ def _bind_envelope(
             ),
             phase=phase,
         )
-    sigma = _bound_quantity(cast("QuantumQuantity", raw_sigma), bindings)
-    if kind == "gaussian":
-        return Gaussian(
+    else:
+        assert kind == "gaussian"
+        sigma = _bound_quantity(cast("QuantumQuantity", raw_sigma), bindings)
+        base = Gaussian(
             duration=duration,
             amplitude=amplitude,
             sigma=sigma,
             phase=phase,
         )
-    beta = _bound_quantity(cast("QuantumQuantity", raw_beta), bindings)
-    return DRAG(
-        duration=duration,
-        amplitude=amplitude,
-        sigma=sigma,
-        beta=beta,
-        phase=phase,
+    if raw_derivative_beta is None:
+        return base
+    assert isinstance(base, Gaussian | CosineFlatTop)
+    return DerivativeQuadrature(
+        envelope=base,
+        beta=_bound_quantity(raw_derivative_beta, bindings),
     )
 
 

@@ -37,13 +37,14 @@ from scopecat_quantum.pulse_implementations import (
     ResolvedPulseImplementations,
 )
 from scopecat_quantum.pulses import (
-    DRAG,
     Acquire,
     AcquireSignal,
     Constant,
     CosineFlatTop,
+    DerivativeQuadrature,
     DriveSignal,
     FluxSignal,
+    Gaussian,
     Play,
     PulseProgram,
     PulseValidationError,
@@ -162,7 +163,8 @@ def test_repeat_preserves_one_candidate_call_until_pulse_lowering() -> None:
     assert implementation.candidate_id == "x90.drag"
     [pulse] = tuple(iter_pulse_leaves(implementation.pulse_template.body))
     assert isinstance(pulse, Play)
-    assert isinstance(pulse.envelope, DRAG)
+    assert isinstance(pulse.envelope, DerivativeQuadrature)
+    assert isinstance(pulse.envelope.envelope, Gaussian)
     assert pulse.envelope.beta == Quantity(0.75, "ns")
 
 
@@ -362,6 +364,46 @@ def test_drag_beta_requires_a_time_typed_input() -> None:
             amplitude=Quantity(0.2, "arb"),
             sigma=Quantity(4, "ns"),
             beta=frequency,
+        )
+
+
+def test_derivative_quadrature_wraps_a_cosine_envelope() -> None:
+    q0 = authoring.qubit("q0")
+    beta = _beta_input()
+    declaration = authoring._close_program(
+        "cosine-derivative",
+        authoring.play(
+            authoring.drive(q0),
+            authoring.derivative_quadrature(
+                authoring.cosine_flat_top(
+                    duration=Quantity(16, "ns"),
+                    amplitude=Quantity(0.2, "arb"),
+                    rise_duration=Quantity(8, "ns"),
+                    fall_duration=Quantity(8, "ns"),
+                ),
+                beta=beta,
+            ),
+        ),
+    )
+
+    bound = authoring.bind(declaration, {"beta": Quantity(-0.5, "ns")})
+    [block] = bound.verified.operations
+    assert isinstance(block, PulseBlock)
+    [play] = iter_pulse_leaves(block.pulse_template.body)
+    assert isinstance(play, Play)
+    assert isinstance(play.envelope, DerivativeQuadrature)
+    assert isinstance(play.envelope.envelope, CosineFlatTop)
+    assert play.envelope.beta == Quantity(-0.5, "ns")
+
+
+def test_derivative_quadrature_rejects_a_constant_envelope() -> None:
+    with pytest.raises(TypeError, match="Gaussian or cosine-flat-top"):
+        authoring.derivative_quadrature(
+            authoring.constant(
+                duration=Quantity(16, "ns"),
+                amplitude=Quantity(0.2, "arb"),
+            ),
+            beta=Quantity(-0.5, "ns"),
         )
 
 

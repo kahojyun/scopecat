@@ -725,7 +725,7 @@ def _substitute_envelope(
         duration,
         amplitude,
         sigma,
-        beta,
+        derivative_beta,
         rise_duration,
         fall_duration,
         phase,
@@ -745,9 +745,12 @@ def _substitute_envelope(
             if sigma is not None
             else None
         ),
-        beta=(
-            cast("QuantumQuantity", _substitute_template_value(beta, bindings))
-            if beta is not None
+        derivative_beta=(
+            cast(
+                "QuantumQuantity",
+                _substitute_template_value(derivative_beta, bindings),
+            )
+            if derivative_beta is not None
             else None
         ),
         rise_duration=(

@@ -13,6 +13,7 @@ from scopecat_quantum.pulses import (
     Constant,
     CosineFlatTop,
     Delay,
+    DerivativeQuadrature,
     DriveSignal,
     Gaussian,
     Parallel,
@@ -853,6 +854,48 @@ def test_left_edge_cosine_flat_top_matches_legacy_periodic_hann() -> None:
     assert rendered.semantics_id == LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID
     np.testing.assert_allclose(rendered.buffers[0], expected, atol=1e-15)
     np.testing.assert_allclose(rendered.buffers[1], np.zeros(sample_count))
+
+
+def test_derivative_quadrature_composes_with_legacy_periodic_hann() -> None:
+    sample_count = 50
+    duration_seconds = 25e-9
+    amplitude = 0.3512
+    beta_seconds = -0.44e-9
+    positions = np.arange(sample_count) / 2_000_000_000
+    envelope = DerivativeQuadrature(
+        envelope=CosineFlatTop(
+            duration=Quantity(25, "ns"),
+            amplitude=Quantity(amplitude, "arb"),
+            rise_duration=Quantity(12.5, "ns"),
+            fall_duration=Quantity(12.5, "ns"),
+        ),
+        beta=Quantity(-0.44, "ns"),
+    )
+    rendered = Float64ReferenceRenderer().render(
+        plan_sampled_waveforms(
+            schedule(
+                PulseProgram(
+                    PulseProgramId("legacy-cosine-derivative"),
+                    Play(PulseEventId("play"), DRIVE_Q0, envelope),
+                )
+            ),
+            bindings=(_binding(DRIVE_Q0),),
+            grid=SampleGrid(2_000_000_000, sample_location="left_edge"),
+        )
+    )
+
+    expected_i = (
+        amplitude * 0.5 * (1.0 - np.cos(math.tau * positions / duration_seconds))
+    )
+    expected_q = (
+        beta_seconds
+        * amplitude
+        * math.pi
+        / duration_seconds
+        * np.sin(math.tau * positions / duration_seconds)
+    )
+    np.testing.assert_allclose(rendered.buffers[0], expected_i, atol=1e-15)
+    np.testing.assert_allclose(rendered.buffers[1], expected_q, atol=1e-15)
 
 
 def test_left_edge_cosine_flat_top_preserves_legacy_readout_edges() -> None:

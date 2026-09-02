@@ -77,6 +77,23 @@ call = x90_count(
 ).with_shots(32)
 ```
 
+`authoring.drag(...)` is shorthand for a Gaussian envelope wrapped by a
+derivative-quadrature correction. The correction is independent of the base
+shape, so a calibrated half-cosine pulse can retain its shape while scanning
+the same time-valued coefficient:
+
+```python
+corrected = authoring.derivative_quadrature(
+    authoring.cosine_flat_top(
+        duration=Quantity(24, "ns"),
+        amplitude=Quantity(0.2, "arb"),
+        rise_duration=Quantity(12, "ns"),
+        fall_duration=Quantity(12, "ns"),
+    ),
+    beta=beta,
+)
+```
+
 Program inputs may bind directly to Scopecat values such as
 `scopecat.parameter_lookup(...)`. A `Program` call is a native domain
 occurrence that owns its effect, execution options, and named result products.

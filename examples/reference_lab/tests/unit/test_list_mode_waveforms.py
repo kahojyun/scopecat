@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from ._list_mode_test_support import (
-    DRAG,
     DRIVE_Q0,
     READOUT_Q0,
     READOUT_Q1,
     Constant,
     Decimal,
+    DerivativeQuadrature,
     Float64ReferenceRenderer,
     Gaussian,
     IqMixerCalibration,
@@ -43,10 +43,12 @@ def test_list_mode_samples_drag_and_tracks_beta_in_artifact_identity() -> None:
                 body=Play(
                     PulseEventId("drag-play"),
                     DRIVE_Q0,
-                    DRAG(
-                        duration=Quantity(4, "ns"),
-                        amplitude=Quantity(0.2, "arb"),
-                        sigma=Quantity(1, "ns"),
+                    DerivativeQuadrature(
+                        envelope=Gaussian(
+                            duration=Quantity(4, "ns"),
+                            amplitude=Quantity(0.2, "arb"),
+                            sigma=Quantity(1, "ns"),
+                        ),
                         beta=Quantity(beta_ns, "ns"),
                     ),
                 ),
@@ -80,7 +82,12 @@ def test_list_mode_samples_drag_and_tracks_beta_in_artifact_identity() -> None:
         for envelope, rotation in zip(baseband, carrier, strict=True)
     )
 
-    assert target.supported_envelopes == ("constant", "gaussian", "drag")
+    assert target.supported_envelopes == (
+        "constant",
+        "gaussian",
+        "cosine_flat_top",
+        "derivative_quadrature",
+    )
     assert waveforms[binding.i_channel_id] == pytest.approx(
         tuple(sample.real for sample in expected)
     )

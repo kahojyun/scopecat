@@ -101,22 +101,36 @@ class CosineFlatTop:
     phase: Quantity = field(default_factory=_zero_phase)
 
 
-@dataclass(frozen=True, slots=True)
-class DRAG:
-    """A Gaussian envelope with a derivative quadrature correction.
+type DifferentiableEnvelope = Gaussian | CosineFlatTop
 
-    ``beta`` has units of time, so multiplying it by the Gaussian derivative has
-    the same amplitude dimension as the in-phase component.
+
+@dataclass(frozen=True, slots=True)
+class DerivativeQuadrature:
+    """Add a scaled derivative of one smooth envelope in quadrature.
+
+    ``beta`` has units of time, so ``i * beta * d(envelope) / dt`` has the same
+    amplitude dimension as the base envelope.  The correction is deliberately
+    independent of the base shape; targets may materialize both together after
+    choosing a sample grid.
     """
 
-    duration: Quantity
-    amplitude: Quantity
-    sigma: Quantity
+    envelope: DifferentiableEnvelope
     beta: Quantity
-    phase: Quantity = field(default_factory=_zero_phase)
+
+    @property
+    def duration(self) -> Quantity:
+        return self.envelope.duration
+
+    @property
+    def amplitude(self) -> Quantity:
+        return self.envelope.amplitude
+
+    @property
+    def phase(self) -> Quantity:
+        return self.envelope.phase
 
 
-type AnalyticEnvelope = Constant | Gaussian | CosineFlatTop | DRAG
+type AnalyticEnvelope = Constant | DifferentiableEnvelope | DerivativeQuadrature
 
 
 @dataclass(frozen=True, slots=True)
@@ -502,6 +516,42 @@ def _normalized_envelope(
     instruction_id: PulseEventId,
     path: tuple[int, ...],
 ) -> tuple[AnalyticEnvelope, Decimal] | None:
+    if isinstance(envelope, DerivativeQuadrature):
+        normalized_base = _normalized_envelope(
+            envelope.envelope,
+            issues=issues,
+            instruction_id=instruction_id,
+            path=path,
+        )
+        beta = _time_value(
+            envelope.beta,
+            name="derivative-quadrature beta",
+            issues=issues,
+            instruction_id=instruction_id,
+            path=path,
+            positive=False,
+        )
+        if normalized_base is None or beta is None:
+            return None
+        normalized_beta_value = _representable_quantity_seconds(
+            beta,
+            name="derivative-quadrature beta",
+            issues=issues,
+            instruction_id=instruction_id,
+            path=path,
+        )
+        if normalized_beta_value is None:
+            return None
+        base, duration = normalized_base
+        assert isinstance(base, Gaussian | CosineFlatTop)
+        return (
+            DerivativeQuadrature(
+                envelope=base,
+                beta=Quantity(value=normalized_beta_value, unit="s"),
+            ),
+            duration,
+        )
+
     duration = _time_value(
         envelope.duration,
         name="envelope duration",
@@ -523,10 +573,9 @@ def _normalized_envelope(
         path=path,
     )
     sigma: Decimal | None = None
-    beta: Decimal | None = None
     rise_duration: Decimal | None = None
     fall_duration: Decimal | None = None
-    if isinstance(envelope, Gaussian | DRAG):
+    if isinstance(envelope, Gaussian):
         sigma = _time_value(
             envelope.sigma,
             name="Gaussian sigma",
@@ -543,15 +592,6 @@ def _normalized_envelope(
                 instruction_id=instruction_id,
                 path=path,
             )
-    if isinstance(envelope, DRAG):
-        beta = _time_value(
-            envelope.beta,
-            name="DRAG beta",
-            issues=issues,
-            instruction_id=instruction_id,
-            path=path,
-            positive=False,
-        )
     if isinstance(envelope, CosineFlatTop):
         rise_duration = _time_value(
             envelope.rise_duration,
@@ -664,31 +704,11 @@ def _normalized_envelope(
     if normalized_sigma_value is None:
         return None
     normalized_sigma = Quantity(value=normalized_sigma_value, unit="s")
-    if isinstance(envelope, Gaussian):
-        return replace(
-            envelope,
-            duration=normalized_duration,
-            amplitude=amplitude,
-            sigma=normalized_sigma,
-            phase=phase,
-        ), duration
-    if beta is None:
-        return None
-    normalized_beta_value = _representable_quantity_seconds(
-        beta,
-        name="DRAG beta",
-        issues=issues,
-        instruction_id=instruction_id,
-        path=path,
-    )
-    if normalized_beta_value is None:
-        return None
     return replace(
         envelope,
         duration=normalized_duration,
         amplitude=amplitude,
         sigma=normalized_sigma,
-        beta=Quantity(value=normalized_beta_value, unit="s"),
         phase=phase,
     ), duration
 

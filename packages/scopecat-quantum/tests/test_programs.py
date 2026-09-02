@@ -41,13 +41,14 @@ from scopecat_quantum.pulse_implementations import (
     ResolvedPulseImplementations,
 )
 from scopecat_quantum.pulses import (
-    DRAG,
     Acquire,
     AcquireSignal,
     AcquisitionSlot,
     Constant,
     Delay,
+    DerivativeQuadrature,
     DriveSignal,
+    Gaussian,
     Play,
     PulseProgram,
     ReadoutSignal,
@@ -287,10 +288,12 @@ def _drag_template(program_id: str = "x90-drag-candidate") -> PulseProgram:
         body=Play(
             id=PulseEventId("drag"),
             signal=DriveSignal(Q0),
-            envelope=DRAG(
-                duration=Quantity(16, "ns"),
-                amplitude=Quantity(0.2, "arb"),
-                sigma=Quantity(4, "ns"),
+            envelope=DerivativeQuadrature(
+                envelope=Gaussian(
+                    duration=Quantity(16, "ns"),
+                    amplitude=Quantity(0.2, "arb"),
+                    sigma=Quantity(4, "ns"),
+                ),
                 beta=Quantity(0.75, "ns"),
             ),
         ),

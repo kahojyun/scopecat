@@ -774,11 +774,16 @@ class ListModeTarget:
 
     @property
     def supported_envelopes(self) -> tuple[str, ...]:
-        return ("constant", "gaussian", "drag")
+        return (
+            "constant",
+            "gaussian",
+            "cosine_flat_top",
+            "derivative_quadrature",
+        )
 
     def _capability_payload(self) -> dict[str, object]:
         return {
-            "schema": "reference_lab.list_mode_target.capabilities.v9",
+            "schema": "reference_lab.list_mode_target.capabilities.v10",
             "target_id": self.id.value,
             "sample_rate_hz": self.sample_rate_hz,
             "timing_quantization": self.timing_quantization,
