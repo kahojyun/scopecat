@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from typing import cast
+
+import pytest
+
 from scopecat_quantum.benchmarking import (
     SequenceKey,
+    SingleQubitPrimitive,
     parallel_single_qubit_rb_sequences,
     single_qubit_clifford_product,
+    single_qubit_interleaved_rb_sequence,
     single_qubit_rb_sequence,
     single_qubit_xeb_sequence,
     two_qubit_clifford_count,
@@ -48,6 +54,79 @@ def test_single_qubit_rb_is_replayable_and_appends_exact_recovery() -> None:
         "sha256:bb72ebad8dc64f864fa20cadd2f5c3f713ef6c33f8fe0223720229359f0e8b84"
     )
     assert sequence == single_qubit_rb_sequence(17, 8, member_id="q0")
+
+
+def test_single_qubit_interleaved_rb_reuses_backbone_and_recovers_identity() -> None:
+    reference = single_qubit_rb_sequence(17, 3, member_id="q0")
+    interleaved = single_qubit_interleaved_rb_sequence(
+        17,
+        3,
+        member_id="q0",
+        interleaved_primitives=("x90",),
+    )
+
+    assert interleaved.random_cliffords == reference.random_cliffords
+    assert interleaved.reference_key == reference.key
+    assert interleaved.reference_fingerprint == reference.fingerprint
+    assert interleaved.interleaved_primitives == ("x90",)
+    assert interleaved.primitives == (
+        "x",
+        "ym90",
+        "x90",
+        "x",
+        "ym90",
+        "x90",
+        "i",
+        "x90",
+        "x90",
+        "ym90",
+        "x90",
+    )
+    assert single_qubit_clifford_product(interleaved.cliffords) == 0
+    assert interleaved.fingerprint == (
+        "sha256:1a758c4ab9c1ceabf9ca46e7e1ab0d780c0d1ba9b03163b106107b173979c225"
+    )
+    assert interleaved == single_qubit_interleaved_rb_sequence(
+        17,
+        3,
+        member_id="q0",
+        interleaved_primitives=("x90",),
+    )
+
+
+def test_single_qubit_interleaved_rb_accepts_a_composite_realization() -> None:
+    sequence = single_qubit_interleaved_rb_sequence(
+        17,
+        3,
+        interleaved_primitives=("x90", "x90"),
+    )
+
+    assert sequence.interleaved_clifford == single_qubit_interleaved_rb_sequence(
+        17,
+        3,
+        interleaved_primitives=("x",),
+    ).interleaved_clifford
+    assert single_qubit_clifford_product(sequence.cliffords) == 0
+
+
+def test_single_qubit_interleaved_rb_rejects_an_empty_realization() -> None:
+    with pytest.raises(ValueError, match="realization must not be empty"):
+        _ = single_qubit_interleaved_rb_sequence(
+            17,
+            3,
+            interleaved_primitives=(),
+        )
+
+
+def test_single_qubit_interleaved_rb_rejects_unknown_runtime_gate() -> None:
+    with pytest.raises(ValueError, match="unsupported single-qubit interleaved gate"):
+        _ = single_qubit_interleaved_rb_sequence(
+            17,
+            3,
+            interleaved_primitives=(
+                cast("SingleQubitPrimitive", cast("object", "h")),
+            ),
+        )
 
 
 def test_parallel_single_qubit_rb_is_member_keyed_and_order_independent() -> None:
