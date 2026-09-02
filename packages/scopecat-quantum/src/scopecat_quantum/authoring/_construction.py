@@ -39,6 +39,7 @@ from scopecat_quantum.pulses import (
     AcquireSignal,
     AnalyticEnvelope,
     DriveSignal,
+    EnvelopePhaseReference,
     FluxSignal,
     FrameSignal,
     PlaySignal,
@@ -451,8 +452,33 @@ def derivative_quadrature(
         )
     if envelope.derivative_beta is not None:
         raise ValueError("envelope already has a derivative-quadrature correction")
+    if envelope.frequency_offset is not None:
+        raise ValueError(
+            "apply derivative quadrature before a pulse-local frequency shift"
+        )
     _require_quantity_expression(beta, field="beta", kind="time")
     return replace(envelope, derivative_beta=beta)
+
+
+def frequency_shift(
+    envelope: PulseEnvelope,
+    /,
+    *,
+    offset: QuantumQuantity,
+    phase_reference: EnvelopePhaseReference = "center",
+) -> PulseEnvelope:
+    """Apply a pulse-local frequency offset with a reset phase ramp."""
+
+    if envelope.frequency_offset is not None:
+        raise ValueError("envelope already has a pulse-local frequency shift")
+    if phase_reference not in {"start", "center"}:
+        raise ValueError("phase_reference must be either 'start' or 'center'")
+    _require_quantity_expression(offset, field="offset", kind="frequency")
+    return replace(
+        envelope,
+        frequency_offset=offset,
+        frequency_reference=phase_reference,
+    )
 
 
 def play(

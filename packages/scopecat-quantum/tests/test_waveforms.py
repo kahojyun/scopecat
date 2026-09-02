@@ -15,6 +15,7 @@ from scopecat_quantum.pulses import (
     Delay,
     DerivativeQuadrature,
     DriveSignal,
+    FrequencyShift,
     Gaussian,
     Parallel,
     Play,
@@ -896,6 +897,74 @@ def test_derivative_quadrature_composes_with_legacy_periodic_hann() -> None:
     )
     np.testing.assert_allclose(rendered.buffers[0], expected_i, atol=1e-15)
     np.testing.assert_allclose(rendered.buffers[1], expected_q, atol=1e-15)
+
+
+def test_frequency_shift_uses_a_center_referenced_pulse_local_phase_ramp() -> None:
+    envelope = FrequencyShift(
+        envelope=Constant(
+            duration=Quantity(4, "ns"),
+            amplitude=Quantity(0.2, "arb"),
+        ),
+        frequency_offset=Quantity(250, "MHz"),
+    )
+    rendered = Float64ReferenceRenderer().render(
+        plan_sampled_waveforms(
+            schedule(
+                PulseProgram(
+                    PulseProgramId("local-frequency-shift"),
+                    Play(PulseEventId("play"), DRIVE_Q0, envelope),
+                )
+            ),
+            bindings=(_binding(DRIVE_Q0),),
+            grid=SampleGrid(1_000_000_000),
+        )
+    )
+    phases = math.tau * 250e6 * (np.arange(4) + 0.5 - 2.0) * 1e-9
+
+    np.testing.assert_allclose(rendered.buffers[0], 0.2 * np.cos(phases), atol=1e-15)
+    np.testing.assert_allclose(rendered.buffers[1], 0.2 * np.sin(phases), atol=1e-15)
+
+
+def test_frequency_shift_modulates_the_complete_derivative_envelope() -> None:
+    base = DerivativeQuadrature(
+        envelope=Gaussian(
+            duration=Quantity(4, "ns"),
+            amplitude=Quantity(0.2, "arb"),
+            sigma=Quantity(1, "ns"),
+        ),
+        beta=Quantity(-0.4, "ns"),
+    )
+
+    def render(envelope: DerivativeQuadrature | FrequencyShift):
+        return Float64ReferenceRenderer().render(
+            plan_sampled_waveforms(
+                schedule(
+                    PulseProgram(
+                        PulseProgramId("composed-frequency-shift"),
+                        Play(PulseEventId("play"), DRIVE_Q0, envelope),
+                    )
+                ),
+                bindings=(_binding(DRIVE_Q0),),
+                grid=SampleGrid(1_000_000_000),
+            )
+        )
+
+    baseline = render(base)
+    shifted = render(
+        FrequencyShift(
+            envelope=base,
+            frequency_offset=Quantity(125, "MHz"),
+        )
+    )
+    baseline_complex = baseline.buffers[0] + 1j * baseline.buffers[1]
+    shifted_complex = shifted.buffers[0] + 1j * shifted.buffers[1]
+    phases = math.tau * 125e6 * (np.arange(4) + 0.5 - 2.0) * 1e-9
+
+    np.testing.assert_allclose(
+        shifted_complex,
+        baseline_complex * np.exp(1j * phases),
+        atol=1e-15,
+    )
 
 
 def test_left_edge_cosine_flat_top_preserves_legacy_readout_edges() -> None:

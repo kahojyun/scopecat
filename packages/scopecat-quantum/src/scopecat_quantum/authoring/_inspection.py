@@ -26,6 +26,7 @@ from scopecat_quantum.pulses import (
     Constant,
     DerivativeQuadrature,
     DriveSignal,
+    FrequencyShift,
     Gaussian,
     LogicalSignal,
     ReadoutSignal,
@@ -308,8 +309,16 @@ def _inspection_envelope(envelope: PulseEnvelope | AnalyticEnvelope) -> str:
             rise_duration,
             fall_duration,
             phase,
+            frequency_offset,
+            frequency_reference,
         ) = _pulse_envelope_parts(envelope)
     else:
+        frequency_offset = None
+        frequency_reference = "center"
+        if isinstance(envelope, FrequencyShift):
+            frequency_offset = envelope.frequency_offset
+            frequency_reference = envelope.phase_reference
+            envelope = envelope.envelope
         derivative_beta = None
         if isinstance(envelope, DerivativeQuadrature):
             derivative_beta = envelope.beta
@@ -350,6 +359,10 @@ def _inspection_envelope(envelope: PulseEnvelope | AnalyticEnvelope) -> str:
         fields.append(f"fall_duration={_inspection_value(fall_duration)}")
     if not _is_zero_phase(phase):
         fields.append(f"phase={_inspection_value(phase)}")
+    if frequency_offset is not None:
+        fields.append(f"frequency_offset={_inspection_value(frequency_offset)}")
+        if frequency_reference != "center":
+            fields.append(f"frequency_reference={frequency_reference!r}")
     return f"{kind}({', '.join(fields)})"
 
 

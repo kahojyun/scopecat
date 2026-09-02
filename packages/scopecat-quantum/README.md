@@ -94,6 +94,21 @@ corrected = authoring.derivative_quadrature(
 )
 ```
 
+Pulse-local detuning is a separate outer composition. Its phase ramp resets for
+each envelope and defaults to zero phase at the envelope center, so idle gaps do
+not accumulate detuning phase:
+
+```python
+detuned = authoring.frequency_shift(
+    corrected,
+    offset=Quantity(-1.2, "MHz"),
+)
+```
+
+Apply the derivative correction before the frequency shift. This makes the
+phase ramp modulate the complete corrected complex envelope and keeps it
+distinct from a target's program-global carrier-frequency setting.
+
 Program inputs may bind directly to Scopecat values such as
 `scopecat.parameter_lookup(...)`. A `Program` call is a native domain
 occurrence that owns its effect, execution options, and named result products.

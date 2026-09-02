@@ -59,6 +59,7 @@ from scopecat_quantum.pulses import (
     Delay,
     DerivativeQuadrature,
     FrameSignal,
+    FrequencyShift,
     Gaussian,
     Play,
     PlaySignal,
@@ -706,7 +707,10 @@ def _bind_envelope(
     envelope: PulseEnvelope | AnalyticEnvelope,
     bindings: Mapping[str, object],
 ) -> AnalyticEnvelope:
-    if isinstance(envelope, Constant | Gaussian | CosineFlatTop | DerivativeQuadrature):
+    if isinstance(
+        envelope,
+        Constant | Gaussian | CosineFlatTop | DerivativeQuadrature | FrequencyShift,
+    ):
         return envelope
     (
         kind,
@@ -717,6 +721,8 @@ def _bind_envelope(
         raw_rise_duration,
         raw_fall_duration,
         raw_phase,
+        raw_frequency_offset,
+        raw_frequency_reference,
     ) = _pulse_envelope_parts(envelope)
     duration = _bound_quantity(raw_duration, bindings)
     amplitude = _bound_quantity(raw_amplitude, bindings)
@@ -729,8 +735,7 @@ def _bind_envelope(
         )
         if raw_derivative_beta is not None:
             raise AssertionError("verified constant envelope cannot have a derivative")
-        return base
-    if kind == "cosine_flat_top":
+    elif kind == "cosine_flat_top":
         base = CosineFlatTop(
             duration=duration,
             amplitude=amplitude,
@@ -753,12 +758,22 @@ def _bind_envelope(
             sigma=sigma,
             phase=phase,
         )
-    if raw_derivative_beta is None:
-        return base
-    assert isinstance(base, Gaussian | CosineFlatTop)
-    return DerivativeQuadrature(
-        envelope=base,
-        beta=_bound_quantity(raw_derivative_beta, bindings),
+    if raw_derivative_beta is not None:
+        assert isinstance(base, Gaussian | CosineFlatTop)
+        corrected: Constant | Gaussian | CosineFlatTop | DerivativeQuadrature = (
+            DerivativeQuadrature(
+                envelope=base,
+                beta=_bound_quantity(raw_derivative_beta, bindings),
+            )
+        )
+    else:
+        corrected = base
+    if raw_frequency_offset is None:
+        return corrected
+    return FrequencyShift(
+        envelope=corrected,
+        frequency_offset=_bound_quantity(raw_frequency_offset, bindings),
+        phase_reference=raw_frequency_reference,
     )
 
 

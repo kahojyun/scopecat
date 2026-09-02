@@ -87,6 +87,7 @@ def test_list_mode_samples_drag_and_tracks_beta_in_artifact_identity() -> None:
         "gaussian",
         "cosine_flat_top",
         "derivative_quadrature",
+        "frequency_shift",
     )
     assert waveforms[binding.i_channel_id] == pytest.approx(
         tuple(sample.real for sample in expected)

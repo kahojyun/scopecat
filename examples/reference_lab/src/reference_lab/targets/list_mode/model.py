@@ -779,11 +779,12 @@ class ListModeTarget:
             "gaussian",
             "cosine_flat_top",
             "derivative_quadrature",
+            "frequency_shift",
         )
 
     def _capability_payload(self) -> dict[str, object]:
         return {
-            "schema": "reference_lab.list_mode_target.capabilities.v10",
+            "schema": "reference_lab.list_mode_target.capabilities.v11",
             "target_id": self.id.value,
             "sample_rate_hz": self.sample_rate_hz,
             "timing_quantization": self.timing_quantization,

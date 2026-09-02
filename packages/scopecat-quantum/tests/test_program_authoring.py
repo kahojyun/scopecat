@@ -43,7 +43,9 @@ from scopecat_quantum.pulses import (
     CosineFlatTop,
     DerivativeQuadrature,
     DriveSignal,
+    EnvelopePhaseReference,
     FluxSignal,
+    FrequencyShift,
     Gaussian,
     Play,
     PulseProgram,
@@ -404,6 +406,56 @@ def test_derivative_quadrature_rejects_a_constant_envelope() -> None:
                 amplitude=Quantity(0.2, "arb"),
             ),
             beta=Quantity(-0.5, "ns"),
+        )
+
+
+def test_pulse_local_frequency_shift_binds_outside_derivative_quadrature() -> None:
+    q0 = authoring.qubit("q0")
+    detuning = authoring.input(
+        "detuning",
+        sc.ScalarType(sc.QuantityType(unit="MHz")),
+    )
+    envelope = authoring.frequency_shift(
+        authoring.derivative_quadrature(
+            authoring.gaussian(
+                duration=Quantity(16, "ns"),
+                amplitude=Quantity(0.2, "arb"),
+                sigma=Quantity(4, "ns"),
+            ),
+            beta=Quantity(-0.4, "ns"),
+        ),
+        offset=detuning,
+    )
+    declaration = authoring._close_program(
+        "local-detuning",
+        authoring.play(authoring.drive(q0), envelope),
+    )
+
+    bound = authoring.bind(declaration, {"detuning": Quantity(-1.25, "MHz")})
+    [block] = bound.verified.operations
+    assert isinstance(block, PulseBlock)
+    [play] = iter_pulse_leaves(block.pulse_template.body)
+    assert isinstance(play, Play)
+    assert isinstance(play.envelope, FrequencyShift)
+    assert play.envelope.frequency_offset == Quantity(-1.25, "MHz")
+    assert play.envelope.phase_reference == "center"
+    assert isinstance(play.envelope.envelope, DerivativeQuadrature)
+
+
+def test_pulse_local_frequency_shift_rejects_time_and_invalid_reference() -> None:
+    envelope = authoring.gaussian(
+        duration=Quantity(16, "ns"),
+        amplitude=Quantity(0.2, "arb"),
+        sigma=Quantity(4, "ns"),
+    )
+
+    with pytest.raises(TypeError, match="frequency quantity"):
+        authoring.frequency_shift(envelope, offset=Quantity(1, "ns"))
+    with pytest.raises(ValueError, match="phase_reference"):
+        authoring.frequency_shift(
+            envelope,
+            offset=Quantity(1, "MHz"),
+            phase_reference=cast("EnvelopePhaseReference", cast("object", "end")),
         )
 
 

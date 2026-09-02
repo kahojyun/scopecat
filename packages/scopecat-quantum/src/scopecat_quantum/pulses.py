@@ -14,6 +14,7 @@ from collections.abc import Iterator
 from dataclasses import InitVar, dataclass, field, replace
 from decimal import Decimal
 from heapq import heappop, heappush
+from typing import Literal
 
 from scopecat import Quantity
 
@@ -130,7 +131,37 @@ class DerivativeQuadrature:
         return self.envelope.phase
 
 
-type AnalyticEnvelope = Constant | DifferentiableEnvelope | DerivativeQuadrature
+type FrequencyShiftBase = Constant | DifferentiableEnvelope | DerivativeQuadrature
+type EnvelopePhaseReference = Literal["start", "center"]
+
+
+@dataclass(frozen=True, slots=True)
+class FrequencyShift:
+    """Apply a pulse-local constant frequency offset to one envelope.
+
+    The corresponding phase ramp is reset for every envelope. ``center`` keeps
+    the authored phase at the envelope midpoint, matching common DRAG-detuning
+    practice without accumulating detuning phase through idle gaps.
+    """
+
+    envelope: FrequencyShiftBase
+    frequency_offset: Quantity
+    phase_reference: EnvelopePhaseReference = "center"
+
+    @property
+    def duration(self) -> Quantity:
+        return self.envelope.duration
+
+    @property
+    def amplitude(self) -> Quantity:
+        return self.envelope.amplitude
+
+    @property
+    def phase(self) -> Quantity:
+        return self.envelope.phase
+
+
+type AnalyticEnvelope = FrequencyShiftBase | FrequencyShift
 
 
 @dataclass(frozen=True, slots=True)
@@ -509,6 +540,80 @@ def _normalized_phase(
         return None
 
 
+def _normalized_frequency(
+    quantity: Quantity,
+    *,
+    issues: list[PulseIssue],
+    instruction_id: PulseEventId,
+    path: tuple[int, ...],
+) -> Quantity | None:
+    if not math.isfinite(quantity.value):
+        _issue(
+            issues,
+            "pulse_quantity_nonfinite",
+            "frequency offset must be finite",
+            instruction_id=instruction_id,
+            path=path,
+        )
+        return None
+    try:
+        return quantity.to("Hz")
+    except ValueError:
+        _issue(
+            issues,
+            "pulse_frequency_unit_invalid",
+            f"frequency offset must have a frequency unit, got {quantity.unit!r}",
+            instruction_id=instruction_id,
+            path=path,
+        )
+        return None
+
+
+def _normalized_frequency_shift(
+    envelope: FrequencyShift,
+    *,
+    issues: list[PulseIssue],
+    instruction_id: PulseEventId,
+    path: tuple[int, ...],
+) -> tuple[FrequencyShift, Decimal] | None:
+    if envelope.phase_reference not in {"start", "center"}:
+        _issue(
+            issues,
+            "pulse_frequency_reference_invalid",
+            "frequency-shift phase reference must be either 'start' or 'center'",
+            instruction_id=instruction_id,
+            path=path,
+        )
+        return None
+    normalized_base = _normalized_envelope(
+        envelope.envelope,
+        issues=issues,
+        instruction_id=instruction_id,
+        path=path,
+    )
+    frequency_offset = _normalized_frequency(
+        envelope.frequency_offset,
+        issues=issues,
+        instruction_id=instruction_id,
+        path=path,
+    )
+    if normalized_base is None or frequency_offset is None:
+        return None
+    base, duration = normalized_base
+    assert isinstance(
+        base,
+        Constant | Gaussian | CosineFlatTop | DerivativeQuadrature,
+    )
+    return (
+        FrequencyShift(
+            envelope=base,
+            frequency_offset=frequency_offset,
+            phase_reference=envelope.phase_reference,
+        ),
+        duration,
+    )
+
+
 def _normalized_envelope(
     envelope: AnalyticEnvelope,
     *,
@@ -516,6 +621,14 @@ def _normalized_envelope(
     instruction_id: PulseEventId,
     path: tuple[int, ...],
 ) -> tuple[AnalyticEnvelope, Decimal] | None:
+    if isinstance(envelope, FrequencyShift):
+        return _normalized_frequency_shift(
+            envelope,
+            issues=issues,
+            instruction_id=instruction_id,
+            path=path,
+        )
+
     if isinstance(envelope, DerivativeQuadrature):
         normalized_base = _normalized_envelope(
             envelope.envelope,

@@ -53,6 +53,7 @@ from scopecat_quantum.gates import (
 )
 from scopecat_quantum.pulses import (
     AnalyticEnvelope,
+    EnvelopePhaseReference,
     FluxSignal,
     LogicalSignal,
 )
@@ -111,6 +112,8 @@ def _pulse_envelope_parts(
     QuantumQuantity | None,
     QuantumQuantity | None,
     QuantumQuantity,
+    QuantumQuantity | None,
+    EnvelopePhaseReference,
 ]:
     return (
         value.kind,
@@ -121,6 +124,8 @@ def _pulse_envelope_parts(
         value.rise_duration,
         value.fall_duration,
         value.phase,
+        value.frequency_offset,
+        value.frequency_reference,
     )
 
 
@@ -181,8 +186,12 @@ def _pulse_envelope(
     rise_duration: QuantumQuantity | None = None,
     fall_duration: QuantumQuantity | None = None,
     phase: QuantumQuantity | None = None,
+    frequency_offset: QuantumQuantity | None = None,
+    frequency_reference: EnvelopePhaseReference = "center",
 ) -> PulseEnvelope:
     selected_phase = Quantity(0, "rad") if phase is None else phase
+    if frequency_reference not in {"start", "center"}:
+        raise ValueError("frequency_reference must be either 'start' or 'center'")
     _require_quantity_expression(duration, field="duration", kind="time")
     _require_quantity_expression(amplitude, field="amplitude", kind="amplitude")
     _require_quantity_expression(selected_phase, field="phase", kind="phase")
@@ -193,6 +202,12 @@ def _pulse_envelope(
             derivative_beta,
             field="derivative_beta",
             kind="time",
+        )
+    if frequency_offset is not None:
+        _require_quantity_expression(
+            frequency_offset,
+            field="frequency_offset",
+            kind="frequency",
         )
     if rise_duration is not None:
         _require_quantity_expression(
@@ -215,6 +230,8 @@ def _pulse_envelope(
         rise_duration=rise_duration,
         fall_duration=fall_duration,
         phase=selected_phase,
+        frequency_offset=frequency_offset,
+        frequency_reference=frequency_reference,
     )
 
 
@@ -230,6 +247,8 @@ def _require_quantity_expression(
             accepted = _quantity_converts_to(value, "s")
         elif kind == "phase":
             accepted = _quantity_converts_to(value, "rad")
+        elif kind == "frequency":
+            accepted = _quantity_converts_to(value, "Hz")
         else:
             accepted = any(
                 _quantity_converts_to(value, unit) for unit in ("arb", "ratio", "V")
@@ -249,6 +268,8 @@ def _require_quantity_expression(
             declared_kind = "time"
         elif _quantity_converts_to(probe, "rad"):
             declared_kind = "phase"
+        elif _quantity_converts_to(probe, "Hz"):
+            declared_kind = "frequency"
         elif any(_quantity_converts_to(probe, unit) for unit in ("arb", "ratio", "V")):
             declared_kind = "amplitude"
     accepted_kinds = (
@@ -1033,6 +1054,8 @@ def _envelope_inputs(
         rise_duration,
         fall_duration,
         phase,
+        frequency_offset,
+        _frequency_reference,
     ) = _pulse_envelope_parts(envelope)
     return tuple(
         value
@@ -1044,6 +1067,7 @@ def _envelope_inputs(
             rise_duration,
             fall_duration,
             phase,
+            frequency_offset,
         )
         if isinstance(value, ProgramInput)
     )

@@ -25,6 +25,8 @@ from scopecat_quantum.pulses import (
     Delay,
     DerivativeQuadrature,
     DriveSignal,
+    EnvelopePhaseReference,
+    FrequencyShift,
     Gaussian,
     Parallel,
     Play,
@@ -607,6 +609,53 @@ def test_gaussian_and_derivative_shape_parameters_are_validated() -> None:
         "pulse_sigma_exceeds_duration",
         "pulse_time_unit_invalid",
     } <= _issue_codes(raised.value)
+
+
+def test_frequency_shift_normalizes_offset_and_validates_its_reference() -> None:
+    scheduled = schedule(
+        _program(
+            Play(
+                PulseEventId("shifted"),
+                DRIVE_Q0,
+                FrequencyShift(
+                    envelope=Constant(
+                        duration=Quantity(20, "ns"),
+                        amplitude=Quantity(0.2, "arb"),
+                    ),
+                    frequency_offset=Quantity(-1.5, "MHz"),
+                    phase_reference="start",
+                ),
+            )
+        )
+    )
+
+    envelope = cast("Play", scheduled.events[0].instruction).envelope
+    assert isinstance(envelope, FrequencyShift)
+    assert envelope.frequency_offset == Quantity(-1.5e6, "Hz")
+    assert envelope.phase_reference == "start"
+
+    with pytest.raises(PulseValidationError) as raised:
+        schedule(
+            _program(
+                Play(
+                    PulseEventId("invalid-shift"),
+                    DRIVE_Q0,
+                    FrequencyShift(
+                        envelope=Constant(
+                            duration=Quantity(20, "ns"),
+                            amplitude=Quantity(0.2, "arb"),
+                        ),
+                        frequency_offset=Quantity(1, "ns"),
+                        phase_reference=cast(
+                            "EnvelopePhaseReference",
+                            cast("object", "end"),
+                        ),
+                    ),
+                )
+            )
+        )
+
+    assert "pulse_frequency_reference_invalid" in _issue_codes(raised.value)
 
 
 def test_cosine_flat_top_normalizes_explicit_edge_durations() -> None:

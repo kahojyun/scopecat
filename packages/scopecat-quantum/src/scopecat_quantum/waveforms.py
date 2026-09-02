@@ -27,6 +27,7 @@ from scopecat_quantum.pulses import (
     DerivativeQuadrature,
     DriveSignal,
     FrameSignal,
+    FrequencyShift,
     Gaussian,
     Play,
     PlaySignal,
@@ -301,10 +302,10 @@ def _replace_envelope_phase(
     envelope: AnalyticEnvelope,
     phase: Quantity,
 ) -> AnalyticEnvelope:
-    if isinstance(envelope, DerivativeQuadrature):
+    if isinstance(envelope, DerivativeQuadrature | FrequencyShift):
         return replace(
             envelope,
-            envelope=replace(envelope.envelope, phase=phase),
+            envelope=_replace_envelope_phase(envelope.envelope, phase),
         )
     return replace(envelope, phase=phase)
 
@@ -647,11 +648,9 @@ def _plan_render_events(
         timing_occurrences[event.event_id] = occurrence + 1
         if binding is None or timing is None or timing.sample_count <= 0:
             continue
-        base_envelope = (
-            event.envelope.envelope
-            if isinstance(event.envelope, DerivativeQuadrature)
-            else event.envelope
-        )
+        base_envelope = event.envelope
+        while isinstance(base_envelope, DerivativeQuadrature | FrequencyShift):
+            base_envelope = base_envelope.envelope
         if isinstance(base_envelope, CosineFlatTop):
             edge_duration_seconds = Decimal(
                 str(base_envelope.rise_duration.to("s").value)
@@ -871,6 +870,24 @@ def _envelope_samples(
     local_positions: np.ndarray[tuple[int], np.dtype[np.float64]],
     envelope_duration_seconds: float,
 ) -> np.ndarray[tuple[int], np.dtype[np.complex128]]:
+    if isinstance(envelope, FrequencyShift):
+        base = _envelope_samples(
+            envelope.envelope,
+            local_positions=local_positions,
+            envelope_duration_seconds=envelope_duration_seconds,
+        )
+        reference_seconds = (
+            envelope_duration_seconds / 2.0
+            if envelope.phase_reference == "center"
+            else 0.0
+        )
+        phase_radians = (
+            math.tau
+            * float(envelope.frequency_offset.value)
+            * (local_positions - reference_seconds)
+        )
+        return base * np.exp(1j * phase_radians)
+
     if isinstance(envelope, DerivativeQuadrature):
         base = _envelope_samples(
             envelope.envelope,
