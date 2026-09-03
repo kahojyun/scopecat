@@ -109,6 +109,12 @@ Apply the derivative correction before the frequency shift. This makes the
 phase ramp modulate the complete corrected complex envelope and keeps it
 distinct from a target's program-global carrier-frequency setting.
 
+The concrete `DRAG` envelope type has been replaced by that composition. Code
+which constructed `DRAG(...)` directly should construct
+`DerivativeQuadrature(Gaussian(...), beta=...)`; the stable
+`authoring.drag(...)` convenience function continues to author the same
+Gaussian derivative correction.
+
 Program inputs may bind directly to Scopecat values such as
 `scopecat.parameter_lookup(...)`. A `Program` call is a native domain
 occurrence that owns its effect, execution options, and named result products.

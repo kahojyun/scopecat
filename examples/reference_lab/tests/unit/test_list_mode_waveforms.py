@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from ._list_mode_test_support import (
     DRIVE_Q0,
     READOUT_Q0,
@@ -8,6 +10,7 @@ from ._list_mode_test_support import (
     Decimal,
     DerivativeQuadrature,
     Float64ReferenceRenderer,
+    FrequencyShift,
     Gaussian,
     IqMixerCalibration,
     Play,
@@ -96,6 +99,83 @@ def test_list_mode_samples_drag_and_tracks_beta_in_artifact_identity() -> None:
         tuple(sample.imag for sample in expected)
     )
     assert changed.artifact_fingerprint != baseline.artifact_fingerprint
+
+
+def test_list_mode_samples_composed_frequency_shift_and_tracks_its_semantics() -> None:
+    def compile_shift(
+        offset_mhz: float,
+        *,
+        phase_reference: Literal["start", "center"] = "center",
+    ):
+        target = _target()
+        scheduled = schedule(
+            PulseProgram(
+                id=PulseProgramId("frequency-shift"),
+                body=Play(
+                    PulseEventId("shifted-play"),
+                    DRIVE_Q0,
+                    FrequencyShift(
+                        envelope=DerivativeQuadrature(
+                            envelope=Gaussian(
+                                duration=Quantity(4, "ns"),
+                                amplitude=Quantity(0.2, "arb"),
+                                sigma=Quantity(1, "ns"),
+                            ),
+                            beta=Quantity(-0.5, "ns"),
+                        ),
+                        frequency_offset=Quantity(offset_mhz, "MHz"),
+                        phase_reference=phase_reference,
+                    ),
+                ),
+            )
+        )
+        compiler, request = _request(target, (scheduled,), repetitions=1)
+        return target, compiler.compile(request)
+
+    target, baseline = compile_shift(-125.0)
+    _, changed_offset = compile_shift(-100.0)
+    _, changed_reference = compile_shift(-125.0, phase_reference="start")
+    binding = _output_binding(target, DRIVE_Q0)
+    waveforms = {
+        waveform.channel_id: waveform.samples
+        for waveform in baseline.entries[0].waveforms
+    }
+    offsets_ns = (-1.5, -0.5, 0.5, 1.5)
+    gaussians = tuple(0.2 * math.exp(-(offset**2) / 2.0) for offset in offsets_ns)
+    corrected = tuple(
+        gaussian + 0.5j * offset * gaussian
+        for offset, gaussian in zip(offsets_ns, gaussians, strict=True)
+    )
+    local_rotation = tuple(
+        complex(math.cos(phase), math.sin(phase))
+        for offset in offsets_ns
+        for phase in (math.tau * -125e6 * offset * 1e-9,)
+    )
+    carrier = _modulated_samples(
+        1.0,
+        start_sample=0,
+        sample_count=4,
+        intermediate_frequency_hz=binding.intermediate_frequency_hz,
+        sample_rate_hz=target.sample_rate_hz,
+    )
+    expected: tuple[complex, ...] = tuple(
+        envelope * rotation * carrier_sample
+        for envelope, rotation, carrier_sample in zip(
+            corrected,
+            local_rotation,
+            carrier,
+            strict=True,
+        )
+    )
+
+    assert waveforms[binding.i_channel_id] == pytest.approx(
+        tuple(sample.real for sample in expected)
+    )
+    assert waveforms[binding.q_channel_id] == pytest.approx(
+        tuple(sample.imag for sample in expected)
+    )
+    assert changed_offset.artifact_fingerprint != baseline.artifact_fingerprint
+    assert changed_reference.artifact_fingerprint != baseline.artifact_fingerprint
 
 
 def test_list_mode_renders_gaussian_and_records_realized_timing() -> None:

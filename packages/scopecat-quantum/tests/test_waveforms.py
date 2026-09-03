@@ -925,6 +925,89 @@ def test_frequency_shift_uses_a_center_referenced_pulse_local_phase_ramp() -> No
     np.testing.assert_allclose(rendered.buffers[1], 0.2 * np.sin(phases), atol=1e-15)
 
 
+def test_frequency_shift_uses_start_reference_and_resets_after_an_idle() -> None:
+    shifted = FrequencyShift(
+        envelope=Constant(
+            duration=Quantity(2, "ns"),
+            amplitude=Quantity(0.2, "arb"),
+        ),
+        frequency_offset=Quantity(250, "MHz"),
+        phase_reference="start",
+    )
+    rendered = Float64ReferenceRenderer().render(
+        plan_sampled_waveforms(
+            schedule(
+                PulseProgram(
+                    PulseProgramId("start-referenced-local-frequency-shift"),
+                    Sequence(
+                        (
+                            Play(PulseEventId("first"), DRIVE_Q0, shifted),
+                            Delay(PulseEventId("idle"), DRIVE_Q0, Quantity(3, "ns")),
+                            Play(PulseEventId("second"), DRIVE_Q0, shifted),
+                        )
+                    ),
+                )
+            ),
+            bindings=(_binding(DRIVE_Q0),),
+            grid=SampleGrid(1_000_000_000),
+        )
+    )
+    phases = math.tau * 250e6 * (np.arange(2) + 0.5) * 1e-9
+    pulse = 0.2 * np.exp(1j * phases)
+    expected = np.concatenate((pulse, np.zeros(3), pulse))
+
+    np.testing.assert_allclose(
+        rendered.buffers[0] + 1j * rendered.buffers[1],
+        expected,
+        atol=1e-15,
+    )
+
+
+def test_frequency_shift_preserves_fractional_continuous_local_time() -> None:
+    rendered = Float64ReferenceRenderer().render(
+        plan_sampled_waveforms(
+            schedule(
+                PulseProgram(
+                    PulseProgramId("fractional-local-frequency-shift"),
+                    Sequence(
+                        (
+                            Delay(
+                                PulseEventId("fractional-idle"),
+                                DRIVE_Q0,
+                                Quantity(0.2, "ns"),
+                            ),
+                            Play(
+                                PulseEventId("shifted"),
+                                DRIVE_Q0,
+                                FrequencyShift(
+                                    envelope=Constant(
+                                        duration=Quantity(2.4, "ns"),
+                                        amplitude=Quantity(0.2, "arb"),
+                                    ),
+                                    frequency_offset=Quantity(250, "MHz"),
+                                ),
+                            ),
+                        )
+                    ),
+                )
+            ),
+            bindings=(_binding(DRIVE_Q0),),
+            grid=SampleGrid(
+                1_000_000_000,
+                TimingQuantizationPolicy(mode="continuous"),
+            ),
+        )
+    )
+    local_positions_ns = np.asarray((0.3, 1.3, 2.3))
+    phases = math.tau * 250e6 * (local_positions_ns - 1.2) * 1e-9
+
+    np.testing.assert_allclose(
+        rendered.buffers[0] + 1j * rendered.buffers[1],
+        0.2 * np.exp(1j * phases),
+        atol=1e-15,
+    )
+
+
 def test_frequency_shift_modulates_the_complete_derivative_envelope() -> None:
     base = DerivativeQuadrature(
         envelope=Gaussian(
