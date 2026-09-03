@@ -175,9 +175,7 @@ def test_xeb_decay_weighting_downweights_one_noisy_outlier() -> None:
         weights=(1.0, 1.0, 1.0, 1.0, 1.0, 0.01),
     )
 
-    assert abs(weighted.cycle_fidelity - 0.95) < abs(
-        unweighted.cycle_fidelity - 0.95
-    )
+    assert abs(weighted.cycle_fidelity - 0.95) < abs(unweighted.cycle_fidelity - 0.95)
     assert 0.0 <= weighted.cycle_fidelity <= 1.0
 
 
