@@ -30,6 +30,27 @@ def test_rb_decay_recovers_reference_curve_and_error_per_clifford() -> None:
     assert fit.rmse < 1e-10
 
 
+def test_rb_decay_weighting_downweights_one_noisy_outlier() -> None:
+    lengths = (1, 2, 4, 8, 16, 32)
+    probabilities = [0.43 * 0.97**length + 0.5 for length in lengths]
+    probabilities[-1] += 0.12
+
+    unweighted = fit_rb_decay(lengths, probabilities)
+    weighted = fit_rb_decay(
+        lengths,
+        probabilities,
+        weights=(1.0, 1.0, 1.0, 1.0, 1.0, 0.01),
+    )
+
+    assert abs(weighted.decay - 0.97) < abs(unweighted.decay - 0.97)
+    assert 0.0 <= weighted.decay <= 1.0
+
+
+def test_rb_decay_rejects_an_unidentifiable_constant_curve() -> None:
+    with pytest.raises(ValueError, match="not identifiable"):
+        _ = fit_rb_decay((1, 2, 4), (0.5, 0.5, 0.5))
+
+
 def test_parallel_rb_decay_preserves_entity_identity() -> None:
     lengths = (1, 2, 4, 8, 16)
     probabilities = np.column_stack(
@@ -140,3 +161,26 @@ def test_xeb_decay_recovers_cycle_fidelity() -> None:
     assert fit.cycle_fidelity == pytest.approx(0.95, abs=1e-9)
     assert fit.cycle_error == pytest.approx(0.05, abs=1e-9)
     assert fit.rmse < 1e-10
+
+
+def test_xeb_decay_weighting_downweights_one_noisy_outlier() -> None:
+    cycles = (1, 2, 4, 8, 16, 32)
+    fidelities = [0.8 * 0.95**cycle for cycle in cycles]
+    fidelities[-1] += 0.1
+
+    unweighted = fit_xeb_decay(cycles, fidelities)
+    weighted = fit_xeb_decay(
+        cycles,
+        fidelities,
+        weights=(1.0, 1.0, 1.0, 1.0, 1.0, 0.01),
+    )
+
+    assert abs(weighted.cycle_fidelity - 0.95) < abs(
+        unweighted.cycle_fidelity - 0.95
+    )
+    assert 0.0 <= weighted.cycle_fidelity <= 1.0
+
+
+def test_xeb_decay_rejects_an_unidentifiable_zero_curve() -> None:
+    with pytest.raises(ValueError, match="not identifiable"):
+        _ = fit_xeb_decay((1, 2, 4), (0.0, 0.0, 0.0))
