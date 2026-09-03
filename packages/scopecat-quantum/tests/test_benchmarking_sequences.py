@@ -109,6 +109,31 @@ def test_single_qubit_interleaved_rb_accepts_a_composite_realization() -> None:
     assert single_qubit_clifford_product(sequence.cliffords) == 0
 
 
+def test_single_qubit_interleaved_rb_preserves_shared_prefix_length_semantics() -> None:
+    short = single_qubit_interleaved_rb_sequence(
+        17,
+        3,
+        sample_index=2,
+        member_id="q0",
+        length_sampling="shared_prefix",
+        interleaved_primitives=("x90",),
+    )
+    long = single_qubit_interleaved_rb_sequence(
+        17,
+        8,
+        sample_index=2,
+        member_id="q0",
+        length_sampling="shared_prefix",
+        interleaved_primitives=("x90",),
+    )
+
+    assert long.random_cliffords[: short.length] == short.random_cliffords
+    assert len(short.random_cliffords) == short.length
+    assert len(short.cliffords) == 2 * short.length + 1
+    assert short.reference_key.length is None
+    assert short.reference_key.variant == "shared_prefix"
+
+
 def test_single_qubit_interleaved_rb_rejects_an_empty_realization() -> None:
     with pytest.raises(ValueError, match="realization must not be empty"):
         _ = single_qubit_interleaved_rb_sequence(

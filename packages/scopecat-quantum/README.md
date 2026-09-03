@@ -21,10 +21,35 @@ identity, exact Clifford choices, recovery, primitive decomposition, and stable
 fingerprint needed for replay.
 
 The reference surface includes uniform 1q Clifford RB, entity-keyed parallel 1q
-RB, uniform 2q Clifford RB with an H/S/S†/CZ decomposition, 1q and phased XEB
-ensembles, RB decay and interleaved-error estimators, linear-XEB fidelity, and
-XEB cycle-decay fitting. Independent-length sampling is the default;
-`shared_prefix` is an explicit alternative.
+RB, exact 1q interleaved RB, uniform 2q Clifford RB with an H/S/S†/CZ
+decomposition, 1q and phased XEB ensembles, RB decay and interleaved-error
+estimators, linear-XEB fidelity, and XEB cycle-decay fitting.
+Independent-length sampling is the default; `shared_prefix` is an explicit
+alternative.
+
+An interleaved sequence reuses the exact random-Clifford backbone selected by
+the corresponding reference sequence. Its `length` counts random Cliffords;
+the executed circuit contains `length` random Cliffords, `length` copies of the
+interleaved realization, and one recomputed recovery Clifford. The realization
+is recorded as primitives so physically distinct implementations of the same
+Clifford remain distinguishable:
+
+```python
+from scopecat_quantum.benchmarking import (
+    single_qubit_interleaved_rb_sequence,
+    single_qubit_rb_sequence,
+)
+
+reference = single_qubit_rb_sequence(17, 32, sample_index=3, member_id="q0")
+interleaved = single_qubit_interleaved_rb_sequence(
+    17,
+    32,
+    sample_index=3,
+    member_id="q0",
+    interleaved_primitives=("x90", "x90"),
+)
+assert interleaved.reference_fingerprint == reference.fingerprint
+```
 
 These tools stop at logical operations and numerical results. An integrating
 project still owns experiment scans, selected qubits and pairs, readout and
