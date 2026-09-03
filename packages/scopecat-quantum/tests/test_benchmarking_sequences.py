@@ -101,11 +101,14 @@ def test_single_qubit_interleaved_rb_accepts_a_composite_realization() -> None:
         interleaved_primitives=("x90", "x90"),
     )
 
-    assert sequence.interleaved_clifford == single_qubit_interleaved_rb_sequence(
-        17,
-        3,
-        interleaved_primitives=("x",),
-    ).interleaved_clifford
+    assert (
+        sequence.interleaved_clifford
+        == single_qubit_interleaved_rb_sequence(
+            17,
+            3,
+            interleaved_primitives=("x",),
+        ).interleaved_clifford
+    )
     assert single_qubit_clifford_product(sequence.cliffords) == 0
 
 
@@ -148,9 +151,7 @@ def test_single_qubit_interleaved_rb_rejects_unknown_runtime_gate() -> None:
         _ = single_qubit_interleaved_rb_sequence(
             17,
             3,
-            interleaved_primitives=(
-                cast("SingleQubitPrimitive", cast("object", "h")),
-            ),
+            interleaved_primitives=(cast("SingleQubitPrimitive", cast("object", "h")),),
         )
 
 
