@@ -3,11 +3,34 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import cast
 
 import numpy as np
+from scipy.optimize import curve_fit  # pyright: ignore[reportUnknownVariableType]
+
+type _FloatVector = np.ndarray[tuple[int], np.dtype[np.float64]]
+
+
+def _rb_decay_model(
+    coordinates: _FloatVector,
+    amplitude: float,
+    decay: float,
+    offset: float,
+) -> _FloatVector:
+    return cast(
+        "_FloatVector",
+        amplitude * np.power(decay, coordinates) + offset,
+    )
+
+
+def _xeb_decay_model(
+    coordinates: _FloatVector,
+    amplitude: float,
+    decay: float,
+) -> _FloatVector:
+    return cast("_FloatVector", amplitude * np.power(decay, coordinates))
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,73 +122,6 @@ def _observations(
     return x, y, selected_weights
 
 
-def _minimum_on_unit_interval(objective: Callable[[float], float]) -> float:
-    grid = tuple(index / 2_048 for index in range(2_049))
-    errors = tuple(objective(candidate) for candidate in grid)
-    best = min(range(len(errors)), key=errors.__getitem__)
-    left = grid[max(0, best - 1)]
-    right = grid[min(len(grid) - 1, best + 1)]
-    golden_ratio = (math.sqrt(5.0) - 1.0) / 2.0
-    first = right - golden_ratio * (right - left)
-    second = left + golden_ratio * (right - left)
-    first_error = objective(first)
-    second_error = objective(second)
-    for _ in range(64):
-        if first_error <= second_error:
-            right = second
-            second = first
-            second_error = first_error
-            first = right - golden_ratio * (right - left)
-            first_error = objective(first)
-        else:
-            left = first
-            first = second
-            first_error = second_error
-            second = left + golden_ratio * (right - left)
-            second_error = objective(second)
-    candidates = (0.0, 1.0, grid[best], (left + right) / 2.0)
-    return min(candidates, key=objective)
-
-
-def _affine_exponential_parameters(
-    decay: float,
-    x: tuple[int, ...],
-    y: tuple[float, ...],
-    weights: tuple[float, ...],
-) -> tuple[float, float, float]:
-    basis = tuple(decay**coordinate for coordinate in x)
-    weight_sum = math.fsum(weights)
-    weighted_basis = math.fsum(
-        weight * value for weight, value in zip(weights, basis, strict=True)
-    )
-    weighted_basis_squared = math.fsum(
-        weight * value * value for weight, value in zip(weights, basis, strict=True)
-    )
-    weighted_y = math.fsum(
-        weight * value for weight, value in zip(weights, y, strict=True)
-    )
-    weighted_basis_y = math.fsum(
-        weight * basis_value * observed
-        for weight, basis_value, observed in zip(weights, basis, y, strict=True)
-    )
-    determinant = weighted_basis_squared * weight_sum - weighted_basis**2
-    if abs(determinant) < 1.0e-15:
-        amplitude = 0.0
-        offset = weighted_y / weight_sum
-    else:
-        amplitude = (
-            weighted_basis_y * weight_sum - weighted_y * weighted_basis
-        ) / determinant
-        offset = (
-            weighted_basis_squared * weighted_y - weighted_basis * weighted_basis_y
-        ) / determinant
-    squared_error = math.fsum(
-        weight * (observed - (amplitude * basis_value + offset)) ** 2
-        for weight, observed, basis_value in zip(weights, y, basis, strict=True)
-    )
-    return squared_error, amplitude, offset
-
-
 def fit_rb_decay(
     lengths: Sequence[int],
     survival_probabilities: Sequence[float],
@@ -173,7 +129,7 @@ def fit_rb_decay(
     dimension: int = 2,
     weights: Sequence[float] | None = None,
 ) -> RbDecayFit:
-    """Fit the conventional RB survival curve without a SciPy dependency."""
+    """Fit the conventional RB survival curve with bounded SciPy optimization."""
 
     if dimension < 2:
         raise ValueError("RB Hilbert dimension must be at least two")
@@ -182,16 +138,35 @@ def fit_rb_decay(
         survival_probabilities,
         weights,
     )
-
-    def objective(decay: float) -> float:
-        return _affine_exponential_parameters(decay, x, y, selected_weights)[0]
-
-    decay = _minimum_on_unit_interval(objective)
-    squared_error, amplitude, offset = _affine_exponential_parameters(
-        decay,
-        x,
-        y,
-        selected_weights,
+    if max(y) == min(y):
+        raise ValueError("RB decay is not identifiable from constant observations")
+    coordinates = np.asarray(x, dtype=np.float64)
+    observations = np.asarray(y, dtype=np.float64)
+    short_index = min(range(len(x)), key=x.__getitem__)
+    long_index = max(range(len(x)), key=x.__getitem__)
+    initial_offset = y[long_index]
+    initial_amplitude = y[short_index] - initial_offset
+    if initial_amplitude == 0.0:
+        initial_amplitude = max(y) - min(y)
+    parameters = cast(
+        "_FloatVector",
+        curve_fit(
+            _rb_decay_model,
+            coordinates,
+            observations,
+            p0=(initial_amplitude, 0.95, initial_offset),
+            bounds=((-np.inf, 0.0, -np.inf), (np.inf, 1.0, np.inf)),
+            sigma=1.0 / np.sqrt(np.asarray(selected_weights, dtype=np.float64)),
+            ftol=1.0e-14,
+            gtol=1.0e-14,
+            xtol=1.0e-14,
+            max_nfev=10_000,
+        )[0],
+    )
+    amplitude, decay, offset = (float(value) for value in parameters)
+    squared_error = math.fsum(
+        weight * (observed - (amplitude * decay**length + offset)) ** 2
+        for length, observed, weight in zip(x, y, selected_weights, strict=True)
     )
     error_per_clifford = (dimension - 1) * (1.0 - decay) / dimension
     return RbDecayFit(
@@ -411,32 +386,6 @@ def linear_xeb_from_distribution(
     )
 
 
-def _scaled_exponential_parameters(
-    decay: float,
-    x: tuple[int, ...],
-    y: tuple[float, ...],
-    weights: tuple[float, ...],
-) -> tuple[float, float]:
-    basis = tuple(decay**coordinate for coordinate in x)
-    denominator = math.fsum(
-        weight * value * value for weight, value in zip(weights, basis, strict=True)
-    )
-    amplitude = (
-        0.0
-        if denominator == 0.0
-        else math.fsum(
-            weight * basis_value * observed
-            for weight, basis_value, observed in zip(weights, basis, y, strict=True)
-        )
-        / denominator
-    )
-    squared_error = math.fsum(
-        weight * (observed - amplitude * basis_value) ** 2
-        for weight, observed, basis_value in zip(weights, y, basis, strict=True)
-    )
-    return squared_error, amplitude
-
-
 def fit_xeb_decay(
     cycles: Sequence[int],
     fidelities: Sequence[float],
@@ -446,16 +395,32 @@ def fit_xeb_decay(
     """Fit a zero-offset exponential decay to XEB fidelity versus cycle count."""
 
     x, y, selected_weights = _observations(cycles, fidelities, weights)
-
-    def objective(decay: float) -> float:
-        return _scaled_exponential_parameters(decay, x, y, selected_weights)[0]
-
-    decay = _minimum_on_unit_interval(objective)
-    squared_error, amplitude = _scaled_exponential_parameters(
-        decay,
-        x,
-        y,
-        selected_weights,
+    if not any(y):
+        raise ValueError("XEB decay is not identifiable from zero observations")
+    coordinates = np.asarray(x, dtype=np.float64)
+    observations = np.asarray(y, dtype=np.float64)
+    short_index = min(range(len(x)), key=x.__getitem__)
+    initial_decay = 0.95
+    initial_amplitude = y[short_index] / initial_decay ** x[short_index]
+    parameters = cast(
+        "_FloatVector",
+        curve_fit(
+            _xeb_decay_model,
+            coordinates,
+            observations,
+            p0=(initial_amplitude, initial_decay),
+            bounds=((-np.inf, 0.0), (np.inf, 1.0)),
+            sigma=1.0 / np.sqrt(np.asarray(selected_weights, dtype=np.float64)),
+            ftol=1.0e-14,
+            gtol=1.0e-14,
+            xtol=1.0e-14,
+            max_nfev=10_000,
+        )[0],
+    )
+    amplitude, decay = (float(value) for value in parameters)
+    squared_error = math.fsum(
+        weight * (observed - amplitude * decay**cycle) ** 2
+        for cycle, observed, weight in zip(x, y, selected_weights, strict=True)
     )
     return XebDecayFit(
         amplitude=amplitude,
