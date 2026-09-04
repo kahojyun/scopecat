@@ -33,6 +33,7 @@ from .analysis import (
 from .datasets import analyze_parallel_rb_dataset
 from .sequences import (
     PHASED_XEB_PROTOCOL,
+    SINGLE_QUBIT_INTERLEAVED_RB_PROTOCOL,
     SINGLE_QUBIT_RB_PROTOCOL,
     SINGLE_QUBIT_XEB_PROTOCOL,
     TWO_QUBIT_RB_PROTOCOL,
@@ -40,11 +41,13 @@ from .sequences import (
     LengthSampling,
     PhasedXebLayer,
     PhasedXebSequence,
+    SingleQubitInterleavedRbSequence,
     SingleQubitRbSequence,
     SingleQubitXebSequence,
     TwoQubitRbSequence,
     parallel_single_qubit_rb_sequences,
     phased_xeb_sequence,
+    single_qubit_interleaved_rb_sequence,
     single_qubit_rb_sequence,
     single_qubit_xeb_sequence,
     two_qubit_rb_sequence,
@@ -53,6 +56,7 @@ from .sequences import (
 
 __all__ = [
     "PHASED_XEB_PROTOCOL",
+    "SINGLE_QUBIT_INTERLEAVED_RB_PROTOCOL",
     "SINGLE_QUBIT_RB_PROTOCOL",
     "SINGLE_QUBIT_XEB_PROTOCOL",
     "TWO_QUBIT_RB_PROTOCOL",
@@ -66,6 +70,7 @@ __all__ = [
     "RbDecayFit",
     "SeedAggregate",
     "SequenceKey",
+    "SingleQubitInterleavedRbSequence",
     "SingleQubitPrimitive",
     "SingleQubitRbSequence",
     "SingleQubitXebSequence",
@@ -89,6 +94,7 @@ __all__ = [
     "single_qubit_clifford_count",
     "single_qubit_clifford_inverse",
     "single_qubit_clifford_product",
+    "single_qubit_interleaved_rb_sequence",
     "single_qubit_rb_sequence",
     "single_qubit_xeb_sequence",
     "two_qubit_clifford_count",
