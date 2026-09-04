@@ -86,6 +86,18 @@ target should not replace a `Constant` envelope with a calibrated cosine shape
 during lowering. Calibration may choose the envelope parameters, but the
 resulting pulse IR should state the shape that will be rendered.
 
+`DerivativeQuadrature` and `authoring.derivative_quadrature(...)` add
+`i * beta * d(envelope) / dt` to either supported smooth base shape.
+`FrequencyShift` and `authoring.frequency_shift(...)` then apply a pulse-local
+phase ramp to the complete complex envelope. For signed offset `Δf`, the
+rendered envelope is `E(t) exp(+i 2π Δf (t - t_ref))`; positive offset therefore
+rotates the complex baseband phase from I toward +Q. The default `"center"`
+reference uses `t_ref = duration / 2`, while `"start"` uses `t_ref = 0`.
+Both references use pulse-local time and reset on every play, so neither
+accumulates phase through an idle gap. A target must preserve that distinction
+from a program-global oscillator or compiler detuning, and should either lower
+the wrapper natively or sample it as part of the envelope.
+
 `SampledOutputBinding.carrier_phase_reference` declares where one binding's
 carrier phase is zero. `"schedule_origin"` preserves a carrier across the whole
 program, `"signal_first_play"` preserves it relative to that signal's first

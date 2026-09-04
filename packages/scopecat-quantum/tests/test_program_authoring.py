@@ -37,13 +37,16 @@ from scopecat_quantum.pulse_implementations import (
     ResolvedPulseImplementations,
 )
 from scopecat_quantum.pulses import (
-    DRAG,
     Acquire,
     AcquireSignal,
     Constant,
     CosineFlatTop,
+    DerivativeQuadrature,
     DriveSignal,
+    EnvelopePhaseReference,
     FluxSignal,
+    FrequencyShift,
+    Gaussian,
     Play,
     PulseProgram,
     PulseValidationError,
@@ -162,7 +165,8 @@ def test_repeat_preserves_one_candidate_call_until_pulse_lowering() -> None:
     assert implementation.candidate_id == "x90.drag"
     [pulse] = tuple(iter_pulse_leaves(implementation.pulse_template.body))
     assert isinstance(pulse, Play)
-    assert isinstance(pulse.envelope, DRAG)
+    assert isinstance(pulse.envelope, DerivativeQuadrature)
+    assert isinstance(pulse.envelope.envelope, Gaussian)
     assert pulse.envelope.beta == Quantity(0.75, "ns")
 
 
@@ -362,6 +366,96 @@ def test_drag_beta_requires_a_time_typed_input() -> None:
             amplitude=Quantity(0.2, "arb"),
             sigma=Quantity(4, "ns"),
             beta=frequency,
+        )
+
+
+def test_derivative_quadrature_wraps_a_cosine_envelope() -> None:
+    q0 = authoring.qubit("q0")
+    beta = _beta_input()
+    declaration = authoring._close_program(
+        "cosine-derivative",
+        authoring.play(
+            authoring.drive(q0),
+            authoring.derivative_quadrature(
+                authoring.cosine_flat_top(
+                    duration=Quantity(16, "ns"),
+                    amplitude=Quantity(0.2, "arb"),
+                    rise_duration=Quantity(8, "ns"),
+                    fall_duration=Quantity(8, "ns"),
+                ),
+                beta=beta,
+            ),
+        ),
+    )
+
+    bound = authoring.bind(declaration, {"beta": Quantity(-0.5, "ns")})
+    [block] = bound.verified.operations
+    assert isinstance(block, PulseBlock)
+    [play] = iter_pulse_leaves(block.pulse_template.body)
+    assert isinstance(play, Play)
+    assert isinstance(play.envelope, DerivativeQuadrature)
+    assert isinstance(play.envelope.envelope, CosineFlatTop)
+    assert play.envelope.beta == Quantity(-0.5, "ns")
+
+
+def test_derivative_quadrature_rejects_a_constant_envelope() -> None:
+    with pytest.raises(TypeError, match="Gaussian or cosine-flat-top"):
+        authoring.derivative_quadrature(
+            authoring.constant(
+                duration=Quantity(16, "ns"),
+                amplitude=Quantity(0.2, "arb"),
+            ),
+            beta=Quantity(-0.5, "ns"),
+        )
+
+
+def test_pulse_local_frequency_shift_binds_outside_derivative_quadrature() -> None:
+    q0 = authoring.qubit("q0")
+    detuning = authoring.input(
+        "detuning",
+        sc.ScalarType(sc.QuantityType(unit="MHz")),
+    )
+    envelope = authoring.frequency_shift(
+        authoring.derivative_quadrature(
+            authoring.gaussian(
+                duration=Quantity(16, "ns"),
+                amplitude=Quantity(0.2, "arb"),
+                sigma=Quantity(4, "ns"),
+            ),
+            beta=Quantity(-0.4, "ns"),
+        ),
+        offset=detuning,
+    )
+    declaration = authoring._close_program(
+        "local-detuning",
+        authoring.play(authoring.drive(q0), envelope),
+    )
+
+    bound = authoring.bind(declaration, {"detuning": Quantity(-1.25, "MHz")})
+    [block] = bound.verified.operations
+    assert isinstance(block, PulseBlock)
+    [play] = iter_pulse_leaves(block.pulse_template.body)
+    assert isinstance(play, Play)
+    assert isinstance(play.envelope, FrequencyShift)
+    assert play.envelope.frequency_offset == Quantity(-1.25, "MHz")
+    assert play.envelope.phase_reference == "center"
+    assert isinstance(play.envelope.envelope, DerivativeQuadrature)
+
+
+def test_pulse_local_frequency_shift_rejects_time_and_invalid_reference() -> None:
+    envelope = authoring.gaussian(
+        duration=Quantity(16, "ns"),
+        amplitude=Quantity(0.2, "arb"),
+        sigma=Quantity(4, "ns"),
+    )
+
+    with pytest.raises(TypeError, match="frequency quantity"):
+        authoring.frequency_shift(envelope, offset=Quantity(1, "ns"))
+    with pytest.raises(ValueError, match="phase_reference"):
+        authoring.frequency_shift(
+            envelope,
+            offset=Quantity(1, "MHz"),
+            phase_reference=cast("EnvelopePhaseReference", cast("object", "end")),
         )
 
 

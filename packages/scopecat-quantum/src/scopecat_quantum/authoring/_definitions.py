@@ -725,10 +725,12 @@ def _substitute_envelope(
         duration,
         amplitude,
         sigma,
-        beta,
+        derivative_beta,
         rise_duration,
         fall_duration,
         phase,
+        frequency_offset,
+        frequency_reference,
     ) = _pulse_envelope_parts(envelope)
     return _pulse_envelope(
         kind,
@@ -745,9 +747,12 @@ def _substitute_envelope(
             if sigma is not None
             else None
         ),
-        beta=(
-            cast("QuantumQuantity", _substitute_template_value(beta, bindings))
-            if beta is not None
+        derivative_beta=(
+            cast(
+                "QuantumQuantity",
+                _substitute_template_value(derivative_beta, bindings),
+            )
+            if derivative_beta is not None
             else None
         ),
         rise_duration=(
@@ -770,6 +775,15 @@ def _substitute_envelope(
             "QuantumQuantity",
             _substitute_template_value(phase, bindings),
         ),
+        frequency_offset=(
+            cast(
+                "QuantumQuantity",
+                _substitute_template_value(frequency_offset, bindings),
+            )
+            if frequency_offset is not None
+            else None
+        ),
+        frequency_reference=frequency_reference,
     )
 
 

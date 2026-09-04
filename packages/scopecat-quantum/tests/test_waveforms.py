@@ -13,7 +13,9 @@ from scopecat_quantum.pulses import (
     Constant,
     CosineFlatTop,
     Delay,
+    DerivativeQuadrature,
     DriveSignal,
+    FrequencyShift,
     Gaussian,
     Parallel,
     Play,
@@ -853,6 +855,199 @@ def test_left_edge_cosine_flat_top_matches_legacy_periodic_hann() -> None:
     assert rendered.semantics_id == LEFT_EDGE_SAMPLED_WAVEFORM_SEMANTICS_ID
     np.testing.assert_allclose(rendered.buffers[0], expected, atol=1e-15)
     np.testing.assert_allclose(rendered.buffers[1], np.zeros(sample_count))
+
+
+def test_derivative_quadrature_composes_with_legacy_periodic_hann() -> None:
+    sample_count = 50
+    duration_seconds = 25e-9
+    amplitude = 0.3512
+    beta_seconds = -0.44e-9
+    positions = np.arange(sample_count) / 2_000_000_000
+    envelope = DerivativeQuadrature(
+        envelope=CosineFlatTop(
+            duration=Quantity(25, "ns"),
+            amplitude=Quantity(amplitude, "arb"),
+            rise_duration=Quantity(12.5, "ns"),
+            fall_duration=Quantity(12.5, "ns"),
+        ),
+        beta=Quantity(-0.44, "ns"),
+    )
+    rendered = Float64ReferenceRenderer().render(
+        plan_sampled_waveforms(
+            schedule(
+                PulseProgram(
+                    PulseProgramId("legacy-cosine-derivative"),
+                    Play(PulseEventId("play"), DRIVE_Q0, envelope),
+                )
+            ),
+            bindings=(_binding(DRIVE_Q0),),
+            grid=SampleGrid(2_000_000_000, sample_location="left_edge"),
+        )
+    )
+
+    expected_i = (
+        amplitude * 0.5 * (1.0 - np.cos(math.tau * positions / duration_seconds))
+    )
+    expected_q = (
+        beta_seconds
+        * amplitude
+        * math.pi
+        / duration_seconds
+        * np.sin(math.tau * positions / duration_seconds)
+    )
+    np.testing.assert_allclose(rendered.buffers[0], expected_i, atol=1e-15)
+    np.testing.assert_allclose(rendered.buffers[1], expected_q, atol=1e-15)
+
+
+def test_frequency_shift_uses_a_center_referenced_pulse_local_phase_ramp() -> None:
+    envelope = FrequencyShift(
+        envelope=Constant(
+            duration=Quantity(4, "ns"),
+            amplitude=Quantity(0.2, "arb"),
+        ),
+        frequency_offset=Quantity(250, "MHz"),
+    )
+    rendered = Float64ReferenceRenderer().render(
+        plan_sampled_waveforms(
+            schedule(
+                PulseProgram(
+                    PulseProgramId("local-frequency-shift"),
+                    Play(PulseEventId("play"), DRIVE_Q0, envelope),
+                )
+            ),
+            bindings=(_binding(DRIVE_Q0),),
+            grid=SampleGrid(1_000_000_000),
+        )
+    )
+    phases = math.tau * 250e6 * (np.arange(4) + 0.5 - 2.0) * 1e-9
+
+    np.testing.assert_allclose(rendered.buffers[0], 0.2 * np.cos(phases), atol=1e-15)
+    np.testing.assert_allclose(rendered.buffers[1], 0.2 * np.sin(phases), atol=1e-15)
+
+
+def test_frequency_shift_uses_start_reference_and_resets_after_an_idle() -> None:
+    shifted = FrequencyShift(
+        envelope=Constant(
+            duration=Quantity(2, "ns"),
+            amplitude=Quantity(0.2, "arb"),
+        ),
+        frequency_offset=Quantity(250, "MHz"),
+        phase_reference="start",
+    )
+    rendered = Float64ReferenceRenderer().render(
+        plan_sampled_waveforms(
+            schedule(
+                PulseProgram(
+                    PulseProgramId("start-referenced-local-frequency-shift"),
+                    Sequence(
+                        (
+                            Play(PulseEventId("first"), DRIVE_Q0, shifted),
+                            Delay(PulseEventId("idle"), DRIVE_Q0, Quantity(3, "ns")),
+                            Play(PulseEventId("second"), DRIVE_Q0, shifted),
+                        )
+                    ),
+                )
+            ),
+            bindings=(_binding(DRIVE_Q0),),
+            grid=SampleGrid(1_000_000_000),
+        )
+    )
+    phases = math.tau * 250e6 * (np.arange(2) + 0.5) * 1e-9
+    pulse = 0.2 * np.exp(1j * phases)
+    expected = np.concatenate((pulse, np.zeros(3), pulse))
+
+    np.testing.assert_allclose(
+        rendered.buffers[0] + 1j * rendered.buffers[1],
+        expected,
+        atol=1e-15,
+    )
+
+
+def test_frequency_shift_preserves_fractional_continuous_local_time() -> None:
+    rendered = Float64ReferenceRenderer().render(
+        plan_sampled_waveforms(
+            schedule(
+                PulseProgram(
+                    PulseProgramId("fractional-local-frequency-shift"),
+                    Sequence(
+                        (
+                            Delay(
+                                PulseEventId("fractional-idle"),
+                                DRIVE_Q0,
+                                Quantity(0.2, "ns"),
+                            ),
+                            Play(
+                                PulseEventId("shifted"),
+                                DRIVE_Q0,
+                                FrequencyShift(
+                                    envelope=Constant(
+                                        duration=Quantity(2.4, "ns"),
+                                        amplitude=Quantity(0.2, "arb"),
+                                    ),
+                                    frequency_offset=Quantity(250, "MHz"),
+                                ),
+                            ),
+                        )
+                    ),
+                )
+            ),
+            bindings=(_binding(DRIVE_Q0),),
+            grid=SampleGrid(
+                1_000_000_000,
+                TimingQuantizationPolicy(mode="continuous"),
+            ),
+        )
+    )
+    local_positions_ns = np.asarray((0.3, 1.3, 2.3))
+    phases = math.tau * 250e6 * (local_positions_ns - 1.2) * 1e-9
+
+    np.testing.assert_allclose(
+        rendered.buffers[0] + 1j * rendered.buffers[1],
+        0.2 * np.exp(1j * phases),
+        atol=1e-15,
+    )
+
+
+def test_frequency_shift_modulates_the_complete_derivative_envelope() -> None:
+    base = DerivativeQuadrature(
+        envelope=Gaussian(
+            duration=Quantity(4, "ns"),
+            amplitude=Quantity(0.2, "arb"),
+            sigma=Quantity(1, "ns"),
+        ),
+        beta=Quantity(-0.4, "ns"),
+    )
+
+    def render(envelope: DerivativeQuadrature | FrequencyShift):
+        return Float64ReferenceRenderer().render(
+            plan_sampled_waveforms(
+                schedule(
+                    PulseProgram(
+                        PulseProgramId("composed-frequency-shift"),
+                        Play(PulseEventId("play"), DRIVE_Q0, envelope),
+                    )
+                ),
+                bindings=(_binding(DRIVE_Q0),),
+                grid=SampleGrid(1_000_000_000),
+            )
+        )
+
+    baseline = render(base)
+    shifted = render(
+        FrequencyShift(
+            envelope=base,
+            frequency_offset=Quantity(125, "MHz"),
+        )
+    )
+    baseline_complex = baseline.buffers[0] + 1j * baseline.buffers[1]
+    shifted_complex = shifted.buffers[0] + 1j * shifted.buffers[1]
+    phases = math.tau * 125e6 * (np.arange(4) + 0.5 - 2.0) * 1e-9
+
+    np.testing.assert_allclose(
+        shifted_complex,
+        baseline_complex * np.exp(1j * phases),
+        atol=1e-15,
+    )
 
 
 def test_left_edge_cosine_flat_top_preserves_legacy_readout_edges() -> None:

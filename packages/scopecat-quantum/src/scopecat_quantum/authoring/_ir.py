@@ -36,6 +36,7 @@ from scopecat_quantum.gates import (
 from scopecat_quantum.pulses import (
     AcquireSignal,
     AnalyticEnvelope,
+    EnvelopePhaseReference,
     FrameSignal,
     PlaySignal,
 )
@@ -353,7 +354,7 @@ type CouplerInput = Annotated[
 QUANTUM_PROGRAM_DIALECT_ID = "scopecat.quantum.program"
 
 
-QUANTUM_PROGRAM_DIALECT_VERSION = "5"
+QUANTUM_PROGRAM_DIALECT_VERSION = "6"
 
 
 class _GateHandle(Protocol):
@@ -412,10 +413,12 @@ class PulseEnvelope:
     duration: QuantumQuantity
     amplitude: QuantumQuantity
     sigma: QuantumQuantity | None
-    beta: QuantumQuantity | None
+    derivative_beta: QuantumQuantity | None
     phase: QuantumQuantity
     rise_duration: QuantumQuantity | None = None
     fall_duration: QuantumQuantity | None = None
+    frequency_offset: QuantumQuantity | None = None
+    frequency_reference: EnvelopePhaseReference = "center"
 
 
 @dataclass(frozen=True, slots=True, repr=False)

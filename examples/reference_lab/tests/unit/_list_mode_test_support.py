@@ -33,12 +33,13 @@ from scopecat_quantum._ids import (
 )
 from scopecat_quantum.acquisitions import INTEGRATED_IQ_RESULT
 from scopecat_quantum.pulses import (
-    DRAG,
     Acquire,
     AcquireSignal,
     AcquisitionSlot,
     Constant,
+    DerivativeQuadrature,
     DriveSignal,
+    FrequencyShift,
     Gaussian,
     Play,
     PulseProgram,
@@ -349,7 +350,6 @@ def _compiled_calibrated_acquisition() -> tuple[
 
 
 __all__ = [
-    "DRAG",
     "DRIVE_Q0",
     "IQ_OFFSET_COUPLING_POLICY_ID",
     "Q1",
@@ -358,8 +358,10 @@ __all__ = [
     "ArtifactInspectionBounds",
     "Constant",
     "Decimal",
+    "DerivativeQuadrature",
     "DriveSignal",
     "Float64ReferenceRenderer",
+    "FrequencyShift",
     "Gaussian",
     "InstrumentListModeRuntime",
     "IqMixerCalibration",

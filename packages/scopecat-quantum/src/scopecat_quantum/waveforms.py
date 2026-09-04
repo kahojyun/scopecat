@@ -17,15 +17,17 @@ from typing import Literal, cast
 
 import numpy as np
 from numpy.typing import NDArray
+from scopecat import Quantity
 
 from scopecat_quantum._ids import PulseEventId, PulseProgramId
 from scopecat_quantum.pulses import (
-    DRAG,
     AnalyticEnvelope,
     Constant,
     CosineFlatTop,
+    DerivativeQuadrature,
     DriveSignal,
     FrameSignal,
+    FrequencyShift,
     Gaussian,
     Play,
     PlaySignal,
@@ -283,9 +285,9 @@ def _same_render_structure(
         and reference_event.timing.sample_count == candidate_event.timing.sample_count
         and reference_event.carrier_origin_seconds
         == candidate_event.carrier_origin_seconds
-        and replace(
+        and _replace_envelope_phase(
             candidate_event.envelope,
-            phase=reference_event.envelope.phase,
+            reference_event.envelope.phase,
         )
         == reference_event.envelope
         for reference_event, candidate_event in zip(
@@ -294,6 +296,18 @@ def _same_render_structure(
             strict=True,
         )
     )
+
+
+def _replace_envelope_phase(
+    envelope: AnalyticEnvelope,
+    phase: Quantity,
+) -> AnalyticEnvelope:
+    if isinstance(envelope, DerivativeQuadrature | FrequencyShift):
+        return replace(
+            envelope,
+            envelope=_replace_envelope_phase(envelope.envelope, phase),
+        )
+    return replace(envelope, phase=phase)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -634,10 +648,13 @@ def _plan_render_events(
         timing_occurrences[event.event_id] = occurrence + 1
         if binding is None or timing is None or timing.sample_count <= 0:
             continue
-        if isinstance(event.envelope, CosineFlatTop):
+        base_envelope = event.envelope
+        while isinstance(base_envelope, DerivativeQuadrature | FrequencyShift):
+            base_envelope = base_envelope.envelope
+        if isinstance(base_envelope, CosineFlatTop):
             edge_duration_seconds = Decimal(
-                str(event.envelope.rise_duration.to("s").value)
-            ) + Decimal(str(event.envelope.fall_duration.to("s").value))
+                str(base_envelope.rise_duration.to("s").value)
+            ) + Decimal(str(base_envelope.fall_duration.to("s").value))
             if edge_duration_seconds > _envelope_duration_seconds(timing, grid):
                 issues.append(
                     WaveformPlanningIssue(
@@ -853,6 +870,37 @@ def _envelope_samples(
     local_positions: np.ndarray[tuple[int], np.dtype[np.float64]],
     envelope_duration_seconds: float,
 ) -> np.ndarray[tuple[int], np.dtype[np.complex128]]:
+    if isinstance(envelope, FrequencyShift):
+        base = _envelope_samples(
+            envelope.envelope,
+            local_positions=local_positions,
+            envelope_duration_seconds=envelope_duration_seconds,
+        )
+        reference_seconds = (
+            envelope_duration_seconds / 2.0
+            if envelope.phase_reference == "center"
+            else 0.0
+        )
+        phase_radians = (
+            math.tau
+            * float(envelope.frequency_offset.value)
+            * (local_positions - reference_seconds)
+        )
+        return base * np.exp(1j * phase_radians)
+
+    if isinstance(envelope, DerivativeQuadrature):
+        base = _envelope_samples(
+            envelope.envelope,
+            local_positions=local_positions,
+            envelope_duration_seconds=envelope_duration_seconds,
+        )
+        derivative = _envelope_derivative_samples(
+            envelope.envelope,
+            local_positions=local_positions,
+            envelope_duration_seconds=envelope_duration_seconds,
+        )
+        return base + 1j * float(envelope.beta.value) * derivative
+
     amplitude = float(envelope.amplitude.value)
     if isinstance(envelope, Constant):
         return np.full(local_positions.shape, complex(amplitude), dtype=np.complex128)
@@ -877,18 +925,55 @@ def _envelope_samples(
             )
         return samples.astype(np.complex128)
 
+    assert isinstance(envelope, Gaussian)
     sigma_seconds = float(envelope.sigma.value)
     offsets = local_positions - envelope_duration_seconds / 2.0
     gaussian = amplitude * np.exp(
         -(offsets * offsets) / (2.0 * sigma_seconds * sigma_seconds)
     )
-    if isinstance(envelope, Gaussian):
-        return gaussian.astype(np.complex128)
+    return gaussian.astype(np.complex128)
 
-    assert isinstance(envelope, DRAG)
-    beta_seconds = float(envelope.beta.value)
-    derivative = -offsets * gaussian / (sigma_seconds * sigma_seconds)
-    return gaussian + 1j * beta_seconds * derivative
+
+def _envelope_derivative_samples(
+    envelope: Gaussian | CosineFlatTop,
+    *,
+    local_positions: np.ndarray[tuple[int], np.dtype[np.float64]],
+    envelope_duration_seconds: float,
+) -> np.ndarray[tuple[int], np.dtype[np.complex128]]:
+    amplitude = float(envelope.amplitude.value)
+    if isinstance(envelope, Gaussian):
+        sigma_seconds = float(envelope.sigma.value)
+        offsets = local_positions - envelope_duration_seconds / 2.0
+        gaussian = amplitude * np.exp(
+            -(offsets * offsets) / (2.0 * sigma_seconds * sigma_seconds)
+        )
+        return (-offsets * gaussian / (sigma_seconds * sigma_seconds)).astype(
+            np.complex128
+        )
+
+    derivative = np.zeros(local_positions.shape, dtype=np.float64)
+    rise_seconds = float(envelope.rise_duration.value)
+    if rise_seconds > 0:
+        rising = local_positions < rise_seconds
+        derivative[rising] = (
+            amplitude
+            * 0.5
+            * math.pi
+            / rise_seconds
+            * np.sin(math.pi * local_positions[rising] / rise_seconds)
+        )
+    fall_seconds = float(envelope.fall_duration.value)
+    if fall_seconds > 0:
+        fall_start = envelope_duration_seconds - fall_seconds
+        falling = local_positions >= fall_start
+        derivative[falling] = (
+            -amplitude
+            * 0.5
+            * math.pi
+            / fall_seconds
+            * np.sin(math.pi * (local_positions[falling] - fall_start) / fall_seconds)
+        )
+    return derivative.astype(np.complex128)
 
 
 def _sampled_waveform_semantics_id(
