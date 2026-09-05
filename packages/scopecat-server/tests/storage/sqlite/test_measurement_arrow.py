@@ -16,18 +16,22 @@ from scopecat.measurements.recording_arrow import (
     decode_measurement_record_slice,
     encode_measurement_append,
 )
+from scopecat.program.measurement_types import MeasurementDType
 from scopecat.records.measurement import (
     InstrumentAcquisitionEvidence,
     MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
+    MeasurementArrayAvailability,
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementPartitionedArray,
     MeasurementPointCloudPointDomain,
     MeasurementPointDomainColumn,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
     MeasurementUnavailable,
+    MeasurementValue,
     MeasurementVariable,
 )
 from scopecat.records.measurement_recording import MeasurementDatasetAppend
@@ -370,3 +374,144 @@ def test_measurement_arrow_encoding_is_independent_of_mapping_insertion_order() 
 def test_measurement_arrow_rejects_non_ipc_payloads() -> None:
     with pytest.raises(MeasurementArrowCodecError, match="invalid measurement Arrow"):
         decode_measurement_append(b'{"records": []}', _schema())
+
+
+@pytest.mark.parametrize(
+    "dtype,values",
+    [
+        ("float64", [1.5, 999.0]),
+        ("int64", [2, 999]),
+        ("complex128", [1 + 2j, 9 + 8j]),
+        ("bool", [False, True]),
+        ("string", ["ok", "long invalid filler"]),
+    ],
+)
+@pytest.mark.parametrize("partitioned", [False, True])
+def test_masked_fill_does_not_change_arrow_record_identity(
+    dtype: MeasurementDType, values: list[object], partitioned: bool
+) -> None:
+    schema = MeasurementDatasetSchema(
+        dataset_id="raw-measurements",
+        point_domain=MeasurementProductGridPointDomain(axes=()),
+        dimensions=(
+            MeasurementDimension(id="point", kind="point", size=1),
+            MeasurementDimension(id="sample", kind="sample", size=2),
+        ),
+        variables=(
+            MeasurementVariable(
+                id="signal", role="observable", dtype=dtype, dims=("point", "sample")
+            ),
+        ),
+    )
+    array = MeasurementArray.create(
+        dtype=dtype,
+        values=values,
+        availability=MeasurementArrayAvailability.create(
+            valid=[True, False], reason="missing"
+        ),
+    )
+
+    def append_for(value: MeasurementValue) -> MeasurementDatasetAppend:
+        return MeasurementDatasetAppend(
+            run_id="fill",
+            header_content_hash="sha256:" + "0" * 64,
+            acquisition_start=0,
+            records=(
+                MeasurementRecord(
+                    run_id="fill",
+                    point_index=0,
+                    coordinates={},
+                    observables={"signal": value},
+                ),
+            ),
+        )
+
+    wire_value: MeasurementValue = array
+    if partitioned:
+        wire_value = MeasurementPartitionedArray.create(
+            axis=0,
+            dtype=dtype,
+            partitions=(
+                MeasurementArray.create(dtype=dtype, values=values[:1]),
+                MeasurementArray.create(
+                    dtype=dtype,
+                    values=values[1:],
+                    availability=MeasurementArrayAvailability.create(
+                        valid=[False], reason="missing"
+                    ),
+                ),
+            ),
+        )
+    original = append_for(wire_value)
+    assert original.content_hash == append_for(array).content_hash
+    restored = decode_measurement_append(
+        encode_measurement_append(original, schema), schema
+    )
+    assert original.content_hash == restored.content_hash
+    assert original.record_content_hashes == restored.record_content_hashes
+    decoded = restored.records[0].observables["signal"]
+    if isinstance(decoded, MeasurementPartitionedArray):
+        decoded = decoded.materialize()
+    assert isinstance(decoded, MeasurementArray)
+    assert decoded.values[1] == ("" if dtype == "string" else 0)
+    assert array.values[1] == values[1]
+    assert decoded.availability == array.availability
+    changed = MeasurementArray.create(
+        dtype=dtype, values=[values[1], values[1]], availability=array.availability
+    )
+    assert append_for(changed).content_hash != original.content_hash
+
+    changed_reason = MeasurementArray.create(
+        dtype=dtype,
+        values=values,
+        availability=MeasurementArrayAvailability.create(
+            valid=[True, False], reason="overload"
+        ),
+    )
+    changed_mask = MeasurementArray.create(
+        dtype=dtype,
+        values=values,
+        availability=MeasurementArrayAvailability.create(
+            valid=[False, True], reason="missing"
+        ),
+    )
+    assert append_for(changed_reason).content_hash != original.content_hash
+    assert append_for(changed_mask).content_hash != original.content_hash
+
+
+def test_nonleading_partitions_hash_masked_values_in_logical_order() -> None:
+    values = np.asarray([[1.0, 999.0], [888.0, 4.0]])
+    valid = np.asarray([[True, False], [False, True]])
+    partitioned = MeasurementPartitionedArray.create(
+        axis=1,
+        partitions=tuple(
+            MeasurementArray.create(
+                values=values[:, i : i + 1],
+                availability=MeasurementArrayAvailability.create(
+                    valid=valid[:, i : i + 1], reason="missing"
+                ),
+            )
+            for i in range(2)
+        ),
+    )
+
+    def identity(value: MeasurementValue) -> str:
+        return MeasurementDatasetAppend(
+            run_id="partitioned",
+            header_content_hash="sha256:" + "0" * 64,
+            acquisition_start=0,
+            records=(
+                MeasurementRecord(
+                    run_id="partitioned",
+                    point_index=0,
+                    coordinates={},
+                    observables={"signal": value},
+                ),
+            ),
+        ).content_hash
+
+    dense = MeasurementArray.create(
+        values=values, availability=partitioned.availability
+    )
+    assert identity(dense) == identity(partitioned)
+    np.testing.assert_array_equal(values, [[1.0, 999.0], [888.0, 4.0]])
