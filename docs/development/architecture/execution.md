@@ -523,3 +523,13 @@ hardware-unknown evidence are the source of truth for operator reconciliation.
 
 Tests should assert these laws rather than transient compiler fields, cache
 behavior, or incidental batch counts.
+
+## Host state writes and domain residency
+
+Successful host ApplyState, Invoke, and Collect blocks invalidate opaque domain
+residency on the addressed instruments. Property reconciliation is not proof that
+target-owned program memory survived a write. Other instruments retain their
+residency. This is conservative even when a state assignment reconciles as a no-op.
+Domain-owned state requirements remain the target's responsibility and do not
+independently revoke the target's setup proof. Failed blocks terminate execution;
+this policy does not authorize resuming an uncertain physical state.
