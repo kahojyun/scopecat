@@ -1409,7 +1409,8 @@ class Dataset:
 
         Existing entities are reordered by complete ``(kind, id)`` identity.
         Entities absent from this dataset receive unavailable array leaves and
-        null product/evidence provenance.
+        null product/evidence provenance. Existing entity metadata is retained;
+        only absent entities use the requested description.
         """
 
         target_entities = tuple(entities)
@@ -1425,9 +1426,14 @@ class Dataset:
             entity_identity(entity): position
             for position, entity in enumerate(source_entities)
         }
-        target_index = MeasurementEntityIndex(
-            values=target_entities,
+        # Alignment changes positions, not the source's entity descriptions.
+        target_entities = tuple(
+            source_entities[source_by_identity[entity_identity(entity)]]
+            if entity_identity(entity) in source_by_identity
+            else entity
+            for entity in target_entities
         )
+        target_index = MeasurementEntityIndex(values=target_entities)
         target_to_source = tuple(
             source_by_identity.get(entity_identity(entity))
             for entity in target_entities

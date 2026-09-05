@@ -1159,7 +1159,7 @@ def _analysis_execution_input(
         return AnalysisExecutionInput(
             name=name,
             kind="measurement_dataset",
-            target=dataset.entry.id,
+            target=execution_target or dataset.entry.id,
             content_hash=dataset.entry.content_hash,
             codec=MEASUREMENT_DATASET_CODEC,
         )

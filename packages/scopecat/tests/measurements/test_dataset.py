@@ -2275,3 +2275,24 @@ def _dataset_with_value_source(
     schema = dataset.schema.model_copy(update={"variables": variables})
     raw = _snapshot(dataset).model_copy(update={"dataset_schema": schema})
     return Dataset(raw, dataset.entry)
+
+
+def test_cross_run_alignment_preserves_each_sources_entity_metadata() -> None:
+    left_q = EntityRef(id="q0", kind="qubit", metadata={"label": "before"})
+    right_q = EntityRef(id="q0", kind="qubit", metadata={"label": "after"})
+    added = EntityRef(id="q1", kind="qubit", metadata={"label": "new"})
+    left = _entity_source_dataset("before", (left_q,), (1.0,))
+    right = _entity_source_dataset("after", (added, right_q), (20.0, 10.0))
+    aligned_left, aligned_right = left.align_entities(right, "qubit", join="outer")
+    left_index = aligned_left.schema.dimensions[1].index
+    right_index = aligned_right.schema.dimensions[1].index
+    assert left_index is not None and right_index is not None
+    assert left_index.values == (left_q, added)
+    assert right_index.values == (right_q, added)
+    assert left_index.fingerprint == right_index.fingerprint
+    assert aligned_right.records[0].run_id == "run-after"
+    source = aligned_right["signal"].definition.source_entity_products
+    assert source is not None
+    assert source.product_ids == ("after/q0", "after/q1")
+    requested = left.reindex_entities("qubit", (right_q,))
+    assert requested.schema.dimensions[1].index == left.schema.dimensions[1].index
