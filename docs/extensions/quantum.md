@@ -218,3 +218,18 @@ does return a checkpoint, Scopecat promotes that execution to the complete
 ledger before `resume` and later closes it with its terminal receipt. The compact
 run evidence lists the policies it observed, so an empty current-job projection
 is distinguishable from missing required details.
+
+## Parallel alignment
+
+`quantum.parallel(*branches, alignment="end")` ends static branches together.
+The default `alignment="start"` keeps the existing common-start semantics.
+End alignment is resolved after gate pulse implementations are known: the
+scheduler translates every event in a shorter branch by the same amount.
+Authored evolution delays, pulse durations, and internal phase-event ordering
+remain unchanged. The structural preview labels end-aligned blocks explicitly.
+
+Compose a sequence of parallel blocks to express synchronized layers; select
+start or end alignment independently for each layer. This does not prescribe
+hardware clock rounding or physical cable/ADC delays. Those remain target/lab
+responsibilities. Retained `parallel_each` keeps its current start-aligned map
+semantics; this addition applies to explicit static parallel composition.

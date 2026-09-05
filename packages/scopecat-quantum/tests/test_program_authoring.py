@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from decimal import Decimal
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 
 import pytest
 import scopecat as sc
@@ -41,6 +42,7 @@ from scopecat_quantum.pulses import (
     AcquireSignal,
     Constant,
     CosineFlatTop,
+    Delay,
     DerivativeQuadrature,
     DriveSignal,
     EnvelopePhaseReference,
@@ -55,6 +57,95 @@ from scopecat_quantum.pulses import (
     iter_pulse_leaves,
     schedule,
 )
+
+
+@pytest.mark.parametrize("alignment", ["start", "end"])
+def test_parallel_alignment_moves_whole_branch_without_changing_evolution(
+    alignment: Literal["start", "end"],
+) -> None:
+    left, right = authoring.qubit("left"), authoring.qubit("right")
+
+    def play(q: authoring.Qubit, ns: int) -> authoring.PulseFragment:
+        return authoring.play(
+            authoring.drive(q),
+            authoring.constant(
+                duration=Quantity(ns, "ns"), amplitude=Quantity(0.1, "arb")
+            ),
+        )
+
+    declaration = authoring._close_program(
+        "aligned-branches",
+        authoring.sequence(
+            authoring.delay(authoring.drive(left), Quantity(3, "ns")),
+            authoring.parallel(
+                play(left, 20),
+                authoring.sequence(
+                    play(right, 5),
+                    authoring.delay(authoring.drive(right), Quantity(7, "ns")),
+                ),
+                alignment=alignment,
+            ),
+        ),
+    )
+    bound = authoring.bind(declaration)
+    lowered = plan_quantum_pulse_lowering(
+        bound.verified,
+        ResolvedPulseImplementations(),
+        output_id=PulseProgramId("aligned-pulses"),
+    )
+    scheduled = schedule(materialize_quantum_pulse_program(lowered))
+    events = [
+        e
+        for e in scheduled.events
+        if e.instruction.signal == DriveSignal(QubitId("right"))
+    ]
+    pulse = next(e for e in events if isinstance(e.instruction, Play))
+    idle = next(e for e in events if isinstance(e.instruction, Delay))
+    ns = Decimal("1e-9")
+    assert pulse.start_seconds == (11 if alignment == "end" else 3) * ns
+    assert idle.start_seconds == pulse.start_seconds + 5 * ns
+    assert idle.duration_seconds == 7 * ns
+    assert scheduled.duration_seconds == 23 * ns
+
+
+@pytest.mark.parametrize("width", [2, 4, 16, 64])
+def test_end_aligned_width_preserves_entity_timing_under_permutation(
+    width: int,
+) -> None:
+    def scheduled_times(order: Iterable[int]) -> dict[str, tuple[Decimal, Decimal]]:
+        branches = tuple(
+            authoring.play(
+                authoring.drive(authoring.qubit(f"q{i}")),
+                authoring.constant(
+                    duration=Quantity(i + 1, "ns"), amplitude=Quantity(0.1, "arb")
+                ),
+            )
+            for i in order
+        )
+        bound = authoring.bind(
+            authoring._close_program(
+                "wide-end-aligned", authoring.parallel(*branches, alignment="end")
+            )
+        )
+        plan = plan_quantum_pulse_lowering(
+            bound.verified,
+            ResolvedPulseImplementations(),
+            output_id=PulseProgramId("wide-pulses"),
+        )
+        return {
+            cast("DriveSignal", e.instruction.signal).qubit.value: (
+                e.start_seconds,
+                e.duration_seconds,
+            )
+            for e in schedule(materialize_quantum_pulse_program(plan)).events
+        }
+
+    forward = scheduled_times(range(width))
+    assert forward == scheduled_times(reversed(range(width)))
+    assert all(
+        start + duration == width * Decimal("1e-9")
+        for start, duration in forward.values()
+    )
 
 
 def _beta_input() -> authoring.ProgramInput:

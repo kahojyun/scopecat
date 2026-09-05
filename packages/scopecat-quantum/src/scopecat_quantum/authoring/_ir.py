@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Annotated, Protocol, overload, override
+from typing import Annotated, Literal, Protocol, overload, override
 
 from scopecat import Quantity
 from scopecat.authoring import (
@@ -485,6 +485,7 @@ class _QuantumSequenceFragment(QuantumFragment):
 @dataclass(frozen=True, slots=True)
 class _QuantumParallelFragment(QuantumFragment):
     branches: tuple[QuantumFragment, ...]
+    alignment: Literal["start", "end"] = "start"
 
 
 @dataclass(frozen=True, slots=True)

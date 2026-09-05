@@ -699,7 +699,8 @@ def _substitute_pulse_fragment(
                     input_bindings=input_bindings,
                 )
                 for child in fragment.branches
-            )
+            ),
+            alignment=fragment.alignment,
         )
     if isinstance(fragment, _QuantumRepeatFragment):
         count = _substitute_template_value(fragment.count, input_bindings)

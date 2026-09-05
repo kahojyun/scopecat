@@ -531,30 +531,41 @@ def sequence(
 @overload
 def parallel(
     *branches: CircuitFragment,
+    alignment: Literal["start"] = "start",
 ) -> CircuitFragment: ...
 
 
 @overload
 def parallel(
     *branches: QuantumFragment,
+    alignment: Literal["start", "end"] = "start",
 ) -> QuantumFragment: ...
 
 
 def parallel(
     *branches: QuantumFragment,
+    alignment: Literal["start", "end"] = "start",
 ) -> QuantumFragment:
-    """Compose two or more gate, measurement, or pulse branches concurrently."""
+    """Compose static branches with common starts or common ends.
 
+    End alignment translates each entire branch after pulse realization; it
+    never extends an authored delay. Sequence parallel blocks for aligned layers.
+    """
+
+    if alignment not in ("start", "end"):
+        raise ValueError("parallel alignment must be start or end")
     if len(branches) < 2:
         msg = "parallel requires at least two quantum branches"
         raise ValueError(msg)
     if any(_summarize_fragment(branch).has_realtime for branch in branches):
         raise ValueError("real-time control is not supported under parallel")
-    if all(isinstance(branch, CircuitFragment) for branch in branches):
+    if alignment == "start" and all(
+        isinstance(branch, CircuitFragment) for branch in branches
+    ):
         return _ParallelFragment(
             branches=cast("tuple[CircuitFragment, ...]", branches),
         )
-    return _QuantumParallelFragment(branches=branches)
+    return _QuantumParallelFragment(branches=branches, alignment=alignment)
 
 
 @overload

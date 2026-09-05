@@ -233,6 +233,7 @@ class Parallel:
     """Compose instruction branches from the same start time."""
 
     branches: tuple[PulseInstruction, ...]
+    alignment: Literal["start", "end"] = "start"
 
 
 type PulseLeaf = Play | Acquire | Delay | ShiftPhase
@@ -889,6 +890,7 @@ def _place_instruction(
     if isinstance(instruction, Parallel):
         placed = []
         duration = Decimal(0)
+        branches: list[tuple[list[_PlacedLeaf], Decimal]] = []
         for index, child in enumerate(instruction.branches):
             child_events, child_duration = _place_instruction(
                 child,
@@ -898,8 +900,17 @@ def _place_instruction(
                 seen_ids=seen_ids,
                 acquisition_uses=acquisition_uses,
             )
-            placed.extend(child_events)
+            branches.append((child_events, child_duration))
             duration = max(duration, child_duration)
+        for events, branch_duration in branches:
+            offset = (
+                duration - branch_duration
+                if instruction.alignment == "end"
+                else Decimal(0)
+            )
+            placed.extend(
+                replace(event, start=event.start + offset) for event in events
+            )
         return placed, duration
 
     event_id = instruction.id

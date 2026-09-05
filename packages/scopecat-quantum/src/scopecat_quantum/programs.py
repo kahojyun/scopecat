@@ -19,6 +19,7 @@ from collections import Counter
 from collections.abc import Iterator
 from collections.abc import Sequence as SequenceCollection
 from dataclasses import dataclass, replace
+from typing import Literal
 
 from scopecat_quantum._ids import (
     AcquisitionSlotId,
@@ -110,6 +111,7 @@ class Parallel:
     """Mixed quantum branches that begin together."""
 
     branches: tuple[QuantumNode, ...]
+    alignment: Literal["start", "end"] = "start"
 
 
 @dataclass(frozen=True, slots=True)
@@ -503,7 +505,8 @@ def _substitute_pulse_template(
             )
         if isinstance(instruction, PulseParallel):
             return PulseParallel(
-                tuple(substitute_instruction(child) for child in instruction.branches)
+                tuple(substitute_instruction(child) for child in instruction.branches),
+                alignment=instruction.alignment,
             )
         return replace(instruction, signal=substitute_signal(instruction.signal))
 
@@ -593,7 +596,8 @@ def _substitute_quantum_node(
                     scope=scope,
                 )
                 for child in node.branches
-            )
+            ),
+            alignment=node.alignment,
         )
     if isinstance(node, Repeat):
         return Repeat(
@@ -1853,7 +1857,8 @@ def _lower_node(
                     occurrence_scope=occurrence_scope,
                 )
                 for child in node.branches
-            )
+            ),
+            alignment=node.alignment,
         )
     if isinstance(node, ParallelEach):
         return PulseParallel(
@@ -1968,7 +1973,8 @@ def _instantiate_template(
             )
         if isinstance(instruction, PulseParallel):
             return PulseParallel(
-                tuple(instantiate(child) for child in instruction.branches)
+                tuple(instantiate(child) for child in instruction.branches),
+                alignment=instruction.alignment,
             )
         event_id = instruction.id.prefixed(*prefix)
         selected = replace(instruction, id=event_id)
