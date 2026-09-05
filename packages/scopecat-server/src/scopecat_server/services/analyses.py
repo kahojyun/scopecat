@@ -9,6 +9,7 @@ from threading import Lock
 from typing import cast
 
 from pydantic import JsonValue
+from scopecat.automation.models import InterpretationOutputRef
 from scopecat.config.changes import parameter_change_proposal_record_ref
 from scopecat.control.models import DurableEventInput
 from scopecat.daemon.views import (
@@ -27,8 +28,10 @@ from scopecat.kernel.ids import artifact_slug
 from scopecat.project_state import ProjectStateServices
 from scopecat.records.analysis import (
     AnalysisFactRecordOutput,
+    AnalysisInterpretationReference,
     AnalysisParameterProposalRecordOutput,
     AnalysisRecord,
+    InterpretationAnalysisRecordInput,
     MeasurementAnalysisRecordInput,
     ProjectAnalysisDecisionReference,
     ProjectAnalysisSubject,
@@ -48,6 +51,7 @@ from scopecat.runs.refs import (
 from scopecat_server.storage.sqlite.analysis_repository import (
     SQLiteAnalysisRepository,
 )
+from scopecat_server.storage.sqlite.automation import SQLiteAutomationStore
 from scopecat_server.storage.sqlite.control_plane import SQLiteControlPlane
 
 from ..errors import BackendConflict, BackendNotFound
@@ -226,8 +230,25 @@ class AnalysisService:
         self._samples.get(sample_id)
         return self._save(command)
 
+    def _validate_interpretation(self, source: AnalysisInterpretationReference) -> None:
+        store = SQLiteAutomationStore(self._control.sqlite)
+        with self._control.sqlite.read_connection() as connection:
+            step = store.latest_step_attempt_in_transaction(
+                connection, source.procedure_run_id, source.step_key
+            )
+        if (
+            step is None
+            or step.state != "succeeded"
+            or not isinstance(step.output, InterpretationOutputRef)
+            or step.output.analysis_reference != source
+        ):
+            raise BackendConflict(
+                "analysis interpretation must match an existing successful judgment"
+            )
+
     def _save(self, command: AnalysisSaveCommand) -> AnalysisSaveReceipt:
         from scopecat.analysis.service import (
+            InterpretationAnalysisInput,
             MeasurementAnalysisInput,
             prepare_project_analysis,
         )
@@ -246,9 +267,12 @@ class AnalysisService:
                     analysis_output_from_payload(item) for item in command.outputs
                 ),
                 subject=command.subject,
+                validate_interpretation=self._validate_interpretation,
             )
             input_run_ids: set[str] = set()
             for input_ref in inputs:
+                if isinstance(input_ref, InterpretationAnalysisInput):
+                    continue
                 if isinstance(input_ref, MeasurementAnalysisInput):
                     input_run_ids.add(input_ref.run_id)
                     continue
@@ -550,6 +574,8 @@ class AnalysisService:
         for input_ref in view.analysis.inputs:
             if isinstance(input_ref, MeasurementAnalysisRecordInput):
                 run_ids.add(input_ref.run_id)
+                continue
+            if isinstance(input_ref, InterpretationAnalysisRecordInput):
                 continue
             assert isinstance(input_ref, PublishedAnalysisRecordInput)
             subject = input_ref.source.subject

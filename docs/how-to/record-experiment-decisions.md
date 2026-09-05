@@ -106,3 +106,64 @@ required.
 Use `attention_required` instead when a device or publication outcome is
 unknown and must be reconciled. Do not turn an expected scientific choice into
 an execution failure merely to pause the procedure.
+
+
+## Retain decisions as analysis inputs
+
+Pass the exact `decision.ref` to a project analysis and consume it with
+`AnalysisContext.interpretation`. Passing only `decision.value` supplies a value
+but does not establish a decision provenance edge.
+
+```python
+from scopecat.automation import InterpretationOutputRef
+
+@sc.analysis_step(id="lab.selection-report.v1")
+def selection_report(
+    analysis: sc.AnalysisContext,
+    *,
+    selection: InterpretationOutputRef,
+) -> sc.Analysis:
+    value = analysis.interpretation(selection, schema=RESONATOR_SELECTION)
+    return analysis.result("Selected resonator").fact(
+        "selection", value, schema=RESONATOR_SELECTION
+    )
+
+# Inside the procedure, after context.interpret(...):
+report = context.analyze_project(
+    "selection-report",
+    selection_report(selection=decision.ref),
+    inputs=(decision.ref,),
+)
+```
+
+The publication retains procedure ID, step key, request hash and a hash of the
+complete response, including actor, timestamp and note. The daemon checks these
+against an existing successful interpretation step before publishing. Unknown or
+altered references are rejected. The analysis input table displays the exact
+procedure and step; the values remain in the durable procedure journal.
+
+Direct interpretation inputs currently belong to **project analyses**. Run and
+sample analysis subjects do not yet accept them. These references do not add an
+authentication mechanism or authorize a new hardware operation.
+
+## Inspect a bounded procedure summary
+
+```python
+summary = procedure.summary(limit=20)
+print(summary.outcome, summary.next_action, summary.reason)
+for step in summary.steps:
+    print(step.step_key, step.state, step.inputs, step.output)
+    if step.interpretation_request is not None:
+        print(step.interpretation_request)
+```
+
+`outcome` exposes `succeeded`, `failed` or `cancelled` for a closed procedure,
+instead of reporting only `closed`. `next_action` is `respond`, `resume`,
+`inspect_attention`, `wait` or `none`; `reason` includes failure/attention detail.
+The method reads one snapshot and one newest-first step page. `next_cursor` means
+older attempts are omitted, not that the displayed count is the procedure total.
+Use `procedure.steps(before=summary.next_cursor)` to inspect more history.
+
+This is an observational view: the two reads are not atomic, and a concurrent
+worker may advance the procedure. Mutating commands still use their existing
+revision and lease checks.

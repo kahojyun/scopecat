@@ -48,6 +48,34 @@ describe("AnalysesWorkspace", () => {
     expect(openRun).toHaveBeenCalledWith("run-candidate");
   });
 
+  it("shows exact procedure decision provenance without treating it as a run", async () => {
+    const analysis = projectAnalysis();
+    analysis.inputs = [
+      {
+        id: "selection",
+        kind: "interpretation",
+        target: "select-gap",
+        content_hash: "sha256:response",
+        codec: "scopecat.interpretation-response.v1",
+        role: "decision",
+        source: {
+          procedure_run_id: "procedure-test",
+          step_key: "select-gap",
+          request_hash: "sha256:request",
+          response_hash: "sha256:response",
+        },
+      },
+    ];
+    vi.mocked(getProjectAnalysis).mockResolvedValue(analysis);
+    renderWorkspace(vi.fn());
+    expect(await screen.findByText("procedure-test:select-gap")).toHaveAttribute(
+      "title",
+      "sha256:response",
+    );
+    expect(screen.getByText("Procedure decision")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "procedure-test" })).toBeNull();
+  });
+
   it("explains how to create the first project analysis", async () => {
     vi.mocked(getProjectAnalysisSummaries).mockResolvedValue({ items: [] });
 

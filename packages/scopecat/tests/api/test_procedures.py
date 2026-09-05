@@ -1384,3 +1384,72 @@ def _ambiguous_activation_error(failure: str, *, method: str) -> Exception:
         except ValidationError as error:
             return error
     raise AssertionError(f"unsupported activation failure fixture: {failure}")
+
+
+@pytest.mark.parametrize(
+    ("state", "closure", "outcome", "action"),
+    [
+        ("waiting_for_input", None, "waiting_for_input", "respond"),
+        ("ready", None, "ready", "resume"),
+        ("closed", "succeeded", "succeeded", "none"),
+        ("closed", "failed", "failed", "none"),
+    ],
+)
+def test_summary_reads_one_bounded_page_and_exposes_closure(
+    state: str, closure: str | None, outcome: str, action: str
+) -> None:
+    from scopecat.api.procedures import LabProcedureOperations, ProcedureHandle
+    from scopecat.automation import ProcedureRun, ProcedureStepAttemptPage
+    from scopecat.automation.models import ProcedureDefinitionRef, procedure_intent_hash
+
+    definition = ProcedureDefinitionRef(
+        id="test", version="1", fingerprint="sha256:" + "1" * 64
+    )
+    now = datetime.now(UTC)
+    run = ProcedureRun.model_validate(
+        {
+            "procedure_run_id": "p1",
+            "request_key": "request1",
+            "definition": {
+                "id": "test",
+                "version": "1",
+                "fingerprint": "sha256:" + "1" * 64,
+            },
+            "intent": {},
+            "intent_hash": procedure_intent_hash(definition, {}),
+            "revision": 1,
+            "state": state,
+            "created_at": now,
+            "updated_at": now,
+            "closure": None
+            if closure is None
+            else {
+                "status": closure,
+                "closed_at": now,
+                "reason": None if closure == "succeeded" else "test failure",
+            },
+        }
+    )
+    calls: list[tuple[object, ...]] = []
+
+    class Operations:
+        def snapshot(self, procedure_id: str) -> ProcedureRun:
+            calls.append(("snapshot", procedure_id))
+            return run
+
+        def steps(
+            self, procedure_id: str, *, limit: int, before: int | None
+        ) -> ProcedureStepAttemptPage:
+            calls.append(("steps", procedure_id, limit, before))
+            return ProcedureStepAttemptPage(
+                procedure_run_id=procedure_id, next_cursor=17
+            )
+
+    handle = ProcedureHandle(
+        cast("LabProcedureOperations", cast("object", Operations())), "p1"
+    )
+    summary = handle.summary(limit=3)
+    assert (summary.outcome, summary.next_action) == (outcome, action)
+    assert summary.reason == ("test failure" if closure == "failed" else None)
+    assert summary.next_cursor == 17
+    assert calls == [("snapshot", "p1"), ("steps", "p1", 3, None)]

@@ -51,6 +51,7 @@ from scopecat.records.analysis import (
     AnalysisExecutionOutputReference,
     AnalysisFact,
     AnalysisFigureViewSpec,
+    AnalysisInterpretationReference,
     AnalysisPublishedOutputReference,
     AnalysisTableViewSpec,
     ProjectAnalysisSubject,
@@ -493,8 +494,15 @@ class PublishedAnalysisInputPayload(_AnalysisInputPayload):
     source: AnalysisPublishedOutputReference
 
 
+class InterpretationAnalysisInputPayload(_AnalysisInputPayload):
+    kind: Literal["interpretation"] = "interpretation"
+    source: AnalysisInterpretationReference
+
+
 type AnalysisInputPayload = Annotated[
-    MeasurementAnalysisInputPayload | PublishedAnalysisInputPayload,
+    MeasurementAnalysisInputPayload
+    | PublishedAnalysisInputPayload
+    | InterpretationAnalysisInputPayload,
     Field(discriminator="kind"),
 ]
 

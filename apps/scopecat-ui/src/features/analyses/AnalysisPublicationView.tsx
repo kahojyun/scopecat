@@ -28,7 +28,7 @@ export function AnalysisPublicationView({
               const runId =
                 input.kind === "measurement_dataset"
                   ? input.run_id
-                  : input.source.subject.kind === "run"
+                  : input.kind !== "interpretation" && input.source.subject.kind === "run"
                     ? input.source.subject.run_id
                     : undefined;
               return (
@@ -49,7 +49,12 @@ export function AnalysisPublicationView({
                         {runId}
                       </button>
                     ) : (
-                      <code className="text-text-dim">{runId ?? "Project analysis"}</code>
+                      <code className="text-text-dim">
+                        {runId ??
+                          (input.kind === "interpretation"
+                            ? "Procedure decision"
+                            : "Project analysis")}
+                      </code>
                     )}
                     <code
                       className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
@@ -58,7 +63,11 @@ export function AnalysisPublicationView({
                       {input.target}
                     </code>
                   </div>
-                  {input.kind !== "measurement_dataset" ? (
+                  {input.kind === "interpretation" ? (
+                    <code title={input.source.response_hash}>
+                      {input.source.procedure_run_id}:{input.source.step_key}
+                    </code>
+                  ) : input.kind !== "measurement_dataset" ? (
                     <code
                       className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-text-dim"
                       title={`${input.source.analysis_record_id}:${input.source.output_id}`}
