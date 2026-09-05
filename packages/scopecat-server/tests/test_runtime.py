@@ -4926,3 +4926,178 @@ def test_continuation_appends_measurements_in_a_new_segment_fragment(
                 [failure] = preview["failures"]
                 assert failure["evidence"]["result_id"] == "q1-p0"
                 assert failure["reasons"] == ["missing"]
+
+
+@pytest.mark.parametrize("durable", [False, True])
+def test_measurement_acknowledgment_loss_and_replay_boundaries(
+    tmp_path: Path, durable: bool
+) -> None:
+    with ExitStack() as stack:
+        runtime = stack.enter_context(
+            LocalDaemonRuntime(tmp_path, bootstrap_config=_config())
+        )
+        submission = _submission("ack-boundary", point_count=2)
+        run_id = runtime.application.submit_run(submission).run_id
+        executor = runtime.application.executor
+        lease = executor.start_executor(
+            run_id, ExecutorStartRequest(executor_id="before")
+        )
+        header = MeasurementDatasetHeader(
+            run_id=run_id,
+            recording_contract_fingerprint="ack-boundary.v1",
+            expected_record_count=2,
+            record_count_limit=2,
+            dataset_schema=MeasurementDatasetSchema(
+                dataset_id="raw-measurements",
+                point_domain=MeasurementProductGridPointDomain(
+                    axes=(
+                        MeasurementPointDomainAxis(
+                            id="point",
+                            size=2,
+                            source=MeasurementPointDomainValuesSource(
+                                values=tuple(
+                                    MeasurementScalar.create(dtype="int64", value=i)
+                                    for i in range(2)
+                                )
+                            ),
+                        ),
+                    )
+                ),
+                dimensions=(MeasurementDimension(id="point", kind="point", size=2),),
+                variables=(
+                    MeasurementVariable(
+                        id="signal", role="observable", dtype="float64", dims=("point",)
+                    ),
+                ),
+            ),
+        )
+        executor.initialize_measurements(
+            run_id, MeasurementHeaderCommand(lease_id=lease.lease_id, header=header)
+        )
+
+        def content(index: int) -> bytes:
+            append = MeasurementDatasetAppend(
+                run_id=run_id,
+                header_content_hash=header.content_hash,
+                acquisition_start=index,
+                records=(
+                    MeasurementRecord(
+                        run_id=run_id,
+                        point_index=index,
+                        logical_point_id=f"point-{index}",
+                        coordinates={},
+                        observables={
+                            "signal": MeasurementScalar.create(
+                                dtype="float64", value=index + 1
+                            )
+                        },
+                    ),
+                ),
+            )
+            return encode_measurement_append(append, header.dataset_schema)
+
+        first = content(0)
+        receipt = executor.ingest_measurements(
+            run_id, lease_id=lease.lease_id, content=first
+        )
+        assert receipt.received_record_count == 1
+        assert receipt.durable_record_count == 0
+        # Simulate a lost acknowledgment by retransmitting exactly the same bytes.
+        with pytest.raises(BackendConflict, match="acquisition-log"):
+            executor.ingest_measurements(run_id, lease_id=lease.lease_id, content=first)
+        if durable:
+            flushed = executor.flush_measurements(
+                run_id, MeasurementFlushCommand(lease_id=lease.lease_id)
+            )
+            assert flushed.durable_record_count == 1
+            retried = executor.flush_measurements(
+                run_id, MeasurementFlushCommand(lease_id=lease.lease_id)
+            )
+            assert retried.durable_record_count == 1
+            assert retried.durable_receipts == ()
+            with pytest.raises(BackendConflict, match="acquisition-log"):
+                executor.ingest_measurements(
+                    run_id, lease_id=lease.lease_id, content=first
+                )
+        assert executor.run_coverage(run_id).completed_point_count == 0
+        runtime.close()
+        runtime = stack.enter_context(LocalDaemonRuntime(tmp_path))
+        runtime.application.resolve_attention(
+            run_id,
+            AttentionResolutionCommand.continue_run(
+                run_contract_fingerprint=submission.intent_content_hash
+            ),
+        )
+        executor = runtime.application.executor
+        resumed = executor.start_executor(
+            run_id, ExecutorStartRequest(executor_id="after")
+        )
+        executor.initialize_measurements(
+            run_id, MeasurementHeaderCommand(lease_id=resumed.lease_id, header=header)
+        )
+        preview = runtime.application.runs.measurement_live_preview(
+            run_id, after_record_count=None
+        )
+        assert preview.received_record_count == int(durable)
+        assert preview.durable_record_count == int(durable)
+        assert executor.run_coverage(run_id).completed_point_count == 0
+        with pytest.raises(BackendConflict):
+            executor.ingest_measurements(run_id, lease_id=lease.lease_id, content=first)
+        if durable:
+            with pytest.raises(BackendConflict, match="acquisition-log"):
+                executor.ingest_measurements(
+                    run_id, lease_id=resumed.lease_id, content=first
+                )
+        else:
+            replayed = executor.ingest_measurements(
+                run_id, lease_id=resumed.lease_id, content=first
+            )
+            assert replayed.received_record_count == 1
+        executor.ingest_measurements(
+            run_id, lease_id=resumed.lease_id, content=content(1)
+        )
+        final = executor.flush_measurements(
+            run_id, MeasurementFlushCommand(lease_id=resumed.lease_id)
+        )
+        assert final.durable_record_count == 2
+        assert executor.run_coverage(run_id).completed_point_count == 0
+        coverage = executor.advance_run_coverage(
+            run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=resumed.lease_id, start_index=0, point_count=2
+            ),
+        )
+        assert coverage.completed_point_count == 2
+        hashes = tuple(
+            decode_measurement_append(
+                content(i), header.dataset_schema
+            ).record_content_hashes[0]
+            for i in range(2)
+        )
+        sealed = executor.seal_measurements(
+            run_id,
+            MeasurementSealCommand(
+                lease_id=resumed.lease_id,
+                seal=MeasurementDatasetSeal(
+                    run_id=run_id,
+                    header_content_hash=header.content_hash,
+                    record_count=2,
+                    fragment_record_count=2 - int(durable),
+                    fragment_content_hash=measurement_fragment_content_hash(
+                        header_content_hash=header.content_hash,
+                        record_content_hashes=hashes[int(durable) :],
+                    ),
+                ),
+            ),
+        )
+        assert sealed.dataset_content_hash == measurement_dataset_content_hash(
+            header_content_hash=header.content_hash, record_content_hashes=hashes
+        )
+        table, _, _ = runtime.application.runs.measurement_arrow(
+            run_id,
+            MeasurementArrowQuery(
+                columns=(MeasurementArrowColumn(name="signal", variable_id="signal"),)
+            ),
+        )
+        assert table.column("point_index").to_pylist() == [0, 1]
+        assert table.column("signal").to_pylist() == [1.0, 2.0]

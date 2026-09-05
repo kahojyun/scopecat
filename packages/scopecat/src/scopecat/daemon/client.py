@@ -1904,6 +1904,14 @@ class DaemonClient:
         append: MeasurementDatasetAppend,
         dataset_schema: MeasurementDatasetSchema,
     ) -> MeasurementIngestReceipt:
+        """Append at the next acquisition-log position (not retry-idempotent).
+
+        Received records may still be volatile; only ``durable_record_count``
+        confirms storage. After an uncertain response, reconcile the live/durable
+        prefix and executor state before sending another range. A conflict alone
+        does not prove that the previous content was accepted. Ingest does not
+        advance scan coverage or seal the dataset.
+        """
         response = self._request(
             "POST",
             f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/measurements/ingest",
@@ -1920,6 +1928,11 @@ class DaemonClient:
         run_id: str,
         command: MeasurementFlushCommand,
     ) -> MeasurementFlushReceipt:
+        """Persist the buffered prefix without advancing coverage or sealing it.
+
+        Repeating a successful flush is safe under the same active lease; the
+        durable count remains unchanged and no new chunk receipts are returned.
+        """
         return self._post_model(
             f"{_API_PREFIX}/runs/{run_id}/measurements/flush",
             command,
