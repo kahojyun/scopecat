@@ -12,7 +12,7 @@ from typing import Literal, cast
 import numpy as np
 from numpy.typing import NDArray
 
-from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.entity import EntityRef, entity_identity
 from scopecat.records.measurement import (
     EntityAcquisitionEvidence,
     InstrumentAcquisitionEvidence,
@@ -129,8 +129,12 @@ def measurement_traces(
     coordinate: str | None = None,
     group: str | None = None,
     entity_indices: Sequence[int] | None = None,
+    entities: Sequence[EntityRef] | None = None,
 ) -> tuple[Trace, ...]:
     """Read one unambiguous point-local trace from every dataset point.
+
+    ``entities`` selects durable (kind, id) identities in request order; metadata
+    is descriptive only. It cannot be combined with ``entity_indices``.
 
     A recording group is the preferred selector when several acquisitions use
     compatible dimensions; explicit variable ids remain available for custom
@@ -155,7 +159,9 @@ def measurement_traces(
         observable_variable,
         entity_dimension=entity_dimension,
         sample_dimension=sample_dimension,
-        entity_indices=_selected_entity_indices(entity_dimension, entity_indices),
+        entity_indices=_selected_entity_indices(
+            entity_dimension, entity_indices, entities
+        ),
         skip_unusable=False,
     )
     if failures:
@@ -176,8 +182,12 @@ def project_measurement_trace_preview(
     value_mode: TraceValueMode | None = None,
     downsampling: TraceDownsampling = "minmax",
     entity_indices: Sequence[int] | None = None,
+    entities: Sequence[EntityRef] | None = None,
 ) -> MeasurementTraceProjection:
     """Project a bounded numeric preview from up to ``max_series`` selections.
+
+    ``entities`` selects (kind, id) identities in request order and returns
+    persisted metadata and evidence. It is exclusive with ``entity_indices``.
 
     ``max_samples`` is one total response budget shared evenly by the returned
     series. Min/max bucket sampling preserves endpoints and narrow extrema.
@@ -203,7 +213,9 @@ def project_measurement_trace_preview(
         group=group,
     )
     series_limit = min(max_series, max_samples // 2)
-    selected_entity_indices = _selected_entity_indices(entity_dimension, entity_indices)
+    selected_entity_indices = _selected_entity_indices(
+        entity_dimension, entity_indices, entities
+    )
     traces, failures = _measurement_traces(
         dataset.dataset_schema,
         dataset.records,
@@ -512,12 +524,33 @@ class _LocalTraceArray:
 def _selected_entity_indices(
     dimension: MeasurementDimension | None,
     requested: Sequence[int] | None,
+    entities: Sequence[EntityRef] | None = None,
 ) -> tuple[int | None, ...]:
+    if requested is not None and entities is not None:
+        raise ValueError("trace selection accepts either entities or entity indices")
     if dimension is None:
+        if entities is not None:
+            raise ValueError("trace entities require an entity trace axis")
         if requested is not None:
             raise ValueError("trace entity indices require an entity trace axis")
         return (None,)
     assert dimension.index is not None
+    if entities is not None:
+        identities = tuple(entity_identity(entity) for entity in entities)
+        if not identities:
+            raise ValueError("trace entities must not be empty")
+        if len(identities) != len(set(identities)):
+            raise ValueError("trace entity identities must be unique")
+        positions = {
+            entity_identity(entity): index
+            for index, entity in enumerate(dimension.index.values)
+        }
+        unknown = tuple(
+            identity for identity in identities if identity not in positions
+        )
+        if unknown:
+            raise ValueError(f"unknown trace entity identities: {unknown}")
+        return tuple(positions[identity] for identity in identities)
     if requested is None:
         return tuple(range(len(dimension.index.values)))
     selected = tuple(requested)

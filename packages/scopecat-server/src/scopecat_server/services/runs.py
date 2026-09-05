@@ -1150,6 +1150,7 @@ def _project_trace_records(
             value_mode=query.value_mode,
             downsampling=query.downsampling,
             entity_indices=query.entity_indices,
+            entities=query.entities,
         )
     except ValueError as error:
         raise BackendConflict(str(error)) from error

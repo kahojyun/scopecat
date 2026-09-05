@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from scopecat.config.documents import load_config_snapshot_document
@@ -296,7 +297,13 @@ def test_run_submission_and_backend_error_mapping() -> None:
     assert invalid.status_code == 422
 
 
-def test_trace_preview_route_forwards_typed_query_and_validates_selection() -> None:
+@pytest.mark.parametrize(
+    "selection",
+    [{"entity_indices": [0, 2]}, {"entities": [{"kind": "qubit", "id": "q2"}]}],
+)
+def test_trace_preview_route_forwards_typed_query_and_validates_selection(
+    selection: dict[str, object],
+) -> None:
     backend = FakeApplication()
     client = TestClient(_create_test_app(backend))
     payload = {
@@ -304,7 +311,7 @@ def test_trace_preview_route_forwards_typed_query_and_validates_selection() -> N
         "observable_id": "signal",
         "coordinate_id": "frequency",
         "fixed_axis_indices": {"bias": 1},
-        "entity_indices": [0, 2],
+        **selection,
         "max_series": 4,
         "max_samples": 128,
         "value_mode": "real",

@@ -23,7 +23,7 @@ from scopecat.control.models import (
 )
 from scopecat.daemon.health import DaemonHealth
 from scopecat.daemon.points import RunPointPlanView
-from scopecat.kernel.entity import EntityRef
+from scopecat.kernel.entity import EntityRef, entity_identity
 from scopecat.kernel.problems import Problem
 from scopecat.measurements.datasets import (
     MAX_MEASUREMENT_PAGE_SIZE,
@@ -638,6 +638,7 @@ class MeasurementTracePreviewQuery(_ViewModel):
     fixed_axis_indices: dict[str, Annotated[int, Field(ge=0)]] = Field(
         default_factory=dict
     )
+    entities: tuple[EntityRef, ...] | None = Field(default=None, min_length=1)
     entity_indices: tuple[Annotated[int, Field(ge=0)], ...] | None = Field(
         default=None,
         min_length=1,
@@ -661,6 +662,14 @@ class MeasurementTracePreviewQuery(_ViewModel):
             )
         if any(not axis_id for axis_id in self.fixed_axis_indices):
             raise ValueError("trace preview axis ids must be non-empty")
+        if self.entities is not None:
+            if self.entity_indices is not None:
+                raise ValueError(
+                    "trace selection accepts either entities or entity indices"
+                )
+            identities = tuple(entity_identity(entity) for entity in self.entities)
+            if len(identities) != len(set(identities)):
+                raise ValueError("trace entity identities must be unique")
         if self.entity_indices is not None and len(self.entity_indices) != len(
             set(self.entity_indices)
         ):

@@ -4154,6 +4154,8 @@ export interface components {
             coordinate_id?: string | null;
             /** @default minmax */
             downsampling: components["schemas"]["TraceDownsampling"];
+            /** Entities */
+            entities?: components["schemas"]["EntityRef-Input"][] | null;
             /** Entity Indices */
             entity_indices?: number[] | null;
             /** Fixed Axis Indices */

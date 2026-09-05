@@ -1014,3 +1014,100 @@ def _trace_evidence(result_id: str) -> InstrumentAcquisitionEvidence:
         started_at=started_at,
         completed_at=started_at + timedelta(milliseconds=2),
     )
+
+
+@pytest.mark.parametrize("segmented", [False, True])
+def test_identity_selection_preserves_evidence_and_persisted_metadata(
+    segmented: bool,
+) -> None:
+    dataset = _entity_trace_dataset(segmented=segmented)
+    selected = project_measurement_trace_preview(
+        dataset,
+        "response",
+        entities=(
+            EntityRef(id="q1", kind="qubit"),
+            EntityRef(id="q0", kind="qubit", metadata={"label": "caller"}),
+        ),
+        max_series=2,
+        max_samples=8,
+    )
+    positional = project_measurement_trace_preview(
+        dataset,
+        "response",
+        entity_indices=(1, 0),
+        max_series=2,
+        max_samples=8,
+    )
+    assert selected == positional
+    assert selected.series[0].entity is not None
+    assert selected.series[0].entity.metadata["label"] == "Q0"
+    assert selected.failures[0].entity_index == 1
+
+
+@pytest.mark.parametrize(
+    "entities,indices,message",
+    [
+        ((EntityRef(id="absent", kind="qubit"),), None, "unknown"),
+        ((EntityRef(id="q0", kind="resonator"),), None, "unknown"),
+        (
+            (
+                EntityRef(id="q0", kind="qubit"),
+                EntityRef(id="q0", kind="qubit", metadata={"label": "other"}),
+            ),
+            None,
+            "unique",
+        ),
+        ((EntityRef(id="q0", kind="qubit"),), (0,), "either"),
+        ((), None, "empty"),
+    ],
+)
+def test_identity_selection_rejects_invalid_requests(
+    entities: tuple[EntityRef, ...], indices: tuple[int, ...] | None, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        project_measurement_trace_preview(
+            _entity_trace_dataset(segmented=False),
+            "response",
+            entities=entities,
+            entity_indices=indices,
+        )
+
+
+def test_identity_selection_distinguishes_kinds_with_same_id() -> None:
+    dataset = _entity_trace_dataset(segmented=False)
+    schema = dataset.dataset_schema
+    axis = schema.dimensions[1]
+    entities = (
+        EntityRef(id="shared", kind="qubit"),
+        EntityRef(id="shared", kind="resonator"),
+    )
+    axis = axis.model_copy(update={"index": MeasurementEntityIndex(values=entities)})
+    schema = schema.model_copy(
+        update={"dimensions": (schema.dimensions[0], axis, schema.dimensions[2])}
+    )
+    dataset = MeasurementDataset(dataset_schema=schema, records=dataset.records)
+    projection = project_measurement_trace_preview(
+        dataset, "response", entities=(entities[1],)
+    )
+    assert projection.selected_entity_count == 1
+    assert projection.failures[0].entity == entities[1]
+    assert projection.failures[0].entity_index == 1
+
+
+def test_identity_selection_requires_entity_axis() -> None:
+    with pytest.raises(ValueError, match="require an entity trace axis"):
+        measurement_traces(_trace_dataset(), entities=(EntityRef(id="q0"),))
+
+
+def test_identity_selection_in_full_trace_view_uses_persisted_entity() -> None:
+    traces = measurement_traces(
+        _entity_trace_dataset(segmented=False),
+        "response",
+        entities=(EntityRef(id="q0", kind="qubit"),),
+    )
+    assert len(traces) == 1
+    assert traces[0].entity == EntityRef(
+        id="q0", kind="qubit", metadata={"label": "Q0"}
+    )
+    assert traces[0].evidence is not None
+    assert traces[0].evidence.result_id == "q0-response"
