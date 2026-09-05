@@ -93,8 +93,8 @@ def thaw_json_value(value: object) -> object:
                 raise ValueError(msg)
             result[key] = thaw_json_value(item)
         return result
-    if isinstance(value, tuple):
-        sequence = cast("tuple[object, ...]", value)
+    if isinstance(value, tuple | list):
+        sequence = cast("tuple[object, ...] | list[object]", value)
         return [thaw_json_value(item) for item in sequence]
     return value
 
