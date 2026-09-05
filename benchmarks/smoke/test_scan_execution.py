@@ -9,19 +9,24 @@ import sys
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from benchmarks.e2e.scan_execution import ScanScenario, _scopecat_invocation
 from scopecat.compiler.frontend.resolution import compile_invocation
 from scopecat.program.expressions import PointColumnScalarExpr
 from scopecat.program.logical import LogicalDomainExecution, LogicalEnsureState
 
 
-def test_multiqubit_derived_results_preserve_the_source_entity_axis() -> None:
+@pytest.mark.parametrize("qubit_count", [2, 16, 64, 128])
+def test_multiqubit_derived_results_preserve_the_source_entity_axis(
+    qubit_count: int,
+) -> None:
     scenario = ScanScenario(
         point_count=1,
         profile="multiqubit_result_retention",
         retention="iq-and-bits",
-        qubit_count=2,
-        physical_channel_count=6,
+        qubit_count=qubit_count,
+        physical_channel_count=2 * qubit_count + 2,
         shots=4,
     )
 
@@ -163,8 +168,13 @@ def test_fixed_program_lo_sweep_avoids_per_point_durable_job_writes(
     assert scenario["profile"] == "fixed_program_host_lo_sweep"
     assert result["points_completed"] == point_count
     assert result["trigger_count"] == point_count
-    assert result["waveform_bytes_uploaded"] == result["max_waveform_batch_bytes"]
-    assert result["waveform_bytes_rendered"] == result["max_waveform_batch_bytes"]
+    # Host LO writes invalidate this target's setup residency. Reusing the
+    # compiled program must not be mistaken for retaining its device setup.
+    expected_upload_bytes = point_count * cast(
+        "int", result["max_waveform_batch_bytes"]
+    )
+    assert result["waveform_bytes_uploaded"] == expected_upload_bytes
+    assert result["waveform_bytes_rendered"] == expected_upload_bytes
     assert result["payload_spool_bytes_at_finish"] == 0
     assert (
         0
@@ -437,12 +447,33 @@ def test_result_retention_profile_separates_selected_data_from_control(
         )
 
 
+@pytest.mark.parametrize(
+    ("qubit_count", "retention"),
+    [(16, "summary"), (64, "bit-shots"), (128, "iq-and-bits")],
+)
+def test_scaled_result_retention_prepares_all_required_hardware_state(
+    tmp_path: Path,
+    qubit_count: int,
+    retention: str,
+) -> None:
+    result = _result_worker(
+        tmp_path,
+        runner="scopecat",
+        retention=retention,
+        shots=4,
+        qubit_count=qubit_count,
+    )
+    assert result["points_completed"] == 2
+    assert cast("int", result["selected_result_bytes"]) > 0
+
+
 def _result_worker(
     tmp_path: Path,
     *,
     runner: str,
     retention: str,
     shots: int,
+    qubit_count: int = 2,
 ) -> dict[str, object]:
     work_dir = tmp_path / f"{runner}-{retention}-{shots}"
     completed = subprocess.run(  # noqa: S603
@@ -457,7 +488,7 @@ def _result_worker(
             "--point-count",
             "2",
             "--qubit-count",
-            "2",
+            str(qubit_count),
             "--profile",
             "results",
             "--retention",
