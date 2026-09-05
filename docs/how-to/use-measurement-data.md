@@ -330,6 +330,20 @@ the currently durable point count, so later appends belong to a later reader.
 This is a finite snapshot, not a live subscription. Live cursors, checkpoints,
 retries, and finalization belong to a future workflow streaming contract.
 
+Small pages can revisit the same stored Arrow chunk. The daemon's run repository
+reuses verified chunk bytes with a 16 MiB payload limit and at most 32 entries;
+least-recently-used entries are evicted and oversized chunks are not retained.
+This bounds retained cache payload, not total process memory or a caller's decoded
+arrays. A cold read still loads a whole chunk before row/variable projection;
+entity selection does not yet push down into that chunk read.
+
+Reuse is keyed by the currently resolved content digest, not a run-local path.
+Cache hits check file identity, size and change timestamps; misses use the normal
+SHA-256 verification. Cached bytes are immutable. This relies on the object store's
+immutable-file contract, not on timestamps as a cryptographic substitute for the
+digest. Reference lookup and the reader's pinned point-count semantics are
+unchanged. There is no process-global cache shared between projects.
+
 ### Use native labeled arrays
 
 Each variable exposes values, labels, validity, failure reasons, and units
