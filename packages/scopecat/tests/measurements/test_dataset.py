@@ -564,6 +564,63 @@ def test_dataset_isel_combines_point_and_fixed_local_selection() -> None:
     _assert_array_values(selected["frequency"].values, ((15.0,), (11.0,)))
 
 
+@pytest.mark.parametrize("source_backed", [False, True])
+def test_arrow_and_record_reads_do_not_build_an_unused_xarray(
+    monkeypatch: pytest.MonkeyPatch,
+    source_backed: bool,
+) -> None:
+    builds = 0
+    original = Dataset._build_xarray
+
+    def build(dataset: Dataset) -> xr.Dataset:
+        nonlocal builds
+        builds += 1
+        return original(dataset)
+
+    monkeypatch.setattr(Dataset, "_build_xarray", build)
+    dataset = _dataset()
+    if source_backed:
+        source = dataset
+
+        def unexpected_projection(
+            _projection: ProjectionSchema,
+            _batch_size: int,
+        ) -> pa.RecordBatchReader:
+            raise AssertionError("materialized records should use local projection")
+
+        dataset = Dataset._from_source(
+            schema=source.schema,
+            entry=source.entry,
+            load_raw=lambda: _snapshot(source),
+            load_projected_batches=unexpected_projection,
+        )
+    assert dataset.records[0].point_index == 0
+    assert dataset.project({"voltage": "bias"}).to_arrow().num_rows == 3
+    assert builds == 0
+    first = dataset.to_xarray()
+    second = dataset.to_xarray()
+    assert builds == 1
+    assert first is not second
+    assert first.identical(second)
+
+
+def test_large_xarray_entity_metadata_preserves_selected_order() -> None:
+    entities = tuple(
+        EntityRef(id=f"q{i}", kind="qubit", metadata={"labels": [i, "replay"]})
+        for i in range(128)
+    )
+    dataset = _entity_source_dataset(
+        "large", entities, tuple(float(i) for i in range(128))
+    )
+    index = dataset.schema.dimensions[1].index
+    assert index is not None
+    expected = index.model_dump(mode="json")["values"]
+    labeled = dataset.isel(qubit=[127, 0, 2]).to_xarray()
+    assert json.loads(labeled.coords["qubit"].attrs["scopecat_entities_json"]) == [
+        expected[position] for position in (127, 0, 2)
+    ]
+
+
 def test_dataset_native_xarray_preserves_labels_shapes_and_availability() -> None:
     dataset = _dataset()
 
@@ -1810,7 +1867,7 @@ def test_grouped_ragged_xarray_rejects_misaligned_point_local_shapes() -> None:
         ValueError,
         match=r"recording group 'readout'.*do not share one point-local",
     ):
-        Dataset(raw, dataset.entry)
+        Dataset(raw, dataset.entry).to_xarray()
 
 
 def test_ragged_sample_selection_applies_independently_per_point_and_group() -> None:

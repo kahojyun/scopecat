@@ -177,6 +177,13 @@ facade detaches it from the session and reuses it. Until then, row access and
 Arrow iteration require the project connection that created the run handle to
 remain open.
 
+Materializing records does not construct an Xarray view. That view is built once
+on demand by `to_xarray()`, variable `.xarray`, or selections that use Xarray;
+Arrow exports and ordinary record access avoid that allocation. Public Xarray
+exports still return detached copies. Checks specific to Xarray alignment, such
+as matching point-local extents within a ragged recording group, occur when the
+view is requested.
+
 Exact coordinate selection retains every match, including duplicate
 point-cloud coordinates. Numeric selection accepts unit-aware quantities and
 an optional nearest tolerance. `isel(...)` accepts `point` and fixed local

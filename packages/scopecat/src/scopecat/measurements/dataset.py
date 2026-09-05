@@ -829,9 +829,7 @@ class Dataset:
             definition.id: Variable(self, definition) for definition in schema.variables
         }
         object.__setattr__(self, "_variables", MappingProxyType(variables))
-        object.__setattr__(
-            self, "_xarray", None if raw is None else self._build_xarray()
-        )
+        object.__setattr__(self, "_xarray", None)
 
     def _materialize(self) -> MeasurementDataset:
         raw = self._raw
@@ -867,7 +865,6 @@ class Dataset:
                 }
             ),
         )
-        object.__setattr__(self, "_xarray", self._build_xarray())
         return raw
 
     @property
@@ -875,7 +872,8 @@ class Dataset:
         self._materialize()
         xarray = self._xarray
         if xarray is None:
-            raise RuntimeError("measurement dataset has no Xarray view")
+            xarray = self._build_xarray()
+            object.__setattr__(self, "_xarray", xarray)
         return xarray
 
     @property
@@ -1835,10 +1833,7 @@ class Dataset:
                         ),
                         "scopecat_entities_json": _stable_json(
                             tuple(
-                                cast(
-                                    "Sequence[object]",
-                                    dimension.index.model_dump(mode="json")["values"],
-                                )[position]
+                                dimension.index.values[position].model_dump(mode="json")
                                 for position in positions
                             )
                         ),
