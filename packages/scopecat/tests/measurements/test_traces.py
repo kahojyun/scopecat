@@ -9,12 +9,14 @@ import numpy as np
 import pytest
 
 from scopecat.kernel.entity import EntityRef
+from scopecat.measurements.dataset import Dataset
 from scopecat.measurements.results import validate_measurement_records_against_schema
 from scopecat.measurements.traces import (
     TraceValueMode,
     measurement_traces,
     project_measurement_trace_preview,
 )
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import (
     EntityAcquisitionEvidence,
     InstrumentAcquisitionEvidence,
@@ -1111,3 +1113,41 @@ def test_identity_selection_in_full_trace_view_uses_persisted_entity() -> None:
     )
     assert traces[0].evidence is not None
     assert traces[0].evidence.result_id == "q0-response"
+
+
+def test_author_dataset_traces_selects_entity_identities_and_keeps_provenance() -> None:
+    raw = _entity_trace_dataset(segmented=False)
+    raw = _replace_dataset(
+        raw,
+        records=(
+            _replace_record_values(
+                raw.records[0],
+                observables={
+                    "response": MeasurementArray.create(
+                        values=np.asarray(((1.0, 2.0, 3.0), (4.0, 5.0, 6.0)))
+                    )
+                },
+            ),
+        ),
+    )
+    dataset = Dataset(
+        raw,
+        ContentEntry(
+            role="dataset",
+            id="traces",
+            kind="measurement_dataset",
+            content_hash="unused",
+            schema=raw.dataset_schema.model_dump(mode="json"),
+        ),
+    )
+    requested = (EntityRef(id="q1", kind="qubit"), EntityRef(id="q0", kind="qubit"))
+    actual = dataset.traces(entities=requested)
+    expected = measurement_traces(raw, entities=requested)
+    assert len(actual) == len(expected)
+    for trace, reference in zip(actual, expected, strict=True):
+        assert trace.entity == reference.entity
+        assert trace.evidence == reference.evidence
+        np.testing.assert_array_equal(trace.y, reference.y)
+    assert [trace.entity.id for trace in actual[:2] if trace.entity] == ["q1", "q0"]
+    with pytest.raises(ValueError, match="unknown trace entity identities"):
+        dataset.traces(entities=(EntityRef(id="missing", kind="qubit"),))

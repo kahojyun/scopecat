@@ -1636,8 +1636,13 @@ class Dataset:
             | None
         ) = None,
         group: str | None = None,
+        entities: Sequence[EntityRef] | None = None,
     ) -> tuple[Trace, ...]:
-        """Select traces by logical result, durable handle, id, or group."""
+        """Select traces by logical result, durable handle, id, or group.
+
+        ``entities`` selects (kind, id) identities in request order, preserving
+        stored metadata and acquisition evidence. Missing identities raise.
+        """
 
         reference_groups: set[str] = set()
         if observable is not None and not isinstance(observable, str):
@@ -1665,6 +1670,7 @@ class Dataset:
             selected_observable,
             coordinate=selected_coordinate,
             group=selected_group,
+            entities=entities,
         )
 
     def to_xarray(self, *, layout: XarrayLayout = "points") -> xr.Dataset:
