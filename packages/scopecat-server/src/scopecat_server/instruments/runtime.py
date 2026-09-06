@@ -13,12 +13,15 @@ from scopecat.control.models import (
     DurableEventInput,
     InstrumentSession,
     ResourceClaim,
+    ResourceKey,
 )
 from scopecat.daemon.views import InstrumentListView, InstrumentView
 from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
     InstrumentDriverProbeCommand,
     InstrumentDriverProbeReceipt,
+    InstrumentReleaseCommand,
+    InstrumentReleaseReceipt,
     InstrumentSessionEndReceipt,
     InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
@@ -154,7 +157,9 @@ from ._runtime_support import (
     shutdown_endpoint,
 )
 from .actors import (
+    InstrumentActorConflict,
     InstrumentActorRegistry,
+    InstrumentActorShutdown,
     InstrumentBindingKey,
     InstrumentOwnerKey,
     OwnedInstrument,
@@ -219,6 +224,33 @@ class InstrumentRuntime:
     def healthy(self) -> bool:
         endpoint = self._endpoint
         return endpoint is None or endpoint.healthy
+
+    def release_idle_instruments(
+        self, command: InstrumentReleaseCommand
+    ) -> InstrumentReleaseReceipt:
+        """Retire connections behind an acquisition gate without stopping workers."""
+        self._require_running()
+        registry = self._config.get_active_config().config.instrument_registry
+        specs = {item.id: item for item in registry.instruments}
+        for instrument_id in command.instrument_ids:
+            if instrument_id not in specs:
+                raise BackendNotFound(f"instrument was not found: {instrument_id}")
+        keys = tuple(specs[item].exclusivity_key for item in command.instrument_ids)
+        try:
+            with self._actors.begin_retirement(keys) as retirement:
+                with self._control.read_transaction() as connection:
+                    blockers = (
+                        self._control.inventory_migration_blockers_in_transaction(
+                            connection,
+                            tuple(ResourceKey.instrument(key) for key in keys),
+                        )
+                    )
+                if blockers:
+                    raise BackendConflict("instrument release requires idle devices")
+                retirement.retire_idle()
+        except (InstrumentActorConflict, InstrumentActorShutdown) as error:
+            raise BackendConflict(str(error)) from error
+        return InstrumentReleaseReceipt(instrument_ids=command.instrument_ids)
 
     def list_instruments(self) -> InstrumentListView:
         active = self._config.get_active_config()

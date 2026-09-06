@@ -164,6 +164,8 @@ from scopecat.daemon.wire import (
     InstrumentDriverProbeReceipt,
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
+    InstrumentReleaseCommand,
+    InstrumentReleaseReceipt,
     InstrumentSessionEndReceipt,
     InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
@@ -177,6 +179,7 @@ from scopecat.daemon.wire import (
     RunAdmission,
     RunAttachmentCommand,
     RunCancellationReceipt,
+    RunCancellationState,
     RunCoverageAdvanceCommand,
     RunCoverageState,
     RunDomainJobStatePage,
@@ -881,6 +884,13 @@ class DaemonClient:
             ConfigActivationReceipt,
         )
 
+    def release_instruments(
+        self, command: InstrumentReleaseCommand
+    ) -> InstrumentReleaseReceipt:
+        return self._post_model(
+            f"{_API_PREFIX}/instruments/release", command, InstrumentReleaseReceipt
+        )
+
     def list_instruments(self) -> InstrumentListView:
         return self._get_model(
             f"{_API_PREFIX}/instruments",
@@ -1255,6 +1265,12 @@ class DaemonClient:
 
     def get_run(self, run_id: str) -> RunDetail:
         return self._get_model(f"{_API_PREFIX}/runs/{run_id}", RunDetail)
+
+    def run_cancellation(self, run_id: str) -> RunCancellationState:
+        return self._get_model(
+            f"{_API_PREFIX}/runs/{quote(run_id, safe='')}/cancellation",
+            RunCancellationState,
+        )
 
     def cancel_run(self, run_id: str) -> RunCancellationReceipt:
         return self._post_empty_idempotent_model(

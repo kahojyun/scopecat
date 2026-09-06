@@ -3751,12 +3751,16 @@ def test_leased_run_cancellation_reaches_heartbeat_and_preserves_terminal_histor
 ) -> None:
     with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         admission = runtime.application.submit_run(_submission("cancel-leased"))
+        assert not runtime.application.executor.run_cancellation(
+            admission.run_id
+        ).requested
         lease = runtime.application.executor.start_executor(
             admission.run_id,
             ExecutorStartRequest(executor_id="notebook-1"),
         )
 
         requested = runtime.application.cancel_run(admission.run_id)
+        assert runtime.application.executor.run_cancellation(admission.run_id).requested
         retry = runtime.application.cancel_run(admission.run_id)
         heartbeat = runtime.application.executor.heartbeat_executor(
             admission.run_id,

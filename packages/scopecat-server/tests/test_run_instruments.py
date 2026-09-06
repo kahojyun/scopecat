@@ -19,6 +19,7 @@ from scopecat.daemon.wire import (
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     ExecutorStartRequest,
+    InstrumentReleaseCommand,
     RunCoverageAdvanceCommand,
     RunHardwareBatchCommand,
     RunHardwareFinishCommand,
@@ -3045,3 +3046,20 @@ def _two_instrument_config() -> ConfigProfileSnapshot:
             "system": config.system.model_copy(update={"instrument_registry": registry})
         }
     )
+
+
+def test_release_rejects_admitted_run_before_and_after_provision(
+    tmp_path: Path,
+) -> None:
+    provider = _Provider()
+    with _runtime(tmp_path, provider) as runtime:
+        run_id, lease_id = _start_run(runtime, load_config())
+        instruments = runtime.application.instruments
+        command = InstrumentReleaseCommand(instrument_ids=("source-0",))
+        with pytest.raises(BackendConflict, match="idle devices"):
+            instruments.release_idle_instruments(command)
+        assert not provider.drivers
+        instruments.provision_run(run_id, _provision(lease_id))
+        with pytest.raises(BackendConflict, match="idle devices"):
+            instruments.release_idle_instruments(command)
+        assert provider.drivers[0].disconnect_count == 0

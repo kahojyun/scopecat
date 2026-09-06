@@ -1128,6 +1128,13 @@ class AttentionResolutionReceipt(_WireModel):
         return self
 
 
+class RunCancellationState(_WireModel):
+    """Lightweight read-only executor cancellation signal."""
+
+    run_id: NonEmptyText
+    requested: bool
+
+
 class RunCancellationReceipt(_WireModel):
     """Durable result of an idempotent operator cancellation request."""
 
@@ -1190,6 +1197,23 @@ class InstrumentDriverProbeReceipt(_WireModel):
         if not valid:
             raise ValueError("driver probe status and outcome disagree")
         return self
+
+
+class InstrumentReleaseCommand(_WireModel):
+    """Disconnect idle configured instruments; active owners block release."""
+
+    instrument_ids: tuple[NonEmptyText, ...] = Field(min_length=1)
+
+    @field_validator("instrument_ids")
+    @classmethod
+    def unique_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(value) != len(set(value)):
+            raise ValueError("instrument ids must be unique")
+        return value
+
+
+class InstrumentReleaseReceipt(_WireModel):
+    instrument_ids: tuple[NonEmptyText, ...]
 
 
 class InstrumentSessionOpenCommand(_WireModel):
@@ -1348,6 +1372,8 @@ __all__ = [
     "InstrumentDriverProbeReceipt",
     "InstrumentInventoryMigrationCommand",
     "InstrumentInventoryMigrationReceipt",
+    "InstrumentReleaseCommand",
+    "InstrumentReleaseReceipt",
     "InstrumentSessionEndReceipt",
     "InstrumentSessionLeaseReceipt",
     "InstrumentSessionOpenCommand",
@@ -1364,6 +1390,7 @@ __all__ = [
     "RunAdmission",
     "RunAttachmentCommand",
     "RunCancellationReceipt",
+    "RunCancellationState",
     "RunCoverageAdvanceCommand",
     "RunCoverageState",
     "RunDomainJobStatePage",

@@ -1090,6 +1090,30 @@ def test_execute_fences_effects_after_heartbeat_loses_lease(
     assert isinstance(error.value.cause, DaemonConflictError)
 
 
+def test_cancellation_does_not_wait_for_lease_renewal() -> None:
+    requested = Event()
+    lease = _lease(heartbeat_interval=10)
+    renewals = 0
+
+    def heartbeat() -> ExecutorLease:
+        nonlocal renewals
+        renewals += 1
+        return lease
+
+    supervisor = runner_module._LeaseHeartbeat(lambda _run_id: requested.is_set())
+    supervisor.start(lease, heartbeat)
+    try:
+        requested.set()
+        deadline = time.monotonic() + 2
+        while not supervisor.cancellation_requested():
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        supervisor.require_live()
+        assert renewals == 0
+    finally:
+        supervisor.close()
+
+
 def test_executor_heartbeat_recovers_from_temporary_unavailability() -> None:
     lease = _lease(heartbeat_interval=0.05)
     supervisor = runner_module._LeaseHeartbeat()
