@@ -230,7 +230,7 @@ class Sequence:
 
 @dataclass(frozen=True, slots=True)
 class Parallel:
-    """Compose instruction branches from the same start time."""
+    """Compose branches with common start or end times."""
 
     branches: tuple[PulseInstruction, ...]
     alignment: Literal["start", "end"] = "start"

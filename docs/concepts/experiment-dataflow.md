@@ -715,16 +715,3 @@ Further convenience should be judged against complete experiments. New
 features should extend typed results, the shared compute model, or this
 ownership vocabulary instead of introducing another kind of value or another
 experiment-data transformation API.
-
-For entity-indexed acquisitions, analysis code can select traces by durable
-identity without finding array offsets:
-
-```python
-traces = dataset.traces("iq", entities=(sc.EntityRef(id="q1", kind="qubit"),))
-```
-
-The selection matches `(kind, id)`, preserves stored entity metadata and
-acquisition evidence, and raises for missing identities. Trace point indices
-remain the original dataset indices, including after filtering or reordering.
-This extracts selected traces from a materialized dataset; it does not imply
-server-side filtering or bounded-memory streaming.

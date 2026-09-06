@@ -108,7 +108,7 @@ class Sequence:
 
 @dataclass(frozen=True, slots=True)
 class Parallel:
-    """Mixed quantum branches that begin together."""
+    """Compose branches with common start or end times."""
 
     branches: tuple[QuantumNode, ...]
     alignment: Literal["start", "end"] = "start"

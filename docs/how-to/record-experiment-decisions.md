@@ -117,6 +117,7 @@ but does not establish a decision provenance edge.
 ```python
 from scopecat.automation import InterpretationOutputRef
 
+
 @sc.analysis_step(id="lab.selection-report.v1")
 def selection_report(
     analysis: sc.AnalysisContext,
@@ -127,6 +128,7 @@ def selection_report(
     return analysis.result("Selected resonator").fact(
         "selection", value, schema=RESONATOR_SELECTION
     )
+
 
 # Inside the procedure, after context.interpret(...):
 report = context.analyze_project(

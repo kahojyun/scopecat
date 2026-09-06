@@ -252,8 +252,8 @@ class LabInstrumentOperations:
 
     def release(
         self,
-        instrument: str | InstrumentRef[object],
-        *additional_instruments: str | InstrumentRef[object],
+        instrument: str | InstrumentIdentity,
+        *additional_instruments: str | InstrumentIdentity,
     ) -> InstrumentReleaseReceipt:
         """Disconnect idle devices for another controller to use.
 

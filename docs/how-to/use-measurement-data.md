@@ -406,6 +406,21 @@ or exports. Complete Arrow, dataframe, and Xarray conversions materialize their
 selected snapshot; use the projected record-batch reader when it does not fit
 in notebook memory.
 
+## Select traces by entity identity
+
+For entity-indexed acquisitions, analysis code can select traces by durable
+identity without finding array offsets:
+
+```python
+traces = dataset.traces("iq", entities=(sc.EntityRef(id="q1", kind="qubit"),))
+```
+
+The selection matches `(kind, id)`, preserves stored entity metadata and
+acquisition evidence, and raises for missing identities. Trace point indices
+remain the original dataset indices, including after filtering or reordering.
+This extracts selected traces from a materialized dataset; it does not imply
+server-side filtering or bounded-memory streaming.
+
 ## Let the GUI use the same schema
 
 The canonical schema is registered before the first append, so the GUI can
