@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import uuid4
 
 import httpx2
@@ -85,6 +85,7 @@ from scopecat.kernel.python_source import python_source_identity
 from scopecat.kernel.run_outcome import utc_now
 from scopecat.program.values import MetadataValue
 from scopecat.records.analysis import (
+    InterpretationAnalysisRecordInput,
     MeasurementAnalysisRecordInput,
     ProjectAnalysisDecisionReference,
     ProjectAnalysisSubject,
@@ -144,6 +145,19 @@ class InterpretationResult[ValueT]:
 
 
 @dataclass(frozen=True, slots=True)
+class ProcedureSummary:
+    """Bounded observational view, not an atomic authorization to mutate a run."""
+
+    procedure_run_id: str
+    revision: int
+    outcome: str
+    next_action: Literal["respond", "resume", "inspect_attention", "wait", "none"]
+    reason: str | None
+    steps: tuple[ProcedureStepAttempt, ...]
+    next_cursor: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class ProcedureHandle:
     """Reopenable handle for one daemon-owned procedure invocation."""
 
@@ -165,6 +179,37 @@ class ProcedureHandle:
         before: int | None = None,
     ) -> ProcedureStepAttemptPage:
         return self.operations.steps(self.id, limit=limit, before=before)
+
+    def summary(self, *, limit: int = 20) -> ProcedureSummary:
+        """Read one snapshot and one bounded newest-first step page.
+
+        Steps retain typed requests and exact evidence references. A cursor means
+        older attempts are omitted; this method never computes totals by scanning.
+        Concurrent workers may advance the run between the two reads.
+        """
+        snapshot = self.snapshot
+        page = self.steps(limit=limit)
+        actions: dict[
+            ProcedureRunState,
+            Literal["respond", "resume", "inspect_attention", "wait", "none"],
+        ] = {
+            "waiting_for_input": "respond",
+            "ready": "resume",
+            "attention_required": "inspect_attention",
+            "leased": "wait",
+            "closed": "none",
+        }
+        return ProcedureSummary(
+            procedure_run_id=self.id,
+            revision=snapshot.revision,
+            outcome=snapshot.closure.status if snapshot.closure else snapshot.state,
+            next_action=actions[snapshot.state],
+            reason=snapshot.closure.reason
+            if snapshot.closure
+            else snapshot.attention_reason,
+            steps=page.items,
+            next_cursor=page.next_cursor,
+        )
 
     def step(self, step_key: str) -> ProcedureStepAttempt:
         """Find the newest attempt for one stable step using bounded pages."""
@@ -1234,11 +1279,20 @@ def _validate_analysis_upstreams(
 ) -> None:
     """Compare durable owner-level refs, not individual publication outputs."""
 
-    declared_inputs = {item.model_dump_json() for item in inputs}
+    declared_inputs = {
+        (
+            item.analysis_reference
+            if isinstance(item, InterpretationOutputRef)
+            else item
+        ).model_dump_json()
+        for item in inputs
+    }
     actual_inputs: set[str] = set()
     for item in published.inputs:
         if isinstance(item, MeasurementAnalysisRecordInput):
             actual_inputs.add(RunOutputRef(run_id=item.run_id).model_dump_json())
+        elif isinstance(item, InterpretationAnalysisRecordInput):
+            actual_inputs.add(item.source.model_dump_json())
         else:
             actual_inputs.add(
                 AnalysisPublicationOutputRef(
@@ -1411,4 +1465,5 @@ __all__ = [
     "ProcedureHandle",
     "ProcedureHandlePage",
     "ProcedureLabSession",
+    "ProcedureSummary",
 ]

@@ -209,10 +209,12 @@ regions, and local coverage windows may split one group at any point boundary.
 Measurements remain buffered until the complete group has executed; only then
 may durable coverage advance. An interruption therefore restarts the unfinished
 group even when earlier physical batches from that group had completed. Durable
-coverage is currently a canonical point prefix, so reordered schedules may also
-conservatively replay completed groups that lie beyond the last publishable
-prefix; a future completed-group ledger can remove that extra replay without
-changing scheduling or dataset identity.
+coverage retains a canonical point-prefix watermark, while the durable recovery
+ledger also records exact completed groups with their schedule fingerprint and
+output hashes. Static continuation validates those records and skips completed
+groups even beyond the watermark. This does not make an interrupted group
+complete, and does not enable continuation of an already-started domain target;
+target-aware recovery remains a separate contract.
 
 One `ExperimentSystem` owns one domain compiler. The compiler may internally
 route supported dialects or invoke a lower-level target compiler after resolving
@@ -523,3 +525,13 @@ hardware-unknown evidence are the source of truth for operator reconciliation.
 
 Tests should assert these laws rather than transient compiler fields, cache
 behavior, or incidental batch counts.
+
+## Host state writes and domain residency
+
+Successful host ApplyState, Invoke, and Collect blocks invalidate opaque domain
+residency on the addressed instruments. Property reconciliation is not proof that
+target-owned program memory survived a write. Other instruments retain their
+residency. This is conservative even when a state assignment reconciles as a no-op.
+Domain-owned state requirements remain the target's responsibility and do not
+independently revoke the target's setup proof. Failed blocks terminate execution;
+this policy does not authorize resuming an uncertain physical state.

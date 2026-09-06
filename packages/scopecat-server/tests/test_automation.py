@@ -503,3 +503,109 @@ def test_release_and_attention_transitions_invalidate_lease(
     )
     assert quarantined.run.state == "attention_required"
     assert quarantined.step.state == "attention_required"
+
+
+def test_analysis_verifies_exact_durable_judgment_and_survives_restart(
+    tmp_path: Path,
+) -> None:
+    from scopecat.daemon.wire import (
+        AnalysisSaveCommand,
+        InterpretationAnalysisInputPayload,
+    )
+
+    with LocalDaemonRuntime(tmp_path) as runtime:
+        service = runtime.application.automation
+        submitted = _submit(service)
+        acquired = service.acquire_lease(
+            ProcedureWorkerLeaseAcquireCommand(
+                procedure_run_id=submitted.procedure_run_id,
+                worker_id="worker-1",
+                expected_run_revision=submitted.revision,
+            )
+        )
+        schema = AnalysisFactSchema(
+            "lab.resonator-selection.v1",
+            _ResonatorSelection,
+        )
+        request = InterpretationRequest(
+            title="Choose the readout resonator",
+            instructions="Return the selected resonator label.",
+            schema_id=schema.id,
+            schema_hash=schema.schema_hash,
+            structure=schema.structure,
+            response_template={"resonator": "replace after reviewing the trace"},
+        )
+        begun = service.begin_step(
+            ProcedureStepBeginCommand(
+                procedure_run_id=submitted.procedure_run_id,
+                lease_token=acquired.lease.lease_token,
+                expected_run_revision=acquired.run.revision,
+                step_key="select-resonator",
+                operation="interpretation",
+                intent_hash=request.request_hash,
+            )
+        )
+        waiting = service.wait_step_input(
+            ProcedureStepInputWaitCommand(
+                procedure_run_id=submitted.procedure_run_id,
+                lease_token=acquired.lease.lease_token,
+                expected_run_revision=begun.run.revision,
+                step_key=begun.step.step_key,
+                attempt=begun.step.attempt,
+                expected_step_revision=begun.step.revision,
+                request=request,
+            )
+        )
+
+        answer_command = ProcedureStepInputSubmitCommand(
+            procedure_run_id=submitted.procedure_run_id,
+            expected_run_revision=waiting.run.revision,
+            step_key=waiting.step.step_key,
+            attempt=waiting.step.attempt,
+            expected_step_revision=waiting.step.revision,
+            request_hash=request.request_hash,
+            actor="operator@example.test",
+            actor_kind="human",
+            value={"resonator": "r2"},
+            note="clearest isolated dip",
+        )
+        answered = service.submit_step_input(answer_command)
+
+        source = answered.output.analysis_reference
+        input_ref = InterpretationAnalysisInputPayload(
+            id="selection",
+            target=source.step_key,
+            content_hash=source.response_hash,
+            codec="scopecat.interpretation-response.v1",
+            role="decision",
+            source=source,
+        )
+        command = AnalysisSaveCommand(
+            title="Decision provenance",
+            analysis_key="decision-proof",
+            inputs=(input_ref,),
+        )
+        saved = runtime.application.analyses.save(command)
+        assert saved.inputs == (input_ref,)
+        for field, value in (
+            ("request_hash", _OTHER_STEP_HASH),
+            ("response_hash", _OTHER_STEP_HASH),
+            ("procedure_run_id", "missing-procedure"),
+            ("step_key", "missing-step"),
+        ):
+            changed = source.model_copy(update={field: value})
+            forged = input_ref.model_copy(
+                update={
+                    "source": changed,
+                    "target": changed.step_key,
+                    "content_hash": changed.response_hash,
+                }
+            )
+            with pytest.raises(BackendConflict, match="successful judgment"):
+                runtime.application.analyses.save(
+                    command.model_copy(
+                        update={"inputs": (forged,), "analysis_key": f"forged-{field}"}
+                    )
+                )
+    with LocalDaemonRuntime(tmp_path) as reopened:
+        assert reopened.application.analyses.save(command) == saved

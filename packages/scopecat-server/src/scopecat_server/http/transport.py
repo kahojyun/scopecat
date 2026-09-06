@@ -177,6 +177,8 @@ from scopecat.daemon.wire import (
     InstrumentDriverProbeReceipt,
     InstrumentInventoryMigrationCommand,
     InstrumentInventoryMigrationReceipt,
+    InstrumentReleaseCommand,
+    InstrumentReleaseReceipt,
     InstrumentSessionEndReceipt,
     InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
@@ -190,6 +192,7 @@ from scopecat.daemon.wire import (
     RunAdmission,
     RunAttachmentCommand,
     RunCancellationReceipt,
+    RunCancellationState,
     RunCoverageAdvanceCommand,
     RunCoverageState,
     RunDomainJobStatePage,
@@ -518,6 +521,12 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.get(f"{_API_PREFIX}/instruments")
     def list_instruments() -> InstrumentListView:
         return application.instruments.list_instruments()
+
+    @app.post(f"{_API_PREFIX}/instruments/release")
+    def release_instruments(
+        command: InstrumentReleaseCommand,
+    ) -> InstrumentReleaseReceipt:
+        return application.instruments.release_idle_instruments(command)
 
     @app.get(f"{_API_PREFIX}/instrument-drivers")
     def get_driver_catalog() -> DriverCatalog:
@@ -1118,6 +1127,10 @@ def create_app(  # noqa: C901 - route registration is intentionally centralized
     @app.post(f"{_API_PREFIX}/runs/{{run_id}}/cancel")
     def cancel_run(run_id: str) -> RunCancellationReceipt:
         return application.cancel_run(run_id)
+
+    @app.get(f"{_API_PREFIX}/runs/{{run_id}}/cancellation")
+    def run_cancellation(run_id: str) -> RunCancellationState:
+        return application.executor.run_cancellation(run_id)
 
     @app.get(f"{_API_PREFIX}/runs/{{run_id}}/config")
     def get_run_config(run_id: str) -> RunConfigView:

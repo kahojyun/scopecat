@@ -177,6 +177,13 @@ facade detaches it from the session and reuses it. Until then, row access and
 Arrow iteration require the project connection that created the run handle to
 remain open.
 
+Materializing records does not construct an Xarray view. That view is built once
+on demand by `to_xarray()`, variable `.xarray`, or selections that use Xarray;
+Arrow exports and ordinary record access avoid that allocation. Public Xarray
+exports still return detached copies. Checks specific to Xarray alignment, such
+as matching point-local extents within a ragged recording group, occur when the
+view is requested.
+
 Exact coordinate selection retains every match, including duplicate
 point-cloud coordinates. Numeric selection accepts unit-aware quantities and
 an optional nearest tolerance. `isel(...)` accepts `point` and fixed local
@@ -330,6 +337,20 @@ the currently durable point count, so later appends belong to a later reader.
 This is a finite snapshot, not a live subscription. Live cursors, checkpoints,
 retries, and finalization belong to a future workflow streaming contract.
 
+Small pages can revisit the same stored Arrow chunk. The daemon's run repository
+reuses verified chunk bytes with a 16 MiB payload limit and at most 32 entries;
+least-recently-used entries are evicted and oversized chunks are not retained.
+This bounds retained cache payload, not total process memory or a caller's decoded
+arrays. A cold read still loads a whole chunk before row/variable projection;
+entity selection does not yet push down into that chunk read.
+
+Reuse is keyed by the currently resolved content digest, not a run-local path.
+Cache hits check file identity, size and change timestamps; misses use the normal
+SHA-256 verification. Cached bytes are immutable. This relies on the object store's
+immutable-file contract, not on timestamps as a cryptographic substitute for the
+digest. Reference lookup and the reader's pinned point-count semantics are
+unchanged. There is no process-global cache shared between projects.
+
 ### Use native labeled arrays
 
 Each variable exposes values, labels, validity, failure reasons, and units
@@ -384,6 +405,21 @@ returns an independent snapshot, so caller edits cannot affect later selections
 or exports. Complete Arrow, dataframe, and Xarray conversions materialize their
 selected snapshot; use the projected record-batch reader when it does not fit
 in notebook memory.
+
+## Select traces by entity identity
+
+For entity-indexed acquisitions, analysis code can select traces by durable
+identity without finding array offsets:
+
+```python
+traces = dataset.traces("iq", entities=(sc.EntityRef(id="q1", kind="qubit"),))
+```
+
+The selection matches `(kind, id)`, preserves stored entity metadata and
+acquisition evidence, and raises for missing identities. Trace point indices
+remain the original dataset indices, including after filtering or reordering.
+This extracts selected traces from a materialized dataset; it does not imply
+server-side filtering or bounded-memory streaming.
 
 ## Let the GUI use the same schema
 

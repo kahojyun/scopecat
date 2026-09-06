@@ -84,7 +84,9 @@ class _DaemonRunner:
         admission = self.client.submit_run(submission)
         if admission.snapshot.outcome is not None:
             return _resolve_terminal_snapshot(admission.snapshot)
-        heartbeat = _LeaseHeartbeat()
+        heartbeat = _LeaseHeartbeat(
+            lambda run_id: self.client.run_cancellation(run_id).requested
+        )
         session = daemon_execution_session(
             self.client,
             submission,
@@ -186,7 +188,9 @@ class _DaemonRunner:
             if receipt.run_id != run_id or receipt.state != "queued":
                 raise ValueError("attention resolution did not queue the resumed run")
 
-        heartbeat = _LeaseHeartbeat()
+        heartbeat = _LeaseHeartbeat(
+            lambda run_id: self.client.run_cancellation(run_id).requested
+        )
         session = daemon_resumption_session(
             self.client,
             detail.snapshot,
@@ -319,12 +323,14 @@ class _DaemonRunner:
 
 
 class _LeaseHeartbeat(LeaseSupervisor):
-    def __init__(self) -> None:
+    def __init__(self, cancellation: Callable[[str], bool] | None = None) -> None:
         self._stop = Event()
         self._lock = Lock()
         self._failure: tuple[ExecutorLease, Exception] | None = None
         self._cancellation_requested = Event()
         self._thread: Thread | None = None
+        self._cancellation = cancellation
+        self._cancellation_thread: Thread | None = None
 
     @override
     def start(
@@ -341,6 +347,14 @@ class _LeaseHeartbeat(LeaseSupervisor):
             daemon=True,
         )
         self._thread.start()
+        if self._cancellation is not None:
+            self._cancellation_thread = Thread(
+                target=self._watch_cancellation,
+                args=(lease, self._cancellation),
+                name=f"scopecat-cancellation-{lease.run_id}",
+                daemon=True,
+            )
+            self._cancellation_thread.start()
 
     @override
     def require_live(self) -> None:
@@ -358,6 +372,25 @@ class _LeaseHeartbeat(LeaseSupervisor):
         self._stop.set()
         if self._thread is not None:
             self._thread.join()
+        if self._cancellation_thread is not None:
+            self._cancellation_thread.join()
+
+    def _watch_cancellation(
+        self, lease: ExecutorLease, cancellation: Callable[[str], bool]
+    ) -> None:
+        # Read-only control traffic must not renew authority or wait for renewal.
+        while not self._stop.wait(0.25):
+            try:
+                requested = cancellation(lease.run_id)
+            except DaemonUnavailableError, httpx2.TransportError:
+                continue
+            except Exception as error:
+                with self._lock:
+                    self._failure = (lease, error)
+                return
+            if requested:
+                self._cancellation_requested.set()
+                return
 
     def _run(
         self,

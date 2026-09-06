@@ -21,6 +21,8 @@ from scopecat.daemon.client import (
 from scopecat.daemon.views import InstrumentListView, InstrumentView
 from scopecat.daemon.wire import (
     InstrumentConfiguredDefaultsApplyCommand,
+    InstrumentReleaseCommand,
+    InstrumentReleaseReceipt,
     InstrumentSessionEndReceipt,
     InstrumentSessionLeaseReceipt,
     InstrumentSessionOpenCommand,
@@ -247,6 +249,26 @@ class LabInstrumentOperations:
 
     def list(self) -> InstrumentListView:
         return self._client.list_instruments()
+
+    def release(
+        self,
+        instrument: str | InstrumentIdentity,
+        *additional_instruments: str | InstrumentIdentity,
+    ) -> InstrumentReleaseReceipt:
+        """Disconnect idle devices for another controller to use.
+
+        Runs and sessions must have ended first. The next open or run reconnects
+        automatically. This releases connections, not a reservation for the other
+        controller: do not submit new work until that controller has finished.
+        """
+        return self._client.release_instruments(
+            InstrumentReleaseCommand(
+                instrument_ids=tuple(
+                    item if isinstance(item, str) else item.instrument_id
+                    for item in (instrument, *additional_instruments)
+                )
+            )
+        )
 
     def get(self, instrument_id: str) -> InstrumentView:
         return self._client.get_instrument(instrument_id)

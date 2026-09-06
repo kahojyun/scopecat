@@ -220,7 +220,10 @@ def _inspection_node(fragment: QuantumFragment) -> _InspectionNode:
         )
     if isinstance(fragment, _ParallelFragment | _QuantumParallelFragment):
         return _InspectionNode(
-            "parallel",
+            "parallel(end)"
+            if isinstance(fragment, _QuantumParallelFragment)
+            and fragment.alignment == "end"
+            else "parallel",
             tuple(_inspection_node(item) for item in fragment.branches),
         )
     if isinstance(

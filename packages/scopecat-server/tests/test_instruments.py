@@ -3061,3 +3061,30 @@ def _raw_session(
 ) -> InstrumentSessionHandle:
     del instrument_id
     return session.raw_session
+
+
+def test_explicit_release_disconnects_idle_connection_and_next_session_reconnects(
+    tmp_path: Path,
+) -> None:
+    provider = _TrackingProvider()
+    with (
+        _runtime(tmp_path, provider) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        lab = LabClient(_daemon_client(transport), operator="alice")
+        target = _raw_instrument("source-0")
+        with lab.instruments.open(target):
+            with pytest.raises(DaemonConflictError, match="idle devices"):
+                lab.instruments.release(target)
+            [first] = provider.drivers
+            assert first.disconnect_count == 0
+        receipt = lab.instruments.release(target)
+        assert receipt.instrument_ids == ("source-0",)
+        assert first.disconnect_count == 1
+        # An already released device remains released without creating a connection.
+        lab.instruments.release("source-0")
+        assert provider.drivers == [first]
+        with lab.instruments.open(target):
+            assert len(provider.drivers) == 2
+            assert provider.drivers[1] is not first
+            assert not provider.drivers[1].disconnected

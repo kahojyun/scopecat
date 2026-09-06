@@ -21,10 +21,13 @@ from scopecat.automation.interpretations import (
     InterpretationRequest,
     InterpretationResponse,
 )
-from scopecat.kernel.content_identity import stable_content_hash
+from scopecat.kernel.content_identity import (
+    model_wire_content_hash,
+    stable_content_hash,
+)
 from scopecat.kernel.frozen import freeze_json_mapping, thaw_json_value
 from scopecat.kernel.run_outcome import utc_now
-from scopecat.records.analysis import AnalysisSubject
+from scopecat.records.analysis import AnalysisInterpretationReference, AnalysisSubject
 from scopecat.records.config import ConfigContentHash
 from scopecat.records.content import Sha256ContentHash
 from scopecat.records.sample import SampleSelector
@@ -166,6 +169,15 @@ class InterpretationOutputRef(_ProcedureModel):
     step_key: _NonEmptyText
     request_hash: Sha256ContentHash
     response: InterpretationResponse
+
+    @property
+    def analysis_reference(self) -> AnalysisInterpretationReference:
+        return AnalysisInterpretationReference(
+            procedure_run_id=self.procedure_run_id,
+            step_key=self.step_key,
+            request_hash=self.request_hash,
+            response_hash=f"sha256:{model_wire_content_hash(self.response)}",
+        )
 
 
 type ProcedureStepOutputRef = Annotated[

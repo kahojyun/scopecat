@@ -829,9 +829,7 @@ class Dataset:
             definition.id: Variable(self, definition) for definition in schema.variables
         }
         object.__setattr__(self, "_variables", MappingProxyType(variables))
-        object.__setattr__(
-            self, "_xarray", None if raw is None else self._build_xarray()
-        )
+        object.__setattr__(self, "_xarray", None)
 
     def _materialize(self) -> MeasurementDataset:
         raw = self._raw
@@ -867,7 +865,6 @@ class Dataset:
                 }
             ),
         )
-        object.__setattr__(self, "_xarray", self._build_xarray())
         return raw
 
     @property
@@ -875,7 +872,8 @@ class Dataset:
         self._materialize()
         xarray = self._xarray
         if xarray is None:
-            raise RuntimeError("measurement dataset has no Xarray view")
+            xarray = self._build_xarray()
+            object.__setattr__(self, "_xarray", xarray)
         return xarray
 
     @property
@@ -1411,7 +1409,8 @@ class Dataset:
 
         Existing entities are reordered by complete ``(kind, id)`` identity.
         Entities absent from this dataset receive unavailable array leaves and
-        null product/evidence provenance.
+        null product/evidence provenance. Existing entity metadata is retained;
+        only absent entities use the requested description.
         """
 
         target_entities = tuple(entities)
@@ -1427,9 +1426,14 @@ class Dataset:
             entity_identity(entity): position
             for position, entity in enumerate(source_entities)
         }
-        target_index = MeasurementEntityIndex(
-            values=target_entities,
+        # Alignment changes positions, not the source's entity descriptions.
+        target_entities = tuple(
+            source_entities[source_by_identity[entity_identity(entity)]]
+            if entity_identity(entity) in source_by_identity
+            else entity
+            for entity in target_entities
         )
+        target_index = MeasurementEntityIndex(values=target_entities)
         target_to_source = tuple(
             source_by_identity.get(entity_identity(entity))
             for entity in target_entities
@@ -1632,8 +1636,13 @@ class Dataset:
             | None
         ) = None,
         group: str | None = None,
+        entities: Sequence[EntityRef] | None = None,
     ) -> tuple[Trace, ...]:
-        """Select traces by logical result, durable handle, id, or group."""
+        """Select traces by logical result, durable handle, id, or group.
+
+        ``entities`` selects (kind, id) identities in request order, preserving
+        stored metadata and acquisition evidence. Missing identities raise.
+        """
 
         reference_groups: set[str] = set()
         if observable is not None and not isinstance(observable, str):
@@ -1661,6 +1670,7 @@ class Dataset:
             selected_observable,
             coordinate=selected_coordinate,
             group=selected_group,
+            entities=entities,
         )
 
     def to_xarray(self, *, layout: XarrayLayout = "points") -> xr.Dataset:
@@ -1835,10 +1845,7 @@ class Dataset:
                         ),
                         "scopecat_entities_json": _stable_json(
                             tuple(
-                                cast(
-                                    "Sequence[object]",
-                                    dimension.index.model_dump(mode="json")["values"],
-                                )[position]
+                                dimension.index.values[position].model_dump(mode="json")
                                 for position in positions
                             )
                         ),

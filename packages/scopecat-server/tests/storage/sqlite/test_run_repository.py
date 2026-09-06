@@ -646,6 +646,25 @@ def test_equal_content_reuses_one_immutable_object(tmp_path: Path) -> None:
     assert len(_object_files(repository)) == 1
 
 
+def test_cached_measurement_chunks_follow_current_ref_and_owner(tmp_path: Path) -> None:
+    repository = _repository(tmp_path)
+    ref = "data/measurement_dataset/raw-measurements/chunks/0.arrow"
+    for run_id in ("run-a", "run-b"):
+        repository.write_snapshot(_portable_snapshot(run_id, 1))
+        repository.write_bytes(run_id, ref, run_id.encode())
+    assert repository.read_bytes("run-a", ref) == b"run-a"
+    assert repository.read_bytes("run-b", ref) == b"run-b"
+    repository.write_bytes("run-a", ref, b"replacement")
+    assert repository.read_bytes("run-a", ref) == b"replacement"
+    assert repository.read_bytes("run-b", ref) == b"run-b"
+    with sqlite3.connect(repository.database) as connection:
+        connection.execute(
+            "DELETE FROM run_repository_refs WHERE run_id = ?", ("run-a",)
+        )
+    with pytest.raises(DataIntegrityError):
+        repository.read_bytes("run-a", ref)
+
+
 def test_run_refs_follow_the_relational_owner_lifecycle(tmp_path: Path) -> None:
     repository = _repository(tmp_path)
     run_id = "run-ref-owner"

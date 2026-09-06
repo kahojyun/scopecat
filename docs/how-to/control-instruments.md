@@ -41,6 +41,23 @@ triggers hardware and returns typed readback with receipt evidence. The session
 owns synchronization and the same exclusive claim used by experiment runs; it
 does not create a one-point experiment.
 
+Closing a session ends ownership and applies its configured finish policy, while
+keeping the connection available for subsequent work. To hand a configured device
+to another program after all runs and sessions have ended, disconnect it explicitly:
+
+```python
+with sc.open_project(".").connect(operator="alice") as lab:
+    lab.instruments.release(READOUT_VNA)  # Configured id strings also work.
+```
+
+Release rejects devices reserved by unfinished runs or sessions. It leaves the
+daemon running, discards the connection and its cached state, and reconnects on
+the next session or experiment. Release applies to the whole physical instrument,
+including when given a component reference. It does not reserve the device for
+another program: pause new submissions until that program has finished. Release
+itself does not apply new hardware settings; the preceding run or session's finish
+policy determines the final state.
+
 When one inventory entry owns several implementations of the same interface,
 select the physical mount on the live reference:
 

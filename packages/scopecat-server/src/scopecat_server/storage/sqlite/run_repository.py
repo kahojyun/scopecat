@@ -877,6 +877,8 @@ class SQLiteRunRepository:
 
     def _read_object(self, digest: str, *, run_id: str, ref: str) -> bytes:
         try:
+            if ref.startswith("data/measurement_dataset/") and "/chunks/" in ref:
+                return self.objects.read_cached(digest)
             return self.objects.read(digest)
         except (ObjectNotFoundError, ObjectCorruptError) as error:
             raise _invalid_ref(run_id, ref) from error

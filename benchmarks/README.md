@@ -81,6 +81,16 @@ part of the acceptance contract.
 | `full` | 64q, 10 points, 100,000 samples | intended parallel width | before release |
 | `endurance` | 64q, 100 points, 10,000 samples | bounded long-scan working set | weekly or before release |
 
+The `scan-execution` synthetic topology also supports explicit widths up to 128
+qubits. The `results` profile prepares the same expanded hardware state as the
+waveform profile before collecting retained shots. The named scale-suite profiles
+above remain unchanged; a 128-qubit diagnostic is not a new release acceptance
+profile.
+Synthetic readout tones share one DAC pair; their per-tone amplitude is capped at
+`min(0.05, 0.8 / qubit_count)` so expanding the result width does not exceed the
+target's unchanged amplitude limit. This is a benchmark fixture, not a readout
+calibration recommendation.
+
 Acceptance mode runs once without warmup and exits unsuccessfully when a
 correctness or resource invariant fails:
 

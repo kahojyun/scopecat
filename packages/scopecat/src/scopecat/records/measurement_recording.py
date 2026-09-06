@@ -371,16 +371,59 @@ def _rectangular_array_content_identity(
 def _rectangular_array_sha256(
     value: MeasurementArray | MeasurementPartitionedArray,
 ) -> str:
+    availability = value.availability
+    valid = None if availability is None else availability.valid
+    string_width: int | None = None
+    # Arrow nulls also discard Unicode padding determined by masked fillers.
+    if value.dtype == "string" and valid is not None:
+        arrays = (value,) if isinstance(value, MeasurementArray) else value.partitions
+        string_width = max(
+            (
+                len(str(item))
+                for array in arrays
+                for item in (
+                    array.values.ravel()
+                    if array.availability is None
+                    else array.values[array.availability.valid]
+                )
+            ),
+            default=1,
+        )
+        string_width = max(1, string_width)
     if isinstance(value, MeasurementArray):
-        return hashlib.sha256(memoryview(value.values).cast("B")).hexdigest()
+        return hashlib.sha256(
+            _canonical_array_bytes(value.values, valid, string_width)
+        ).hexdigest()
     digest = hashlib.sha256()
     prefix_shape = value.shape[: value.axis]
     prefixes = np.ndindex(prefix_shape) if prefix_shape else ((),)
     for prefix in prefixes:
+        offset = 0
         for partition in value.partitions:
             selected = cast("NDArray[np.generic]", partition.values[prefix])
-            digest.update(memoryview(selected).cast("B"))
+            size = partition.shape[value.axis]
+            mask = (
+                None
+                if valid is None
+                else valid[(*prefix, slice(offset, offset + size))]
+            )
+            digest.update(_canonical_array_bytes(selected, mask, string_width))
+            offset += size
     return digest.hexdigest()
+
+
+def _canonical_array_bytes(
+    values: NDArray[np.generic],
+    valid: NDArray[np.bool_] | None,
+    string_width: int | None = None,
+) -> memoryview:
+    """Hash Arrow's decoded fill values without mutating acquisition buffers."""
+    if valid is not None and not bool(np.all(valid)):
+        values = values.copy()
+        values[~valid] = "" if values.dtype.kind == "U" else 0
+    if string_width is not None:
+        values = values.astype(f"U{string_width}")
+    return memoryview(values).cast("B")
 
 
 __all__ = [

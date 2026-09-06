@@ -9,12 +9,14 @@ import numpy as np
 import pytest
 
 from scopecat.kernel.entity import EntityRef
+from scopecat.measurements.dataset import Dataset
 from scopecat.measurements.results import validate_measurement_records_against_schema
 from scopecat.measurements.traces import (
     TraceValueMode,
     measurement_traces,
     project_measurement_trace_preview,
 )
+from scopecat.records.content import ContentEntry
 from scopecat.records.measurement import (
     EntityAcquisitionEvidence,
     InstrumentAcquisitionEvidence,
@@ -1014,3 +1016,138 @@ def _trace_evidence(result_id: str) -> InstrumentAcquisitionEvidence:
         started_at=started_at,
         completed_at=started_at + timedelta(milliseconds=2),
     )
+
+
+@pytest.mark.parametrize("segmented", [False, True])
+def test_identity_selection_preserves_evidence_and_persisted_metadata(
+    segmented: bool,
+) -> None:
+    dataset = _entity_trace_dataset(segmented=segmented)
+    selected = project_measurement_trace_preview(
+        dataset,
+        "response",
+        entities=(
+            EntityRef(id="q1", kind="qubit"),
+            EntityRef(id="q0", kind="qubit", metadata={"label": "caller"}),
+        ),
+        max_series=2,
+        max_samples=8,
+    )
+    positional = project_measurement_trace_preview(
+        dataset,
+        "response",
+        entity_indices=(1, 0),
+        max_series=2,
+        max_samples=8,
+    )
+    assert selected == positional
+    assert selected.series[0].entity is not None
+    assert selected.series[0].entity.metadata["label"] == "Q0"
+    assert selected.failures[0].entity_index == 1
+
+
+@pytest.mark.parametrize(
+    "entities,indices,message",
+    [
+        ((EntityRef(id="absent", kind="qubit"),), None, "unknown"),
+        ((EntityRef(id="q0", kind="resonator"),), None, "unknown"),
+        (
+            (
+                EntityRef(id="q0", kind="qubit"),
+                EntityRef(id="q0", kind="qubit", metadata={"label": "other"}),
+            ),
+            None,
+            "unique",
+        ),
+        ((EntityRef(id="q0", kind="qubit"),), (0,), "either"),
+        ((), None, "empty"),
+    ],
+)
+def test_identity_selection_rejects_invalid_requests(
+    entities: tuple[EntityRef, ...], indices: tuple[int, ...] | None, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        project_measurement_trace_preview(
+            _entity_trace_dataset(segmented=False),
+            "response",
+            entities=entities,
+            entity_indices=indices,
+        )
+
+
+def test_identity_selection_distinguishes_kinds_with_same_id() -> None:
+    dataset = _entity_trace_dataset(segmented=False)
+    schema = dataset.dataset_schema
+    axis = schema.dimensions[1]
+    entities = (
+        EntityRef(id="shared", kind="qubit"),
+        EntityRef(id="shared", kind="resonator"),
+    )
+    axis = axis.model_copy(update={"index": MeasurementEntityIndex(values=entities)})
+    schema = schema.model_copy(
+        update={"dimensions": (schema.dimensions[0], axis, schema.dimensions[2])}
+    )
+    dataset = MeasurementDataset(dataset_schema=schema, records=dataset.records)
+    projection = project_measurement_trace_preview(
+        dataset, "response", entities=(entities[1],)
+    )
+    assert projection.selected_entity_count == 1
+    assert projection.failures[0].entity == entities[1]
+    assert projection.failures[0].entity_index == 1
+
+
+def test_identity_selection_requires_entity_axis() -> None:
+    with pytest.raises(ValueError, match="require an entity trace axis"):
+        measurement_traces(_trace_dataset(), entities=(EntityRef(id="q0"),))
+
+
+def test_identity_selection_in_full_trace_view_uses_persisted_entity() -> None:
+    traces = measurement_traces(
+        _entity_trace_dataset(segmented=False),
+        "response",
+        entities=(EntityRef(id="q0", kind="qubit"),),
+    )
+    assert len(traces) == 1
+    assert traces[0].entity == EntityRef(
+        id="q0", kind="qubit", metadata={"label": "Q0"}
+    )
+    assert traces[0].evidence is not None
+    assert traces[0].evidence.result_id == "q0-response"
+
+
+def test_author_dataset_traces_selects_entity_identities_and_keeps_provenance() -> None:
+    raw = _entity_trace_dataset(segmented=False)
+    raw = _replace_dataset(
+        raw,
+        records=(
+            _replace_record_values(
+                raw.records[0],
+                observables={
+                    "response": MeasurementArray.create(
+                        values=np.asarray(((1.0, 2.0, 3.0), (4.0, 5.0, 6.0)))
+                    )
+                },
+            ),
+        ),
+    )
+    dataset = Dataset(
+        raw,
+        ContentEntry(
+            role="dataset",
+            id="traces",
+            kind="measurement_dataset",
+            content_hash="unused",
+            schema=raw.dataset_schema.model_dump(mode="json"),
+        ),
+    )
+    requested = (EntityRef(id="q1", kind="qubit"), EntityRef(id="q0", kind="qubit"))
+    actual = dataset.traces(entities=requested)
+    expected = measurement_traces(raw, entities=requested)
+    assert len(actual) == len(expected)
+    for trace, reference in zip(actual, expected, strict=True):
+        assert trace.entity == reference.entity
+        assert trace.evidence == reference.evidence
+        np.testing.assert_array_equal(trace.y, reference.y)
+    assert [trace.entity.id for trace in actual[:2] if trace.entity] == ["q1", "q0"]
+    with pytest.raises(ValueError, match="unknown trace entity identities"):
+        dataset.traces(entities=(EntityRef(id="missing", kind="qubit"),))

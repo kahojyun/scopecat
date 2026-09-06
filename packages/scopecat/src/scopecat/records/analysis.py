@@ -756,6 +756,20 @@ class MeasurementAnalysisRecordInput(_AnalysisRecordInput):
     run_id: _NonEmptyText
 
 
+class AnalysisInterpretationReference(_AnalysisContentModel):
+    """Exact durable judgment identity; values remain in the procedure journal."""
+
+    procedure_run_id: _NonEmptyText
+    step_key: _NonEmptyText
+    request_hash: Sha256ContentHash
+    response_hash: Sha256ContentHash
+
+
+class InterpretationAnalysisRecordInput(_AnalysisRecordInput):
+    kind: Literal["interpretation"] = "interpretation"
+    source: AnalysisInterpretationReference
+
+
 class PublishedAnalysisRecordInput(_AnalysisRecordInput):
     """One exact dataset, fact, or artifact output from an analysis revision."""
 
@@ -764,7 +778,9 @@ class PublishedAnalysisRecordInput(_AnalysisRecordInput):
 
 
 type AnalysisRecordInput = Annotated[
-    MeasurementAnalysisRecordInput | PublishedAnalysisRecordInput,
+    MeasurementAnalysisRecordInput
+    | PublishedAnalysisRecordInput
+    | InterpretationAnalysisRecordInput,
     Field(discriminator="kind"),
 ]
 

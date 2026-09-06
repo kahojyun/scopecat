@@ -562,7 +562,10 @@ def _bind_quantum_fragment(
                     acquisition_scope=acquisition_scope,
                 )
                 for index, branch in enumerate(fragment.branches)
-            )
+            ),
+            alignment=fragment.alignment
+            if isinstance(fragment, _QuantumParallelFragment)
+            else "start",
         )
     if isinstance(fragment, _RepeatFragment | _QuantumRepeatFragment):
         count = _bound_repeat_count(fragment.count, bindings)
@@ -677,7 +680,8 @@ def _bind_pulse_fragment(
                     path=(*path, f"parallel[{index}]"),
                 )
                 for index, branch in enumerate(fragment.branches)
-            )
+            ),
+            alignment=fragment.alignment,
         )
     if isinstance(fragment, _QuantumRepeatFragment):
         if (

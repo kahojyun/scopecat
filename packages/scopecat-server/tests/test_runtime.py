@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from base64 import b64encode
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier, Event, Thread
@@ -100,6 +102,7 @@ from scopecat.daemon.wire import (
     RunSubmission,
     TerminalRunCommitCommand,
 )
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.errors import StorageError
 from scopecat.kernel.points import PointProposalAttempt
 from scopecat.kernel.problems import ProblemPhase, problem
@@ -133,14 +136,21 @@ from scopecat.records.execution import (
     RecoveryGroupCompletion,
 )
 from scopecat.records.measurement import (
+    EntityAcquisitionEvidence,
+    InstrumentAcquisitionEvidence,
+    MeasurementAcquisitionEvidenceCatalog,
     MeasurementArray,
+    MeasurementArrayAvailability,
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementEntityAcquisition,
+    MeasurementEntityIndex,
     MeasurementPointDomainAxis,
     MeasurementPointDomainValuesSource,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
+    MeasurementSegmentedArray,
     MeasurementUnavailable,
     MeasurementVariable,
     MeasurementVariableGroup,
@@ -3741,12 +3751,16 @@ def test_leased_run_cancellation_reaches_heartbeat_and_preserves_terminal_histor
 ) -> None:
     with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
         admission = runtime.application.submit_run(_submission("cancel-leased"))
+        assert not runtime.application.executor.run_cancellation(
+            admission.run_id
+        ).requested
         lease = runtime.application.executor.start_executor(
             admission.run_id,
             ExecutorStartRequest(executor_id="notebook-1"),
         )
 
         requested = runtime.application.cancel_run(admission.run_id)
+        assert runtime.application.executor.run_cancellation(admission.run_id).requested
         retry = runtime.application.cancel_run(admission.run_id)
         heartbeat = runtime.application.executor.heartbeat_executor(
             admission.run_id,
@@ -4601,10 +4615,18 @@ def test_restart_quarantines_executor_until_operator_reconciles(
             )
 
 
+@pytest.mark.parametrize(
+    "segmented,restart", [(False, False), (True, False), (True, True)]
+)
 def test_continuation_appends_measurements_in_a_new_segment_fragment(
     tmp_path: Path,
+    segmented: bool,
+    restart: bool,
 ) -> None:
-    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+    with ExitStack() as stack:
+        runtime = stack.enter_context(
+            LocalDaemonRuntime(tmp_path, bootstrap_config=_config())
+        )
         submission = _submission("measurement-fragments", point_count=2)
         admission = runtime.application.submit_run(submission)
         run_id = admission.run_id
@@ -4634,14 +4656,34 @@ def test_continuation_appends_measurements_in_a_new_segment_fragment(
                         )
                     ]
                 ),
-                dimensions=[MeasurementDimension(id="point", kind="point", size=2)],
+                dimensions=[
+                    MeasurementDimension(id="point", kind="point", size=2),
+                    *(
+                        [
+                            MeasurementDimension(
+                                id="entity",
+                                kind="entity",
+                                size=2,
+                                index=MeasurementEntityIndex(
+                                    values=(
+                                        EntityRef(id="q0", kind="qubit"),
+                                        EntityRef(id="q1", kind="qubit"),
+                                    )
+                                ),
+                            ),
+                            MeasurementDimension(id="sample", kind="sample", size=None),
+                        ]
+                        if segmented
+                        else []
+                    ),
+                ],
                 variables=[
                     MeasurementVariable(
                         id="signal",
                         role="observable",
                         dtype="float64",
                         unit="ratio",
-                        dims=["point"],
+                        dims=["point", "entity", "sample"] if segmented else ["point"],
                     )
                 ],
             ),
@@ -4650,6 +4692,57 @@ def test_continuation_appends_measurements_in_a_new_segment_fragment(
         )
 
         def record(point_index: int) -> MeasurementRecord:
+            if segmented:
+                length = 3 + point_index
+                value = MeasurementSegmentedArray.create(
+                    dtype="float64",
+                    unit="ratio",
+                    segments=(
+                        MeasurementArray.create(
+                            values=[1.0, 999.0, *range(2, length)],
+                            unit="ratio",
+                            availability=MeasurementArrayAvailability.create(
+                                valid=[True, False, *([True] * (length - 2))],
+                                reason="overload",
+                            ),
+                        ),
+                        MeasurementUnavailable.create(
+                            reason="missing",
+                            dtype="float64",
+                            unit="ratio",
+                            shape=(None,),
+                            metadata={"entity": "q1", "details": [{"attempt": 1}]},
+                        )
+                        if point_index == 0
+                        else MeasurementArray.create(values=[8.0, 9.0], unit="ratio"),
+                    ),
+                )
+                evidence = EntityAcquisitionEvidence(
+                    dimension_id="entity",
+                    acquisition=MeasurementEntityAcquisition(),
+                    values=tuple(
+                        InstrumentAcquisitionEvidence(
+                            command_id=f"read-{point_index}",
+                            instrument_id="simulator",
+                            interface_id="test.ragged/v1",
+                            acquisition_id=f"a-{point_index}",
+                            result_id=f"q{i}-p{point_index}",
+                            started_at=datetime(2026, 9, 6, tzinfo=UTC),
+                            completed_at=datetime(2026, 9, 6, tzinfo=UTC),
+                        )
+                        for i in range(2)
+                    ),
+                )
+                return MeasurementRecord(
+                    run_id=run_id,
+                    logical_point_id=f"point-{point_index}",
+                    point_index=point_index,
+                    coordinates={},
+                    observables={"signal": value},
+                    acquisition_evidence=MeasurementAcquisitionEvidenceCatalog.create(
+                        {"signal": evidence}
+                    ),
+                )
             return MeasurementRecord(
                 run_id=run_id,
                 logical_point_id=f"point-{point_index}",
@@ -4692,11 +4785,13 @@ def test_continuation_appends_measurements_in_a_new_segment_fragment(
             ),
         )
         append(first_lease, 0)
-        runtime.application.executor._control.mark_executor_unknown(
-            run_id,
-            token=first_lease.lease_id,
-            reason="executor_disconnected",
-        )
+        if restart:
+            runtime.close()
+            runtime = stack.enter_context(LocalDaemonRuntime(tmp_path))
+        else:
+            runtime.application.executor._control.mark_executor_unknown(
+                run_id, token=first_lease.lease_id, reason="executor_disconnected"
+            )
         runtime.application.resolve_attention(
             run_id,
             AttentionResolutionCommand.continue_run(
@@ -4720,6 +4815,8 @@ def test_continuation_appends_measurements_in_a_new_segment_fragment(
         )
         assert live.received_record_count == 1
         assert live.durable_record_count == 1
+        with pytest.raises(BackendConflict):
+            append(first_lease, 1)
         append(second_lease, 1)
         first_append = MeasurementDatasetAppend(
             run_id=run_id,
@@ -4785,7 +4882,226 @@ def test_continuation_appends_measurements_in_a_new_segment_fragment(
         table, _, _ = runtime.application.runs.measurement_arrow(
             run_id,
             MeasurementArrowQuery(
+                columns=(MeasurementArrowColumn(name="signal", variable_id="signal"),),
+                diagnostics="full",
+            ),
+        )
+        assert table.column("point_index").to_pylist() == [0, 1]
+        if not segmented:
+            assert table.column("signal").to_pylist() == [1.0, 2.0]
+        else:
+            assert table.column("signal").to_pylist() == [
+                [[1.0, None, 2.0], None],
+                [[1.0, None, 2.0, 3.0], [8.0, 9.0]],
+            ]
+            diagnostics = json.loads(
+                table.column("signal__unavailable_metadata")[0].as_py()
+            )
+            assert diagnostics["segments"] == [
+                {
+                    "index": 1,
+                    "reason": "missing",
+                    "metadata": {"entity": "q1", "details": [{"attempt": 1}]},
+                }
+            ]
+            with TestClient(runtime.app()) as client:
+                response = client.post(
+                    f"/api/v1/runs/{run_id}/measurements/traces/query",
+                    json={
+                        "observable_id": "signal",
+                        "entities": [
+                            {"id": "q1", "kind": "qubit"},
+                            {"id": "q0", "kind": "qubit"},
+                        ],
+                        "max_series": 4,
+                        "max_samples": 32,
+                    },
+                )
+                assert response.status_code == 200
+                preview = response.json()
+                assert [
+                    item["evidence"]["result_id"] for item in preview["series"]
+                ] == ["q0-p0", "q1-p1", "q0-p1"]
+                assert [item["y"] for item in preview["series"]] == [
+                    [1.0, 2.0],
+                    [8.0, 9.0],
+                    [1.0, 2.0, 3.0],
+                ]
+                [failure] = preview["failures"]
+                assert failure["evidence"]["result_id"] == "q1-p0"
+                assert failure["reasons"] == ["missing"]
+
+
+@pytest.mark.parametrize("durable", [False, True])
+def test_measurement_acknowledgment_loss_and_replay_boundaries(
+    tmp_path: Path, durable: bool
+) -> None:
+    with ExitStack() as stack:
+        runtime = stack.enter_context(
+            LocalDaemonRuntime(tmp_path, bootstrap_config=_config())
+        )
+        submission = _submission("ack-boundary", point_count=2)
+        run_id = runtime.application.submit_run(submission).run_id
+        executor = runtime.application.executor
+        lease = executor.start_executor(
+            run_id, ExecutorStartRequest(executor_id="before")
+        )
+        header = MeasurementDatasetHeader(
+            run_id=run_id,
+            recording_contract_fingerprint="ack-boundary.v1",
+            expected_record_count=2,
+            record_count_limit=2,
+            dataset_schema=MeasurementDatasetSchema(
+                dataset_id="raw-measurements",
+                point_domain=MeasurementProductGridPointDomain(
+                    axes=(
+                        MeasurementPointDomainAxis(
+                            id="point",
+                            size=2,
+                            source=MeasurementPointDomainValuesSource(
+                                values=tuple(
+                                    MeasurementScalar.create(dtype="int64", value=i)
+                                    for i in range(2)
+                                )
+                            ),
+                        ),
+                    )
+                ),
+                dimensions=(MeasurementDimension(id="point", kind="point", size=2),),
+                variables=(
+                    MeasurementVariable(
+                        id="signal", role="observable", dtype="float64", dims=("point",)
+                    ),
+                ),
+            ),
+        )
+        executor.initialize_measurements(
+            run_id, MeasurementHeaderCommand(lease_id=lease.lease_id, header=header)
+        )
+
+        def content(index: int) -> bytes:
+            append = MeasurementDatasetAppend(
+                run_id=run_id,
+                header_content_hash=header.content_hash,
+                acquisition_start=index,
+                records=(
+                    MeasurementRecord(
+                        run_id=run_id,
+                        point_index=index,
+                        logical_point_id=f"point-{index}",
+                        coordinates={},
+                        observables={
+                            "signal": MeasurementScalar.create(
+                                dtype="float64", value=index + 1
+                            )
+                        },
+                    ),
+                ),
+            )
+            return encode_measurement_append(append, header.dataset_schema)
+
+        first = content(0)
+        receipt = executor.ingest_measurements(
+            run_id, lease_id=lease.lease_id, content=first
+        )
+        assert receipt.received_record_count == 1
+        assert receipt.durable_record_count == 0
+        # Simulate a lost acknowledgment by retransmitting exactly the same bytes.
+        with pytest.raises(BackendConflict, match="acquisition-log"):
+            executor.ingest_measurements(run_id, lease_id=lease.lease_id, content=first)
+        if durable:
+            flushed = executor.flush_measurements(
+                run_id, MeasurementFlushCommand(lease_id=lease.lease_id)
+            )
+            assert flushed.durable_record_count == 1
+            retried = executor.flush_measurements(
+                run_id, MeasurementFlushCommand(lease_id=lease.lease_id)
+            )
+            assert retried.durable_record_count == 1
+            assert retried.durable_receipts == ()
+            with pytest.raises(BackendConflict, match="acquisition-log"):
+                executor.ingest_measurements(
+                    run_id, lease_id=lease.lease_id, content=first
+                )
+        assert executor.run_coverage(run_id).completed_point_count == 0
+        runtime.close()
+        runtime = stack.enter_context(LocalDaemonRuntime(tmp_path))
+        runtime.application.resolve_attention(
+            run_id,
+            AttentionResolutionCommand.continue_run(
+                run_contract_fingerprint=submission.intent_content_hash
+            ),
+        )
+        executor = runtime.application.executor
+        resumed = executor.start_executor(
+            run_id, ExecutorStartRequest(executor_id="after")
+        )
+        executor.initialize_measurements(
+            run_id, MeasurementHeaderCommand(lease_id=resumed.lease_id, header=header)
+        )
+        preview = runtime.application.runs.measurement_live_preview(
+            run_id, after_record_count=None
+        )
+        assert preview.received_record_count == int(durable)
+        assert preview.durable_record_count == int(durable)
+        assert executor.run_coverage(run_id).completed_point_count == 0
+        with pytest.raises(BackendConflict):
+            executor.ingest_measurements(run_id, lease_id=lease.lease_id, content=first)
+        if durable:
+            with pytest.raises(BackendConflict, match="acquisition-log"):
+                executor.ingest_measurements(
+                    run_id, lease_id=resumed.lease_id, content=first
+                )
+        else:
+            replayed = executor.ingest_measurements(
+                run_id, lease_id=resumed.lease_id, content=first
+            )
+            assert replayed.received_record_count == 1
+        executor.ingest_measurements(
+            run_id, lease_id=resumed.lease_id, content=content(1)
+        )
+        final = executor.flush_measurements(
+            run_id, MeasurementFlushCommand(lease_id=resumed.lease_id)
+        )
+        assert final.durable_record_count == 2
+        assert executor.run_coverage(run_id).completed_point_count == 0
+        coverage = executor.advance_run_coverage(
+            run_id,
+            RunCoverageAdvanceCommand(
+                lease_id=resumed.lease_id, start_index=0, point_count=2
+            ),
+        )
+        assert coverage.completed_point_count == 2
+        hashes = tuple(
+            decode_measurement_append(
+                content(i), header.dataset_schema
+            ).record_content_hashes[0]
+            for i in range(2)
+        )
+        sealed = executor.seal_measurements(
+            run_id,
+            MeasurementSealCommand(
+                lease_id=resumed.lease_id,
+                seal=MeasurementDatasetSeal(
+                    run_id=run_id,
+                    header_content_hash=header.content_hash,
+                    record_count=2,
+                    fragment_record_count=2 - int(durable),
+                    fragment_content_hash=measurement_fragment_content_hash(
+                        header_content_hash=header.content_hash,
+                        record_content_hashes=hashes[int(durable) :],
+                    ),
+                ),
+            ),
+        )
+        assert sealed.dataset_content_hash == measurement_dataset_content_hash(
+            header_content_hash=header.content_hash, record_content_hashes=hashes
+        )
+        table, _, _ = runtime.application.runs.measurement_arrow(
+            run_id,
+            MeasurementArrowQuery(
                 columns=(MeasurementArrowColumn(name="signal", variable_id="signal"),)
             ),
         )
+        assert table.column("point_index").to_pylist() == [0, 1]
         assert table.column("signal").to_pylist() == [1.0, 2.0]

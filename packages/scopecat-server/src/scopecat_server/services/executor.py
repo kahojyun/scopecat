@@ -34,6 +34,7 @@ from scopecat.daemon.wire import (
     MeasurementIngestReceipt,
     MeasurementSealCommand,
     RunCancellationReceipt,
+    RunCancellationState,
     RunCoverageAdvanceCommand,
     RunCoverageState,
     RunDomainJobStatePage,
@@ -312,6 +313,13 @@ class ExecutorService:
                 command,
                 completed_point_count=completed,
             )
+
+    def run_cancellation(self, run_id: str) -> RunCancellationState:
+        current = self._control.get_run(run_id)
+        return RunCancellationState(
+            run_id=run_id,
+            requested=current.cancellation_requested_at is not None,
+        )
 
     def cancel_run(self, run_id: str) -> RunCancellationReceipt:
         """Cancel queued work now or request a leased executor checkpoint stop."""

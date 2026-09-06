@@ -472,13 +472,17 @@ class RunEffectInterpreter:
             frame_for=self._point_state,
         )
         if succeeded:
+            # Host writes can destroy opaque target-owned program memory. A
+            # reconciled property value is not proof that such memory survived.
+            # Keep residency on unrelated instruments; domain-owned requirements
+            # remain part of the target's own setup contract.
             self._domain_residency.invalidate_instruments(
                 {
                     effect.operation.instrument_id
                     for effect in hardware
                     if isinstance(
                         effect.operation,
-                        InvokeOperation | CollectOperation,
+                        ApplyStateOperation | InvokeOperation | CollectOperation,
                     )
                 }
             )

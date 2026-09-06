@@ -10,10 +10,12 @@ from threading import Barrier
 from typing import cast
 
 import httpx2
+import numpy as np
 import pyarrow as pa
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from scopecat.analysis.datasets import DerivedDataset, derived_dataset
 from scopecat.analysis.facts import AnalysisFactSchema
 from scopecat.api.analysis import Analysis, AnalysisContext, analysis_step
 from scopecat.api.lab import LabClient
@@ -85,8 +87,10 @@ from scopecat.daemon.wire import (
     TerminalRunCommitCommand,
 )
 from scopecat.execution.evidence import build_terminal_contents
+from scopecat.kernel.entity import EntityRef
 from scopecat.kernel.quantity import Quantity
 from scopecat.kernel.run_outcome import RunOutcome
+from scopecat.measurements.dataset import Dataset
 from scopecat.measurements.recording_arrow import (
     encode_measurement_append,
 )
@@ -103,8 +107,10 @@ from scopecat.records.config import (
     ConfigProfileSnapshot,
 )
 from scopecat.records.measurement import (
+    MeasurementArray,
     MeasurementDatasetSchema,
     MeasurementDimension,
+    MeasurementEntityIndex,
     MeasurementProductGridPointDomain,
     MeasurementRecord,
     MeasurementScalar,
@@ -217,7 +223,8 @@ def _complete_signal_run(
     runtime: LocalDaemonRuntime,
     *,
     submission_id: str,
-    signal: float,
+    signal: float | tuple[float, ...],
+    entities: tuple[EntityRef, ...] | None = None,
     submission: RunSubmission | None = None,
 ) -> str:
     admission = runtime.application.submit_run(submission or _submission(submission_id))
@@ -232,14 +239,28 @@ def _complete_signal_run(
         dataset_schema=MeasurementDatasetSchema(
             dataset_id="raw-measurements",
             point_domain=MeasurementProductGridPointDomain(axes=[]),
-            dimensions=[MeasurementDimension(id="point", kind="point", size=1)],
+            dimensions=[
+                MeasurementDimension(id="point", kind="point", size=1),
+                *(
+                    [
+                        MeasurementDimension(
+                            id="entity",
+                            kind="entity",
+                            size=len(entities),
+                            index=MeasurementEntityIndex(values=entities),
+                        )
+                    ]
+                    if entities is not None
+                    else []
+                ),
+            ],
             variables=[
                 MeasurementVariable(
                     id="signal",
                     role="observable",
                     dtype="float64",
                     unit="ratio",
-                    dims=["point"],
+                    dims=["point"] if entities is None else ["point", "entity"],
                 )
             ],
         ),
@@ -254,8 +275,12 @@ def _complete_signal_run(
         observables={
             "signal": MeasurementScalar.create(
                 dtype="float64",
-                value=signal,
+                value=cast("float", signal),
                 unit="ratio",
+            )
+            if entities is None
+            else MeasurementArray.create(
+                values=np.asarray(signal, dtype=np.float64), unit="ratio"
             )
         },
     )
@@ -2108,3 +2133,82 @@ def test_calibration_merge_cas_and_final_anchor_failures_roll_back(
             ).finalization.state
             == "published"
         )
+
+
+def _compare_entity_runs(baseline: Dataset, candidate: Dataset) -> DerivedDataset:
+    left, right = baseline.align_entities(candidate, "entity", join="outer")
+    index = left.schema.dimensions[1].index
+    assert index is not None
+    before = np.ma.asarray(left["signal"].values[0])
+    after = np.ma.asarray(right["signal"].values[0])
+    return derived_dataset(
+        pa.table(
+            {
+                "entity": [entity.id for entity in index.values],
+                "baseline": before.tolist(),
+                "candidate": after.tolist(),
+                "delta": (after - before).tolist(),
+            }
+        )
+    )
+
+
+def test_cross_run_entity_comparison_freezes_sources_and_survives_restart(
+    tmp_path: Path,
+) -> None:
+    with LocalDaemonRuntime(tmp_path, bootstrap_config=_config()) as runtime:
+        baseline_id = _complete_signal_run(
+            runtime,
+            submission_id="entity-baseline",
+            signal=(1.0, 2.0, 3.0),
+            entities=tuple(EntityRef(id=q, kind="qubit") for q in ("q0", "q1", "q2")),
+        )
+        candidate_id = _complete_signal_run(
+            runtime,
+            submission_id="entity-candidate",
+            signal=(30.0, 10.0, 40.0),
+            entities=tuple(EntityRef(id=q, kind="qubit") for q in ("q2", "q0", "q3")),
+        )
+        with TestClient(runtime.app()) as transport:
+            lab = LabClient(_daemon_client(transport))
+            context = lab.analysis("Entity comparison", key="entity-comparison")
+            baseline = context.measurements(
+                lab.get_run(baseline_id), id="baseline", role="baseline"
+            )
+            candidate = context.measurements(
+                lab.get_run(candidate_id), id="candidate", role="candidate"
+            )
+            with pytest.raises(ValueError, match="already bound"):
+                context.measurements(lab.get_run(candidate_id), id="baseline")
+            with pytest.raises(ValueError, match="ordered identities differ"):
+                baseline.align_entities(candidate, "entity")
+            comparison = context.trace(
+                fn=_compare_entity_runs, baseline=baseline, candidate=candidate
+            )
+            published = context.result().dataset("comparison", comparison).save()
+            expected = {
+                "entity": ["q0", "q1", "q2", "q3"],
+                "baseline": [1.0, 2.0, 3.0, None],
+                "candidate": [10.0, None, 30.0, 40.0],
+                "delta": [9.0, None, 27.0, None],
+            }
+            assert published.dataset("comparison").table.to_pydict() == expected
+            inputs = [item.model_dump(mode="json") for item in published.inputs]
+            assert {item["run_id"] for item in inputs} == {baseline_id, candidate_id}
+            assert {item["content_hash"] for item in inputs} == {
+                baseline.entry.content_hash,
+                candidate.entry.content_hash,
+            }
+            assert {
+                binding.target for binding in published.executions[0].input_bindings
+            } == {"baseline", "candidate"}
+            publication_id = published.id
+    with (
+        LocalDaemonRuntime(tmp_path) as runtime,
+        TestClient(runtime.app()) as transport,
+    ):
+        restored = LabClient(_daemon_client(transport)).published_analysis(
+            publication_id
+        )
+        assert restored.dataset("comparison").table.to_pydict() == expected
+        assert [item.model_dump(mode="json") for item in restored.inputs] == inputs

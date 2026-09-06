@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal, NoReturn
 
@@ -50,6 +50,7 @@ from scopecat.records.analysis import (
     AnalysisFigureRecordOutput,
     AnalysisFigureView,
     AnalysisFigureViewSpec,
+    AnalysisInterpretationReference,
     AnalysisParameterProposalRecordOutput,
     AnalysisParameterProposalReference,
     AnalysisPublishedOutputReference,
@@ -60,6 +61,7 @@ from scopecat.records.analysis import (
     AnalysisTableRecordOutput,
     AnalysisTableView,
     AnalysisTableViewSpec,
+    InterpretationAnalysisRecordInput,
     MeasurementAnalysisRecordInput,
     ProjectAnalysisSubject,
     PublishedAnalysisRecordInput,
@@ -110,7 +112,24 @@ class PublishedAnalysisOutputInput:
     metadata: Mapping[str, object] | None = None
 
 
-type AnalysisInput = MeasurementAnalysisInput | PublishedAnalysisOutputInput
+@dataclass(frozen=True)
+class InterpretationAnalysisInput:
+    id: str
+    target: str
+    kind: Literal["interpretation"]
+    content_hash: str
+    codec: str
+    role: str
+    source: AnalysisInterpretationReference
+    title: str | None = None
+    metadata: Mapping[str, object] | None = None
+
+
+type AnalysisInput = (
+    MeasurementAnalysisInput
+    | PublishedAnalysisOutputInput
+    | InterpretationAnalysisInput
+)
 
 
 @dataclass(frozen=True)
@@ -404,6 +423,8 @@ def prepare_project_analysis(
     executions: Sequence[AnalysisExecution],
     outputs: Sequence[AnalysisOutput],
     subject: ProjectAnalysisSubject | SampleAnalysisSubject = _PROJECT_ANALYSIS_SUBJECT,
+    validate_interpretation: Callable[[AnalysisInterpretationReference], None]
+    | None = None,
 ) -> PreparedProjectAnalysis:
     """Prepare one immutable publication over explicit project inputs."""
 
@@ -423,6 +444,30 @@ def prepare_project_analysis(
     _validate_analysis_input_ids(inputs)
     analysis_views = _prepare_analysis_views(outputs)
     _validate_analysis_execution_outputs(executions, outputs)
+    for index, item in enumerate(inputs):
+        if isinstance(item, InterpretationAnalysisInput):
+            if (
+                not isinstance(subject, ProjectAnalysisSubject)
+                or validate_interpretation is None
+            ):
+                _raise_analysis_problem(
+                    "analysis_interpretation_unsupported",
+                    "interpretation inputs require a project procedure authority",
+                    "inputs",
+                    index,
+                )
+            if (
+                item.target != item.source.step_key
+                or item.content_hash != item.source.response_hash
+                or item.codec != "scopecat.interpretation-response.v1"
+            ):
+                _raise_analysis_problem(
+                    "analysis_input_content_mismatch",
+                    "interpretation input identity does not match its source",
+                    "inputs",
+                    index,
+                )
+            validate_interpretation(item.source)
     _validate_project_analysis_inputs(
         services=services,
         repository=repository,
@@ -584,6 +629,8 @@ def _validate_project_analysis_inputs(
 ) -> None:
     storage = services.runs
     for index, input_ref in enumerate(inputs):
+        if isinstance(input_ref, InterpretationAnalysisInput):
+            continue
         if isinstance(input_ref, MeasurementAnalysisInput):
             snapshot = storage.read_snapshot(input_ref.run_id)
             _require_completed_project_input_run(snapshot.status, index=index)
@@ -774,6 +821,13 @@ def _validate_analysis_inputs(
 ) -> None:
     storage = services.runs
     for index, input_ref in enumerate(inputs):
+        if isinstance(input_ref, InterpretationAnalysisInput):
+            _raise_analysis_problem(
+                "analysis_interpretation_unsupported",
+                "interpretation inputs require project analysis",
+                "inputs",
+                index,
+            )
         if isinstance(input_ref, MeasurementAnalysisInput):
             if input_ref.run_id != run_id:
                 _raise_analysis_problem(
@@ -1047,6 +1101,19 @@ def _analysis_record_inputs(
                     role=input_ref.role,
                     title=input_ref.title,
                     metadata=validated_metadata,
+                )
+            )
+        elif isinstance(input_ref, InterpretationAnalysisInput):
+            record_inputs.append(
+                InterpretationAnalysisRecordInput(
+                    id=input_ref.id,
+                    target=input_ref.target,
+                    content_hash=input_ref.content_hash,
+                    codec=input_ref.codec,
+                    role=input_ref.role,
+                    title=input_ref.title,
+                    metadata=validated_metadata,
+                    source=input_ref.source,
                 )
             )
         else:

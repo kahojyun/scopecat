@@ -1595,6 +1595,16 @@ export interface components {
             /** Truncated */
             truncated: boolean;
         };
+        /**
+         * AnalysisInterpretationReference
+         * @description Exact durable judgment identity; values remain in the procedure journal.
+         */
+        AnalysisInterpretationReference: {
+            procedure_run_id: components["schemas"]["_NonEmptyText"];
+            request_hash: components["schemas"]["Sha256ContentHash"];
+            response_hash: components["schemas"]["Sha256ContentHash"];
+            step_key: components["schemas"]["_NonEmptyText"];
+        };
         /** AnalysisParameterProposalRecordOutput */
         AnalysisParameterProposalRecordOutput: {
             content: components["schemas"]["AnalysisParameterProposalReference"];
@@ -1653,7 +1663,7 @@ export interface components {
             subject: components["schemas"]["AnalysisSubject"];
             title: components["schemas"]["_NonEmptyText"];
         };
-        AnalysisRecordInput: components["schemas"]["MeasurementAnalysisRecordInput"] | components["schemas"]["PublishedAnalysisRecordInput"];
+        AnalysisRecordInput: components["schemas"]["MeasurementAnalysisRecordInput"] | components["schemas"]["PublishedAnalysisRecordInput"] | components["schemas"]["InterpretationAnalysisRecordInput"];
         AnalysisRecordOutput: components["schemas"]["AnalysisFactRecordOutput"] | components["schemas"]["AnalysisDatasetRecordOutput"] | components["schemas"]["AnalysisArtifactRecordOutput"] | components["schemas"]["AnalysisTableRecordOutput"] | components["schemas"]["AnalysisFigureRecordOutput"] | components["schemas"]["AnalysisParameterProposalRecordOutput"];
         AnalysisSubject: components["schemas"]["RunAnalysisSubject"] | components["schemas"]["ProjectAnalysisSubject"] | components["schemas"]["SampleAnalysisSubject"];
         /**
@@ -3419,6 +3429,23 @@ export interface components {
         };
         /** @enum {string} */
         InterpretationActorKind: "human" | "ai" | "service";
+        /** InterpretationAnalysisRecordInput */
+        InterpretationAnalysisRecordInput: {
+            codec: components["schemas"]["_NonEmptyText"];
+            content_hash: components["schemas"]["_NonEmptyText"];
+            id: components["schemas"]["_NonEmptyText"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "interpretation";
+            metadata?: components["schemas"]["JsonMetadata"] | null;
+            role: components["schemas"]["_NonEmptyText"];
+            source: components["schemas"]["AnalysisInterpretationReference"];
+            target: components["schemas"]["_NonEmptyText"];
+            /** Title */
+            title?: string | null;
+        };
         /**
          * InterpretationOutputRef
          * @description Exact typed judgment supplied for one durable interpretation step.
@@ -4127,6 +4154,8 @@ export interface components {
             coordinate_id?: string | null;
             /** @default minmax */
             downsampling: components["schemas"]["TraceDownsampling"];
+            /** Entities */
+            entities?: components["schemas"]["EntityRef-Input"][] | null;
             /** Entity Indices */
             entity_indices?: number[] | null;
             /** Fixed Axis Indices */

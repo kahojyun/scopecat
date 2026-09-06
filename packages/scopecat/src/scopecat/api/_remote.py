@@ -22,6 +22,7 @@ from scopecat.analysis.service import (
     AnalysisOutput,
     AnalysisParameterProposalOutput,
     AnalysisTableOutput,
+    InterpretationAnalysisInput,
     MeasurementAnalysisInput,
     SavedAnalysis,
 )
@@ -43,6 +44,7 @@ from scopecat.daemon.wire import (
     AnalysisParameterProposalOutputPayload,
     AnalysisSaveCommand,
     AnalysisTableOutputPayload,
+    InterpretationAnalysisInputPayload,
     MeasurementAnalysisInputPayload,
     PublishedAnalysisInputPayload,
     RunAttachmentCommand,
@@ -346,6 +348,17 @@ def analysis_input_payload(value: AnalysisInput) -> AnalysisInputPayload:
             role=value.role,
             title=value.title,
             metadata=metadata,
+        )
+    if isinstance(value, InterpretationAnalysisInput):
+        return InterpretationAnalysisInputPayload(
+            id=value.id,
+            target=value.target,
+            content_hash=value.content_hash,
+            codec=value.codec,
+            role=value.role,
+            title=value.title,
+            metadata=metadata,
+            source=value.source,
         )
     return PublishedAnalysisInputPayload(
         id=value.id,

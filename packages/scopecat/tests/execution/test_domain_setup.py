@@ -1301,7 +1301,13 @@ def test_domain_instrument_batches_stop_at_the_next_cancellation_boundary() -> N
     assert [batch.operation_id for batch in inner.batches] == ["first"]
 
 
-def test_interruption_between_domain_batches_restarts_the_unpublished_group() -> None:
+@pytest.mark.parametrize(
+    ("group_size", "batch_size", "stop_after"),
+    [(2, 1, 1), (9, 1, 4), (9, 4, 2), (9, 8, 1)],
+)
+def test_interruption_between_domain_batches_restarts_the_unpublished_group(
+    group_size: int, batch_size: int, stop_after: int
+) -> None:
     @dataclass(frozen=True, slots=True)
     class ResultContract:
         contract_fingerprint: str = "group-recovery-result-contract"
@@ -1396,7 +1402,7 @@ def test_interruption_between_domain_batches_restarts_the_unpublished_group() ->
         state_requirements=(),
         realtime_write_footprint=(),
         realtime_state_invalidations=(),
-        next_batch_max_points=1,
+        next_batch_max_points=batch_size,
         invocation=cast("ErasedDomainInvocation", invocation),
         setup=None,
         job_runtime=cast("ErasedDomainJobRuntime", runtime),
@@ -1404,12 +1410,19 @@ def test_interruption_between_domain_batches_restarts_the_unpublished_group() ->
     )
     domain_id = PointDomainId("group-recovery", "root")
     points = tuple(
-        AcceptedRunPoint(LogicalPointId(domain_id, ordinal), {}) for ordinal in range(2)
+        AcceptedRunPoint(LogicalPointId(domain_id, ordinal), {})
+        for ordinal in range(group_size)
+    )
+    batches = tuple(
+        tuple(range(start, min(start + batch_size, group_size)))
+        for start in range(0, group_size, batch_size)
     )
     operations = (
-        RunDomainJob("group-batch-0", (0,), prepared),
-        RunDomainJob("group-batch-1", (1,), prepared),
-        RunCoverageCheckpoint("comparison", (0, 1)),
+        *(
+            RunDomainJob(f"group-batch-{n}", points, prepared)
+            for n, points in enumerate(batches)
+        ),
+        RunCoverageCheckpoint("comparison", tuple(range(group_size))),
     )
     committed: list[tuple[int, ...]] = []
 
@@ -1418,7 +1431,7 @@ def test_interruption_between_domain_batches_restarts_the_unpublished_group() ->
         coordinate_ids=(),
         instruments=TestRunInstrumentHost(),
         domain_job_transitions=TransitionWriter(),
-        cancellation_requested=lambda: runtime.calls == 1,
+        cancellation_requested=lambda: runtime.calls == stop_after,
         coverage_observer=(
             lambda _group, selected, _candidates, _values: committed.append(
                 tuple(point.ordinal for point in selected)
@@ -1427,7 +1440,7 @@ def test_interruption_between_domain_batches_restarts_the_unpublished_group() ->
     ).run(operations, points=points)
 
     assert interrupted.cancelled
-    assert runtime.calls == 1
+    assert runtime.calls == stop_after
     assert committed == []
 
     resumed = RunEffectInterpreter(
@@ -1443,8 +1456,8 @@ def test_interruption_between_domain_batches_restarts_the_unpublished_group() ->
     ).run(operations, points=points)
 
     assert not resumed.problems
-    assert runtime.calls == 3
-    assert committed == [(0, 1)]
+    assert runtime.calls == stop_after + len(batches)
+    assert committed == [tuple(range(group_size))]
 
 
 def test_domain_batches_contribute_bounded_state_action_evidence() -> None:

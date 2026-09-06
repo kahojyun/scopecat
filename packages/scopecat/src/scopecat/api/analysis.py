@@ -42,11 +42,13 @@ from scopecat.analysis.service import (
     AnalysisOutput,
     AnalysisParameterProposalOutput,
     AnalysisTableOutput,
+    InterpretationAnalysisInput,
     MeasurementAnalysisInput,
     PublishedAnalysisOutputInput,
     SavedAnalysis,
 )
 from scopecat.api.published_analysis import PublishedAnalysis, PublishedAnalysisArtifact
+from scopecat.automation.models import InterpretationOutputRef
 from scopecat.config.changes import (
     parameter_change_proposal_from_updates,
 )
@@ -807,6 +809,37 @@ class AnalysisContext:
         self._record_input_value(value, target=input_id)
         return value
 
+    def interpretation[ValueT](
+        self,
+        ref: InterpretationOutputRef,
+        *,
+        schema: AnalysisFactSchema[ValueT],
+        id: str | None = None,
+        title: str | None = None,
+    ) -> ValueT:
+        """Consume a typed judgment and retain its exact procedure provenance.
+
+        The daemon verifies the request and complete response at publication.
+        Actor labels are provenance, not authentication.
+        """
+        value = schema.decode(ref.response.value)
+        source = ref.analysis_reference
+        input_id = artifact_slug(id or ref.step_key, fallback="interpretation")
+        self._retain_input(
+            InterpretationAnalysisInput(
+                id=input_id,
+                target=source.step_key,
+                kind="interpretation",
+                content_hash=source.response_hash,
+                codec="scopecat.interpretation-response.v1",
+                role="decision",
+                title=title,
+                source=source,
+            )
+        )
+        self._record_input_value(value, target=input_id)
+        return value
+
     def analysis_artifact(
         self,
         analysis: str | PublishedAnalysis,
@@ -1126,7 +1159,7 @@ def _analysis_execution_input(
         return AnalysisExecutionInput(
             name=name,
             kind="measurement_dataset",
-            target=dataset.entry.id,
+            target=execution_target or dataset.entry.id,
             content_hash=dataset.entry.content_hash,
             codec=MEASUREMENT_DATASET_CODEC,
         )

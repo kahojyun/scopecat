@@ -161,7 +161,7 @@ _SINGLE_QUBIT_PROFILES: tuple[ProfileName, ...] = (
     "drag_beta_integrated_iq",
     "fixed_program_host_lo_sweep",
 )
-_MAX_SYNTHETIC_QUBITS = 64
+_MAX_SYNTHETIC_QUBITS = 128
 _SYNTHETIC_QUBITS_PER_AWG = 16
 _DEPLOYED_PROJECT_FIXTURE = (
     Path(__file__).parents[1] / "fixtures" / "deployed_scale_project"
@@ -1662,6 +1662,10 @@ def _multiqubit_result_program(
         sc.Quantity,
         sc.ScalarType(sc.QuantityType(unit="rad")),
     ],
+    readout_amplitude: Annotated[
+        sc.Quantity,
+        sc.ScalarType(sc.QuantityType(unit="arb")),
+    ],
 ) -> q.QuantumFragment:
     def branch(qubit: q.Qubit) -> q.QuantumFragment:
         return q.parallel(
@@ -1677,7 +1681,7 @@ def _multiqubit_result_program(
                 q.readout(qubit),
                 q.constant(
                     duration=duration,
-                    amplitude=sc.Quantity(0.05, "arb"),
+                    amplitude=readout_amplitude,
                 ),
             ),
             q.acquire(
@@ -1700,6 +1704,9 @@ def _multiqubit_result_call(
         targets=q.select_qubits(qubit_count),
         duration=duration,
         phase=phase,
+        # All synthetic readout tones share one DAC pair. Bound their coherent
+        # sum without relaxing the target's physical amplitude checks.
+        readout_amplitude=sc.Quantity(min(0.05, 0.8 / qubit_count), "arb"),
     )
 
 
@@ -1720,7 +1727,10 @@ def _select_multiqubit_results(
     call: q.QuantumProgramCall,
     scenario: ScanScenario,
 ) -> None:
-    prepare_quantum_hardware(experiment)
+    if scenario.qubit_count > _configured_qubit_count(bootstrap_config()):
+        _prepare_scaled_quantum_hardware(experiment, qubit_count=scenario.qubit_count)
+    else:
+        prepare_quantum_hardware(experiment)
     results = experiment.use(
         call.with_shots(scenario.shots).with_compiler_inputs(qubits=QUBITS.ref)
     )
@@ -1861,6 +1871,21 @@ def _capture_scaled_quantum_program(
     *,
     qubit_count: int,
 ) -> BinaryIqProbabilityProducts:
+    _prepare_scaled_quantum_hardware(experiment, qubit_count=qubit_count)
+    results = experiment.use(call.with_compiler_inputs(qubits=QUBITS.ref))
+    return binary_iq_probabilities(
+        experiment,
+        results.iq_shots,
+        discriminator=BINARY_IQ_DISCRIMINATOR,
+    )
+
+
+def _prepare_scaled_quantum_hardware(
+    experiment: sc.ExperimentContext,
+    *,
+    qubit_count: int,
+) -> None:
+    """Prepare the same expanded hardware for waveform and retained-shot scans."""
     qubits = tuple(
         EntityRef(id=f"q{index}", kind="logical_qubit") for index in range(qubit_count)
     )
@@ -1920,12 +1945,6 @@ def _capture_scaled_quantum_program(
         power=READOUT_LO[LO_POWER].ref,
         output_enabled=True,
         reference_source="external",
-    )
-    results = experiment.use(call.with_compiler_inputs(qubits=QUBITS.ref))
-    return binary_iq_probabilities(
-        experiment,
-        results.iq_shots,
-        discriminator=BINARY_IQ_DISCRIMINATOR,
     )
 
 
